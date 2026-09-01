@@ -1,0 +1,32 @@
+# 环境变量（含密钥，绝不提交）
+.env
+.env.local
+backend/.env
+frontend/.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+.venv/
+venv/
+
+# Node
+node_modules/
+dist/
+frontend/node_modules/
+frontend/dist/
+
+# 数据库（运行时生成）
+backend/data/
+*.db
+*.sqlite3
+
+# 日志
+*.log
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
