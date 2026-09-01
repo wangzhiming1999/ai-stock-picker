@@ -112,6 +112,34 @@ docker compose up -d --build
 - 开启 `ENABLE_RATE_LIMIT=true`
 - 通过 HTTPS 反向代理（Nginx/Caddy）对外提供服务
 
+## Vercel 部署
+
+本项目已适配 Vercel Serverless，前后端分离部署：
+
+### 后端（`backend/` 目录）
+
+```bash
+cd backend
+vercel --prod
+```
+
+- 入口：`api/index.py`（ASGI），`vercel.json` 配置 `maxDuration: 60`
+- CORS：Vercel 环境自动放行 `*.vercel.app` 域名，无需额外配置
+- SQLite：Serverless 文件系统只读，数据库落到 `/tmp`（冷启动后历史记录丢失，后续接入 Supabase 持久化）
+
+### 前端（`frontend/` 目录）
+
+```bash
+cd frontend
+vercel --prod
+```
+
+- `vercel.json` 将 `/api/*` rewrites 代理到后端，前端使用相对路径，避免跨域
+- 如前后端分离部署且不用代理，可在项目设置环境变量 `VITE_API_BASE` 指向后端域名
+- 部署后在后端项目配置 `DEEPSEEK_API_KEY` 环境变量即可启用 LLM 深度分析
+
+> 注意：Windows PowerShell 下用 `vercel env add` 传值时可能带入 BOM 字符，建议在 Vercel 控制台页面配置环境变量。
+
 ## 说明
 
 - 数据来自 akshare（腾讯/新浪行情，东方财富新闻），可能受接口稳定性影响
