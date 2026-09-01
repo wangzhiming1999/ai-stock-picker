@@ -1,6 +1,18 @@
+import os
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings
+
+
+def _default_db_path() -> str:
+    """Serverless 环境（Vercel/Railway 等）文件系统多为只读，数据库落到 /tmp。
+
+    注意：/tmp 不持久化，冷启动后历史记录会丢失。
+    需要持久化时请接入 Supabase/Postgres，或直接配置 DATABASE_PATH 到可写卷。
+    """
+    if os.getenv("VERCEL") or os.getenv("_HANDLER"):
+        return "/tmp/app.db"
+    return "data/app.db"
 
 
 class Settings(BaseSettings):
@@ -21,7 +33,7 @@ class Settings(BaseSettings):
     # 是否开启接口限流
     enable_rate_limit: bool = False
     # SQLite 数据库路径
-    database_path: str = "data/app.db"
+    database_path: str = _default_db_path()
 
     class Config:
         env_file = ".env"

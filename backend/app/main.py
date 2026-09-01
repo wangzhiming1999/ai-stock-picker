@@ -1,3 +1,4 @@
+import os
 import time
 from collections import defaultdict
 from contextlib import asynccontextmanager
@@ -45,25 +46,24 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# ---------- CORS：生产环境可配置白名单 ----------
+# ---------- CORS ----------
+# 优先级：ALLOWED_ORIGINS 白名单 > Vercel 环境自动放行 *.vercel.app > 本地开发全放行
+_cors_kwargs = {
+    "allow_credentials": True,
+    "allow_methods": ["*"],
+    "allow_headers": ["*"],
+}
+
 if settings.allowed_origins:
-    origins = [o.strip() for o in settings.allowed_origins.split(",") if o.strip()]
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    _cors_kwargs["allow_origins"] = [o.strip() for o in settings.allowed_origins.split(",") if o.strip()]
+elif os.getenv("VERCEL"):
+    # 部署在 Vercel 但未显式配置白名单时，放行所有 Vercel 部署域名（含预览环境）
+    _cors_kwargs["allow_origin_regex"] = r"https://[a-zA-Z0-9-]+\.vercel\.app"
 else:
-    # 开发环境：允许所有（生产请配置 ALLOWED_ORIGINS）
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    # 本地开发
+    _cors_kwargs["allow_origins"] = ["*"]
+
+app.add_middleware(CORSMiddleware, **_cors_kwargs)
 
 
 # ---------- 限流中间件 ----------

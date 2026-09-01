@@ -1,15 +1,22 @@
 import type { AnalysisBatch, AnalysisBatchDetail, Industry, NewsItem, ScanStock, StockInfo, SSEEvent } from "../types";
 
-const BASE = "/api";
+// 后端地址解析：
+// 1. 生产环境默认使用相对路径 /api，由 Vercel rewrites 代理转发到后端（推荐，避免跨域）
+// 2. 也可通过 VITE_API_BASE 指向独立后端域名（会清理 BOM/空白/尾部斜杠）
+const BASE = (import.meta.env.VITE_API_BASE as string | undefined)
+  ?.replace(/^\uFEFF/, "")   // 清理 PowerShell 管道可能带入的 BOM
+  .trim()
+  .replace(/\/$/, "") ?? "";
+const API = `${BASE}/api`;
 
 export async function fetchStock(code: string): Promise<StockInfo> {
-  const res = await fetch(`${BASE}/stock/${code}`);
+  const res = await fetch(`${API}/stock/${code}`);
   if (!res.ok) throw new Error(`获取股票失败: ${res.status}`);
   return res.json();
 }
 
 export async function fetchNews(code: string): Promise<NewsItem[]> {
-  const res = await fetch(`${BASE}/stock/${code}/news`);
+  const res = await fetch(`${API}/stock/${code}/news`);
   if (!res.ok) throw new Error(`获取新闻失败: ${res.status}`);
   return res.json();
 }
@@ -17,19 +24,19 @@ export async function fetchNews(code: string): Promise<NewsItem[]> {
 // ---------- 市场筛选 ----------
 
 export async function fetchIndustries(): Promise<Industry[]> {
-  const res = await fetch(`${BASE}/market/industries`);
+  const res = await fetch(`${API}/market/industries`);
   if (!res.ok) throw new Error(`获取行业板块失败: ${res.status}`);
   return res.json();
 }
 
 export async function fetchIndustryStocks(label: string): Promise<StockInfo[]> {
-  const res = await fetch(`${BASE}/market/industries/${label}/stocks`);
+  const res = await fetch(`${API}/market/industries/${label}/stocks`);
   if (!res.ok) throw new Error(`获取板块成分失败: ${res.status}`);
   return res.json();
 }
 
 export async function scanMarket(params: Record<string, number>): Promise<ScanStock[]> {
-  const res = await fetch(`${BASE}/market/scan`, {
+  const res = await fetch(`${API}/market/scan`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(params),
@@ -41,13 +48,13 @@ export async function scanMarket(params: Record<string, number>): Promise<ScanSt
 // ---------- 历史记录 ----------
 
 export async function fetchBatches(limit = 20): Promise<AnalysisBatch[]> {
-  const res = await fetch(`${BASE}/history/batches?limit=${limit}`);
+  const res = await fetch(`${API}/history/batches?limit=${limit}`);
   if (!res.ok) throw new Error(`获取历史失败: ${res.status}`);
   return res.json();
 }
 
 export async function fetchBatchDetail(batchId: number): Promise<AnalysisBatchDetail> {
-  const res = await fetch(`${BASE}/history/batches/${batchId}`);
+  const res = await fetch(`${API}/history/batches/${batchId}`);
   if (!res.ok) throw new Error(`获取历史详情失败: ${res.status}`);
   return res.json();
 }
@@ -61,7 +68,7 @@ export async function streamAnalysis(
   onEvent: (event: SSEEvent) => void,
   signal?: AbortSignal
 ): Promise<void> {
-  const res = await fetch(`${BASE}/analysis/stocks`, {
+  const res = await fetch(`${API}/analysis/stocks`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ codes }),
