@@ -21,32 +21,32 @@ def is_configured() -> bool:
     return bool(s.supabase_url and s.supabase_service_key)
 
 
-def get_service_client():
+async def get_service_client():
     """后端管理客户端（service_role key，绕过 RLS）。"""
     global _service_client
     if _service_client is None:
         from supabase import create_async_client
 
         s = get_settings()
-        _service_client = create_async_client(s.supabase_url, s.supabase_service_key)
+        _service_client = await create_async_client(s.supabase_url, s.supabase_service_key)
     return _service_client
 
 
-def get_public_client():
+async def get_public_client():
     """公共客户端（anon key，用于 Auth 操作，遵循 RLS）。"""
     global _client
     if _client is None:
         from supabase import create_async_client
 
         s = get_settings()
-        _client = create_async_client(s.supabase_url, s.supabase_anon_key)
+        _client = await create_async_client(s.supabase_url, s.supabase_anon_key)
     return _client
 
 
 # ---------- Auth ----------
 
 async def sign_up(email: str, password: str) -> dict:
-    client = get_public_client()
+    client = await get_public_client()
     res = await client.auth.sign_up({"email": email, "password": password})
     user = getattr(res, "user", None)
     session = getattr(res, "session", None)
@@ -57,7 +57,7 @@ async def sign_up(email: str, password: str) -> dict:
 
 
 async def sign_in(email: str, password: str) -> dict:
-    client = get_public_client()
+    client = await get_public_client()
     res = await client.auth.sign_in_with_password({"email": email, "password": password})
     return {"user": res.user, "session": res.session}
 
@@ -65,7 +65,8 @@ async def sign_in(email: str, password: str) -> dict:
 async def get_user_by_token(token: str) -> dict | None:
     """通过 JWT 获取用户信息（用于接口鉴权）。"""
     try:
-        res = await get_public_client().auth.get_user(token)
+        client = await get_public_client()
+        res = await client.auth.get_user(token)
         return res.user
     except Exception as e:
         logger.debug("token 校验失败: %s", e)
@@ -76,7 +77,7 @@ async def get_user_by_token(token: str) -> dict | None:
 
 async def save_batch(user_id: str | None, codes: list[str], mode: str, results: list[dict]) -> int:
     """保存一批分析结果，返回 batch_id。"""
-    sb = get_service_client()
+    sb = await get_service_client()
     avg = round(sum(r["overall_score"] for r in results) / len(results), 2) if results else None
     batch_res = (
         await sb.table("analysis_batches")
@@ -114,7 +115,7 @@ async def save_batch(user_id: str | None, codes: list[str], mode: str, results: 
 
 async def list_batches(user_id: str | None, limit: int = 20) -> list[dict]:
     """列出最近的分析批次（只查当前用户的）。"""
-    sb = get_service_client()
+    sb = await get_service_client()
     query = sb.table("analysis_batches").select("*").order("created_at", desc=True).limit(limit)
     if user_id:
         query = query.eq("user_id", user_id)
@@ -124,7 +125,7 @@ async def list_batches(user_id: str | None, limit: int = 20) -> list[dict]:
 
 async def get_batch(batch_id: int, user_id: str | None) -> dict | None:
     """查询批次及全部结果（校验归属）。"""
-    sb = get_service_client()
+    sb = await get_service_client()
     q = sb.table("analysis_batches").select("*").eq("id", batch_id)
     if user_id:
         q = q.eq("user_id", user_id)
