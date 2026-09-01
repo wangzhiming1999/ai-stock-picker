@@ -1,4 +1,15 @@
-import type { AnalysisBatch, AnalysisBatchDetail, Industry, NewsItem, ScanStock, StockInfo, SSEEvent } from "../types";
+import type {
+  AnalysisBatch,
+  AnalysisBatchDetail,
+  Industry,
+  MarketPrediction,
+  NewsItem,
+  ScanStock,
+  StockInfo,
+  StrategyName,
+  StrategyStock,
+  SSEEvent,
+} from "../types";
 
 // 后端地址解析：
 // 1. 生产环境默认使用相对路径 /api，由 Vercel rewrites 代理转发到后端（推荐，避免跨域）
@@ -56,6 +67,22 @@ export async function scanMarket(params: Record<string, number>): Promise<ScanSt
     body: JSON.stringify(params),
   });
   if (!res.ok) throw new Error(`扫描失败: ${res.status}`);
+  return res.json();
+}
+
+export async function strategyScan(strategy: StrategyName, limit = 20, minAmountYi = 3): Promise<StrategyStock[]> {
+  const res = await fetch(`${API}/market/strategy-scan`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ strategy, limit, min_amount_yi: minAmountYi }),
+  });
+  if (!res.ok) throw new Error(`策略扫描失败: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchPrediction(): Promise<MarketPrediction> {
+  const res = await fetch(`${API}/market/prediction`);
+  if (!res.ok) throw new Error(`大盘推衍失败: ${res.status}`);
   return res.json();
 }
 

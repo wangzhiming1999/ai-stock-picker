@@ -36,6 +36,24 @@ export interface ScoreDimension {
   comment: string;
 }
 
+export interface TradeSignal {
+  price: number;
+  support: number;
+  resistance: number;
+  buy_point: number;
+  sell_point: number;
+  stop_loss: number;
+  rr_ratio: number;
+  strength: number;
+  bb_upper?: number;
+  bb_lower?: number;
+  ma5?: number;
+  ma20?: number;
+  ma60?: number;
+  low60?: number;
+  high60?: number;
+}
+
 export interface StockAnalysis {
   code: string;
   name: string;
@@ -44,6 +62,8 @@ export interface StockAnalysis {
   dimensions: ScoreDimension[];
   risks: string[];
   suggestions: string[];
+  signal?: TradeSignal;
+  holding_advice?: string;
 }
 
 export type SSEEventType =
@@ -89,6 +109,53 @@ export interface ScanStock {
 
 export interface ScanResult extends StockQuote {
   amount_yi?: number;
+}
+
+export interface StrategyStock {
+  code: string;
+  name: string;
+  price: number;
+  change_pct: number;
+  pe?: number;
+  pb?: number;
+  turnover?: number;
+  market_cap_yi?: number;
+  strategy_score: number;
+  tags: string[];
+  indicators?: Record<string, number>;
+}
+
+export type StrategyName = "momentum" | "trend" | "value" | "volume";
+
+export interface StrategyDef {
+  name: StrategyName;
+  label: string;
+  desc: string;
+}
+
+export interface MarketPrediction {
+  index: string;
+  date: string;
+  source: "llm" | "rule";
+  summary: {
+    direction: string;
+    direction_score: number;
+    expected_range?: { low: number; high: number };
+    probability?: string;
+    key_levels?: Record<string, number | undefined>;
+    summary: string;
+    drivers?: string[];
+    trading_advice?: string;
+  };
+  technical: {
+    price: number;
+    day_change: number;
+    vol_ratio: number;
+    ret5: number;
+    ret20: number;
+    position_60d: number;
+    signal?: TradeSignal;
+  };
 }
 
 // ---------- 历史记录 ----------

@@ -1,10 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchIndustries, scanMarket } from "../api/client";
-import type { Industry, ScanStock } from "../types";
+import { fetchIndustries, scanMarket, strategyScan } from "../api/client";
+import PredictionCard from "./PredictionCard";
+import type { Industry, ScanStock, StrategyDef, StrategyName, StrategyStock } from "../types";
 
 interface Props {
   onPick: (codes: string[]) => void;
 }
+
+const STRATEGIES: StrategyDef[] = [
+  { name: "momentum", label: "动量", desc: "站上MA5 + MACD多头 + RSI健康" },
+  { name: "trend", label: "趋势", desc: "均线多头排列，顺势上行" },
+  { name: "value", label: "低估值", desc: "PE/PB 合理，交投健康" },
+  { name: "volume", label: "放量", desc: "量能活跃，温和上涨" },
+];
 
 export default function MarketPanel({ onPick }: Props) {
   const [industries, setIndustries] = useState<Industry[]>([]);
@@ -18,6 +26,12 @@ export default function MarketPanel({ onPick }: Props) {
   const [maxPrice, setMaxPrice] = useState("500");
   const [limit, setLimit] = useState("50");
   const [err, setErr] = useState("");
+
+  // 策略选股状态
+  const [strategy, setStrategy] = useState<StrategyName>("momentum");
+  const [strategyRunning, setStrategyRunning] = useState(false);
+  const [strategyResult, setStrategyResult] = useState<StrategyStock[]>([]);
+  const [strategySelected, setStrategySelected] = useState<Set<string>>(new Set());
 
   const loadIndustries = useCallback(async () => {
     setIndLoading(true);
@@ -73,8 +87,124 @@ export default function MarketPanel({ onPick }: Props) {
     onPick(Array.from(selected));
   };
 
+  const runStrategy = async (s: StrategyName) => {
+    setStrategy(s);
+    setStrategyRunning(true);
+    setErr("");
+    setStrategyResult([]);
+    setStrategySelected(new Set());
+    try {
+      const list = await strategyScan(s, 20, 3);
+      setStrategyResult(list);
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setStrategyRunning(false);
+    }
+  };
+
+  const toggleStrategy = (code: string) => {
+    setStrategySelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(code)) next.delete(code);
+      else next.add(code);
+      return next;
+    });
+  };
+
+  const pickStrategySelected = () => {
+    if (strategySelected.size === 0) return;
+    onPick(Array.from(strategySelected));
+  };
+
   return (
     <div className="space-y-5">
+      {/* 明日大盘推衍 */}
+      <PredictionCard />
+
+      {/* 策略选股 */}
+      <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-slate-200">策略选股</h3>
+          {strategyResult.length > 0 && (
+            <button
+              onClick={pickStrategySelected}
+              disabled={strategySelected.size === 0}
+              className="rounded-lg bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-500 disabled:opacity-40"
+            >
+              勾选 {strategySelected.size} 只去分析 →
+            </button>
+          )}
+        </div>
+        <div className="mb-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
+          {STRATEGIES.map((s) => (
+            <button
+              key={s.name}
+              onClick={() => void runStrategy(s.name)}
+              disabled={strategyRunning}
+              className={`rounded-lg border p-3 text-left transition-colors ${
+                strategy === s.name && strategyResult.length > 0
+                  ? "border-brand bg-brand/10"
+                  : "border-slate-700 hover:border-slate-500"
+              }`}
+            >
+              <div className="text-sm font-medium text-slate-200">{s.label}</div>
+              <div className="mt-0.5 text-xs text-slate-500">{s.desc}</div>
+            </button>
+          ))}
+        </div>
+        {strategyRunning && <div className="rounded-lg bg-slate-800/50 px-3 py-2 text-sm text-slate-400">策略扫描中（拉取行情与K线计算指标）...</div>}
+        {!strategyRunning && strategyResult.length > 0 && (
+          <div className="max-h-96 overflow-y-auto rounded-lg border border-slate-800">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-slate-900 text-left text-xs text-slate-400">
+                <tr>
+                  <th className="px-3 py-2">勾选</th>
+                  <th className="px-3 py-2">名称</th>
+                  <th className="px-3 py-2">代码</th>
+                  <th className="px-3 py-2 text-right">价格</th>
+                  <th className="px-3 py-2 text-right">涨跌幅</th>
+                  <th className="px-3 py-2">策略分</th>
+                  <th className="px-3 py-2">信号</th>
+                </tr>
+              </thead>
+              <tbody>
+                {strategyResult.map((s) => (
+                  <tr
+                    key={s.code}
+                    className={`cursor-pointer border-t border-slate-800/60 hover:bg-slate-800/40 ${
+                      strategySelected.has(s.code) ? "bg-slate-800/70" : ""
+                    }`}
+                    onClick={() => toggleStrategy(s.code)}
+                  >
+                    <td className="px-3 py-1.5">
+                      <input type="checkbox" readOnly checked={strategySelected.has(s.code)} className="accent-brand" />
+                    </td>
+                    <td className="px-3 py-1.5 text-slate-200">{s.name}</td>
+                    <td className="px-3 py-1.5 text-slate-500">{s.code}</td>
+                    <td className="px-3 py-1.5 text-right text-slate-300">{s.price.toFixed(2)}</td>
+                    <td className={`px-3 py-1.5 text-right ${s.change_pct >= 0 ? "text-green-400" : "text-red-400"}`}>
+                      {s.change_pct >= 0 ? "+" : ""}
+                      {s.change_pct.toFixed(2)}%
+                    </td>
+                    <td className="px-3 py-1.5 text-right font-semibold text-brand">{s.strategy_score.toFixed(1)}</td>
+                    <td className="px-3 py-1.5">
+                      <div className="flex flex-wrap gap-1">
+                        {s.tags.map((t, i) => (
+                          <span key={i} className="rounded bg-slate-800 px-1.5 py-0.5 text-[11px] text-slate-300">
+                            {t}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
         <h3 className="mb-3 text-sm font-semibold text-slate-200">行业板块（新浪行业）</h3>
         <div className="max-h-64 overflow-y-auto rounded-lg border border-slate-800">

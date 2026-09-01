@@ -47,6 +47,25 @@ class ScoreDimension(BaseModel):
     comment: str
 
 
+class TradeSignal(BaseModel):
+    """确定性技术信号（由历史K线计算）"""
+    price: float
+    support: float
+    resistance: float
+    buy_point: float
+    sell_point: float
+    stop_loss: float
+    rr_ratio: float
+    strength: float
+    bb_upper: float | None = None
+    bb_lower: float | None = None
+    ma5: float | None = None
+    ma20: float | None = None
+    ma60: float | None = None
+    low60: float | None = None
+    high60: float | None = None
+
+
 class StockAnalysis(BaseModel):
     """单只股票的分析结果"""
     code: str
@@ -56,6 +75,8 @@ class StockAnalysis(BaseModel):
     dimensions: list[ScoreDimension] = []
     risks: list[str] = []
     suggestions: list[str] = []
+    signal: TradeSignal | None = None
+    holding_advice: str | None = None
 
 
 class AnalysisEvent(BaseModel):

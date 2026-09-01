@@ -7,7 +7,7 @@ from fastapi.responses import StreamingResponse
 
 from app import store
 from app.models import AnalysisRequest
-from app.services import data_service, supabase_store
+from app.services import data_service, signal_service, supabase_store
 from app.services.llm_service import mock_analyze, parse_analysis, should_use_mock, stream_analyze
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
@@ -56,16 +56,29 @@ async def analyze_stocks(req: AnalysisRequest, request: Request):
         for q in quotes:
             yield _sse("stock_start", f"正在分析 {q.name}（{q.code}）...", {"code": q.code, "name": q.name})
 
-            # 2. 组装上下文（K线 + 新闻）
+            # 2. 组装上下文（K线 + 新闻 + 技术信号）
             history = await asyncio.to_thread(data_service.get_history, q.code)
             news = await asyncio.to_thread(data_service.get_news, q.code, q.name)
             context = data_service.build_stock_context(q, history, news)
+
+            signal = None
+            if history and history.closes:
+                signal = signal_service.compute_signals(history.closes, q.price)
+                if signal:
+                    context += (
+                        f"\n\n技术位（由系统计算）：支撑位 {signal['support']}，压力位 {signal['resistance']}，"
+                        f"建议买入区 {signal['buy_point']}，建议卖出区 {signal['sell_point']}，"
+                        f"止损位 {signal['stop_loss']}，风险收益比 {signal['rr_ratio']}，"
+                        f"信号强度 {signal['strength']}。请结合这些技术位给出更精确的买卖建议。"
+                    )
 
             # 3a. 本地规则评分模式
             if use_mock:
                 analysis = await asyncio.to_thread(mock_analyze, q, history, news)
                 analysis.code = q.code
                 analysis.name = q.name
+                if signal:
+                    analysis.signal = signal_service.compute_signals(history.closes, q.price)
                 results.append(analysis)
                 yield _sse(
                     "stock_done",
@@ -94,6 +107,8 @@ async def analyze_stocks(req: AnalysisRequest, request: Request):
 
             analysis.code = q.code
             analysis.name = q.name
+            if signal:
+                analysis.signal = signal_service.compute_signals(history.closes, q.price)
             results.append(analysis)
             yield _sse(
                 "stock_done",
