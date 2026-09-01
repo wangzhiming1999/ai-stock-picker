@@ -9,6 +9,20 @@ const BASE = (import.meta.env.VITE_API_BASE as string | undefined)
   .replace(/\/$/, "") ?? "";
 const API = `${BASE}/api`;
 
+/** 从 localStorage 读取登录 token（供请求鉴权） */
+export function getAuthToken(): string | null {
+  try {
+    return localStorage.getItem("ai_stock_token");
+  } catch {
+    return null;
+  }
+}
+
+function authHeaders(): Record<string, string> {
+  const token = getAuthToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 export async function fetchStock(code: string): Promise<StockInfo> {
   const res = await fetch(`${API}/stock/${code}`);
   if (!res.ok) throw new Error(`获取股票失败: ${res.status}`);
@@ -48,13 +62,13 @@ export async function scanMarket(params: Record<string, number>): Promise<ScanSt
 // ---------- 历史记录 ----------
 
 export async function fetchBatches(limit = 20): Promise<AnalysisBatch[]> {
-  const res = await fetch(`${API}/history/batches?limit=${limit}`);
+  const res = await fetch(`${API}/history/batches?limit=${limit}`, { headers: authHeaders() });
   if (!res.ok) throw new Error(`获取历史失败: ${res.status}`);
   return res.json();
 }
 
 export async function fetchBatchDetail(batchId: number): Promise<AnalysisBatchDetail> {
-  const res = await fetch(`${API}/history/batches/${batchId}`);
+  const res = await fetch(`${API}/history/batches/${batchId}`, { headers: authHeaders() });
   if (!res.ok) throw new Error(`获取历史详情失败: ${res.status}`);
   return res.json();
 }
@@ -70,7 +84,7 @@ export async function streamAnalysis(
 ): Promise<void> {
   const res = await fetch(`${API}/analysis/stocks`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify({ codes }),
     signal,
   });

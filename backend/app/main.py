@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 
 from app import store
 from app.config import get_settings
-from app.routes import analysis, history, market, stock
+from app.routes import analysis, auth, history, market, stock
 
 settings = get_settings()
 
@@ -80,11 +80,14 @@ app.include_router(stock.router)
 app.include_router(analysis.router)
 app.include_router(market.router)
 app.include_router(history.router)
+app.include_router(auth.router)
 
 
 @app.get("/api/health")
 async def health():
     from app.services.llm_service import should_use_mock
+
+    from app.services.supabase_store import is_configured as supabase_configured
 
     return {
         "status": "ok",
@@ -92,6 +95,7 @@ async def health():
         "api_configured": bool(settings.deepseek_api_key),
         "mode": "mock(本地规则)" if should_use_mock() else "llm(DeepSeek)",
         "rate_limit": settings.enable_rate_limit,
+        "supabase": supabase_configured(),
     }
 
 

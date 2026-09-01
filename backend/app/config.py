@@ -32,8 +32,13 @@ class Settings(BaseSettings):
     allowed_origins: str = ""
     # 是否开启接口限流
     enable_rate_limit: bool = False
-    # SQLite 数据库路径
+    # SQLite 数据库路径（未配置 Supabase 时使用）
     database_path: str = _default_db_path()
+
+    # Supabase 配置（配置后历史记录/登录走 Supabase）
+    supabase_url: str = ""
+    supabase_anon_key: str = ""
+    supabase_service_key: str = ""
 
     class Config:
         env_file = ".env"

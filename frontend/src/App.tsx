@@ -1,5 +1,7 @@
 import { useCallback, useRef, useState } from "react";
+import { useAuth } from "./auth/AuthContext";
 import { fetchStock, streamAnalysis } from "./api/client";
+import AuthModal from "./components/AuthModal";
 import HistoryPanel from "./components/HistoryPanel";
 import MarketPanel from "./components/MarketPanel";
 import StockCard from "./components/StockCard";
@@ -14,6 +16,8 @@ interface AnalysisItem {
 }
 
 export default function App() {
+  const { user, signOut } = useAuth();
+  const [authOpen, setAuthOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("analyze");
   const [codes, setCodes] = useState("");
   const [phase, setPhase] = useState<Phase>("idle");
@@ -144,16 +148,35 @@ export default function App() {
               <p className="text-xs text-slate-400">LLM 驱动 · A股 · 基本面/技术面/消息面综合评分</p>
             </div>
           </div>
-          <a
-            href="http://localhost:8000/api/health"
-            target="_blank"
-            rel="noreferrer"
-            className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-400 hover:border-slate-500 hover:text-slate-200"
-          >
-            后端状态
-          </a>
+          <div className="flex items-center gap-2">
+            <a
+              href="http://localhost:8000/api/health"
+              target="_blank"
+              rel="noreferrer"
+              className="hidden rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-400 hover:border-slate-500 hover:text-slate-200 sm:block"
+            >
+              后端状态
+            </a>
+            {user ? (
+              <div className="flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-1.5">
+                <span className="max-w-[160px] truncate text-xs text-slate-300">{user.email}</span>
+                <button onClick={signOut} className="text-xs text-slate-500 hover:text-slate-200">
+                  退出
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setAuthOpen(true)}
+                className="rounded-lg bg-brand px-4 py-1.5 text-xs font-medium text-white hover:bg-brand-dark"
+              >
+                登录 / 注册
+              </button>
+            )}
+          </div>
         </div>
       </header>
+
+      <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} />
 
       <main className="mx-auto max-w-6xl px-6 py-8">
         {/* Tab 导航 */}

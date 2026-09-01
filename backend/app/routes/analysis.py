@@ -2,12 +2,12 @@
 import asyncio
 import json
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from app import store
 from app.models import AnalysisRequest
-from app.services import data_service
+from app.services import data_service, supabase_store
 from app.services.llm_service import mock_analyze, parse_analysis, should_use_mock, stream_analyze
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
@@ -19,7 +19,7 @@ def _sse(event_type: str, message: str = "", payload: dict | None = None) -> str
 
 
 @router.post("/stocks")
-async def analyze_stocks(req: AnalysisRequest):
+async def analyze_stocks(req: AnalysisRequest, request: Request):
     """对一批股票逐个进行 AI 分析，SSE 流式返回进度和结果。"""
 
     async def event_generator():
@@ -27,6 +27,15 @@ async def analyze_stocks(req: AnalysisRequest):
         if not codes:
             yield _sse("error", "请输入股票代码")
             return
+
+        # 解析用户（配置了 Supabase 且带 token 时关联历史到用户）
+        user_id = None
+        if supabase_store.is_configured():
+            auth = request.headers.get("authorization", "")
+            if auth.lower().startswith("bearer "):
+                token = auth.split(" ", 1)[1].strip()
+                user = await supabase_store.get_user_by_token(token)
+                user_id = user.id if user else None
 
         yield _sse("status", f"开始获取 {len(codes)} 只股票的行情数据...")
 
@@ -95,9 +104,15 @@ async def analyze_stocks(req: AnalysisRequest):
         # 5. 保存历史记录
         if results:
             try:
-                batch_id = await asyncio.to_thread(
-                    store.save_batch, codes, "mock" if use_mock else "llm", [r.model_dump() for r in results]
-                )
+                result_dicts = [r.model_dump() for r in results]
+                if supabase_store.is_configured():
+                    batch_id = await supabase_store.save_batch(
+                        user_id, codes, "mock" if use_mock else "llm", result_dicts
+                    )
+                else:
+                    batch_id = await asyncio.to_thread(
+                        store.save_batch, codes, "mock" if use_mock else "llm", result_dicts
+                    )
                 yield _sse("batch_saved", "分析结果已保存到历史记录", {"batch_id": batch_id})
             except Exception as e:
                 yield _sse("status", f"历史保存失败（不影响结果）：{e}")
