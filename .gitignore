@@ -30,3 +30,7 @@ backend/data/
 .idea/
 .DS_Store
 Thumbs.db
+
+# 本地记忆（含账号等敏感信息，绝不提交）
+.workbuddy/
+backend/verify_names.py
