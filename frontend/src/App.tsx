@@ -14,6 +14,7 @@ import PortfolioPanel from "./components/PortfolioPanel";
 import ScanPanel from "./components/ScanPanel";
 import StockCard from "./components/StockCard";
 import StockSearchInput from "./components/StockSearchInput";
+import WatchlistPanel from "./components/WatchlistPanel";
 import { cardItem, stagger } from "./lib/motion";
 import type { StockAnalysis, StockInfo, SSEEvent } from "./types";
 
@@ -84,6 +85,13 @@ export default function App() {
       return next;
     });
   }, [tab]);
+
+  // 组件（如加自选）触发登录请求
+  useEffect(() => {
+    const handler = () => setAuthOpen(true);
+    window.addEventListener("stock:require-auth", handler);
+    return () => window.removeEventListener("stock:require-auth", handler);
+  }, []);
 
   const isTabVisible = (t: Tab) => (tab === t ? "" : "hidden");
 
@@ -439,6 +447,7 @@ export default function App() {
                 </div>
               ) : (
                 <>
+                  <WatchlistPanel onAnalyze={handleQuickPick} />
                   <PortfolioPanel />
                   <HistoryPanel refreshKey={historyRefresh} />
                 </>

@@ -19,6 +19,8 @@ import type {
   StrategyStock,
   SSEEvent,
   UserProfile,
+  WatchImportResult,
+  WatchlistData,
   WinrateStats,
 } from "../types";
 
@@ -250,6 +252,45 @@ export async function fetchClosingOpportunity(limit = 15): Promise<OpportunityRe
   const res = await fetch(`${API}/market/opportunity/closing?limit=${limit}`);
   if (!res.ok) throw new Error(`尾盘扫描失败: ${res.status}`);
   return res.json();
+}
+
+// ---------- 自选股 ----------
+
+export async function fetchWatchlist(): Promise<WatchlistData> {
+  const res = await authFetch(`${API}/watchlist`);
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(d.detail || `获取自选失败: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function addToWatchlist(code: string): Promise<void> {
+  const res = await authFetch(`${API}/watchlist`, { method: "POST", body: JSON.stringify({ code }) });
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(d.detail || `添加自选失败: ${res.status}`);
+  }
+}
+
+export async function importToWatchlist(codes: string[]): Promise<WatchImportResult> {
+  const res = await authFetch(`${API}/watchlist/import`, { method: "POST", body: JSON.stringify({ codes }) });
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(d.detail || `导入自选失败: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function checkWatchlist(codes: string[]): Promise<Record<string, boolean>> {
+  const res = await authFetch(`${API}/watchlist/check`, { method: "POST", body: JSON.stringify({ codes }) });
+  if (!res.ok) return {};
+  return res.json();
+}
+
+export async function removeFromWatchlist(id: number): Promise<void> {
+  const res = await authFetch(`${API}/watchlist/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(`删除自选失败: ${res.status}`);
 }
 
 export async function fetchDailyRecommend(refresh = false): Promise<DailyRecommendResult> {

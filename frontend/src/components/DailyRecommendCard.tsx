@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { fetchDailyRecommend } from "../api/client";
 import CollapsiblePanel from "./CollapsiblePanel";
+import WatchStar from "./WatchStar";
 import type { DailyRecommendResult } from "../types";
 
 interface Props {
@@ -101,6 +102,7 @@ export default function DailyRecommendCard({ onPick }: Props) {
                     置信 {r.confidence.toFixed(1)}
                   </span>
                   {picked.has(r.code) && <span className="text-xs text-brand">✓</span>}
+                  <WatchStar code={r.code} />
                 </div>
               </div>
               <p className="mt-1.5 text-xs leading-relaxed text-slate-400">{r.reason}</p>

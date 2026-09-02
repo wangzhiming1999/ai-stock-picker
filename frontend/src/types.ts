@@ -203,6 +203,39 @@ export interface UserProfile {
   total_capital: number;
 }
 
+export interface WatchStock {
+  id: number;
+  code: string;
+  name: string;
+  created_at: string;
+  price?: number | null;
+  change_pct?: number | null;
+  turnover?: number | null;
+  volume?: number | null;
+  pe?: number | null;
+  market_cap?: number | null;
+  offline?: boolean;
+}
+
+export interface WatchSummary {
+  total: number;
+  up: number;
+  down: number;
+  flat: number;
+  avg_change?: number | null;
+}
+
+export interface WatchlistData {
+  watchlist: WatchStock[];
+  summary?: WatchSummary | null;
+}
+
+export interface WatchImportResult {
+  added: number;
+  skipped: number;
+  errors: string[];
+}
+
 export interface Holding {
   id: number;
   user_id: string;

@@ -1,5 +1,8 @@
 import { useState } from "react";
-import { fetchAuctionOpportunity, fetchClosingOpportunity, scanMarket, strategyScan } from "../api/client";
+import { toast } from "sonner";
+import { fetchAuctionOpportunity, fetchClosingOpportunity, importToWatchlist, scanMarket, strategyScan } from "../api/client";
+import { requestAuth } from "./WatchStar";
+import { useAuth } from "../auth/AuthContext";
 import CollapsiblePanel from "./CollapsiblePanel";
 import BacktestPanel from "./BacktestPanel";
 import WinratePanel from "./WinratePanel";
@@ -17,6 +20,23 @@ const STRATEGIES: StrategyDef[] = [
 ];
 
 export default function ScanPanel({ onPick }: Props) {
+  const { user } = useAuth();
+
+  // 批量加入自选（需登录）
+  const importCodes = async (codes: string[]) => {
+    if (!user) {
+      requestAuth();
+      return;
+    }
+    if (!codes.length) return;
+    try {
+      const r = await importToWatchlist(codes);
+      toast.success(`已加入自选 ${r.added} 只${r.skipped ? `，跳过 ${r.skipped} 只` : ""}`);
+    } catch (e) {
+      toast.error("加入自选失败", { description: (e as Error).message });
+    }
+  };
+
   // 策略选股状态
   const [strategy, setStrategy] = useState<StrategyName>("momentum");
   const [strategyRunning, setStrategyRunning] = useState(false);
@@ -159,13 +179,21 @@ export default function ScanPanel({ onPick }: Props) {
         subtitle="9:15-9:30 集合竞价 · 博当日大涨（涨幅+量比筛选）"
         action={
           auctionResult?.items?.length ? (
-            <button
-              onClick={pickOpportunitySelected}
-              disabled={opportunitySelected.size === 0}
-              className="rounded-lg bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-500 disabled:opacity-40"
-            >
-              勾选 {opportunitySelected.size} 只去分析 →
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => void importCodes(auctionResult!.items.map((s) => s.code))}
+                className="rounded-lg border border-slate-600 px-3 py-1 text-xs text-slate-300 hover:border-slate-400 hover:text-white"
+              >
+                全部加自选
+              </button>
+              <button
+                onClick={pickOpportunitySelected}
+                disabled={opportunitySelected.size === 0}
+                className="rounded-lg bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-500 disabled:opacity-40"
+              >
+                勾选 {opportunitySelected.size} 只去分析 →
+              </button>
+            </div>
           ) : undefined
         }
       >
@@ -224,13 +252,21 @@ export default function ScanPanel({ onPick }: Props) {
         subtitle="14:45-15:00 尾盘 · 博次日高开（翘尾+量比+换手筛选）"
         action={
           closingResult?.items?.length ? (
-            <button
-              onClick={pickOpportunitySelected}
-              disabled={opportunitySelected.size === 0}
-              className="rounded-lg bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-500 disabled:opacity-40"
-            >
-              勾选 {opportunitySelected.size} 只去分析 →
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => void importCodes(closingResult!.items.map((s) => s.code))}
+                className="rounded-lg border border-slate-600 px-3 py-1 text-xs text-slate-300 hover:border-slate-400 hover:text-white"
+              >
+                全部加自选
+              </button>
+              <button
+                onClick={pickOpportunitySelected}
+                disabled={opportunitySelected.size === 0}
+                className="rounded-lg bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-500 disabled:opacity-40"
+              >
+                勾选 {opportunitySelected.size} 只去分析 →
+              </button>
+            </div>
           ) : undefined
         }
       >
@@ -293,13 +329,21 @@ export default function ScanPanel({ onPick }: Props) {
         subtitle="按技术形态一键扫描（动量/趋势/低估值/放量）"
         action={
           strategyResult.length > 0 ? (
-            <button
-              onClick={pickStrategySelected}
-              disabled={strategySelected.size === 0}
-              className="rounded-lg bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-500 disabled:opacity-40"
-            >
-              勾选 {strategySelected.size} 只去分析 →
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => void importCodes(strategyResult.map((s) => s.code))}
+                className="rounded-lg border border-slate-600 px-3 py-1 text-xs text-slate-300 hover:border-slate-400 hover:text-white"
+              >
+                全部加自选
+              </button>
+              <button
+                onClick={pickStrategySelected}
+                disabled={strategySelected.size === 0}
+                className="rounded-lg bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-500 disabled:opacity-40"
+              >
+                勾选 {strategySelected.size} 只去分析 →
+              </button>
+            </div>
           ) : undefined
         }
       >
@@ -413,13 +457,21 @@ export default function ScanPanel({ onPick }: Props) {
           <div className="mt-4">
             <div className="mb-2 flex items-center justify-between">
               <span className="text-sm text-slate-400">扫描结果 {scanResult.length} 只（按成交额排序）</span>
-              <button
-                onClick={pickSelected}
-                disabled={selected.size === 0}
-                className="rounded-lg bg-green-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-green-500 disabled:opacity-40"
-              >
-                勾选 {selected.size} 只去分析 →
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => void importCodes(scanResult.map((s) => s.code))}
+                  className="rounded-lg border border-slate-600 px-3 py-1 text-xs text-slate-300 hover:border-slate-400 hover:text-white"
+                >
+                  全部加自选
+                </button>
+                <button
+                  onClick={pickSelected}
+                  disabled={selected.size === 0}
+                  className="rounded-lg bg-green-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-green-500 disabled:opacity-40"
+                >
+                  勾选 {selected.size} 只去分析 →
+                </button>
+              </div>
             </div>
             <div className="max-h-96 overflow-y-auto rounded-lg border border-slate-800">
               <table className="w-full text-sm">
