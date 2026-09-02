@@ -48,6 +48,14 @@
 - [x] 移动端：底部 Tab 导航 + 响应式布局
 - [x] Tab 常驻：切 Tab 组件不卸载（隐藏切换），数据只加载一次，切换秒开
 
+### V5.6 · UI 体验升级（主流库）
+- [x] lucide-react 图标库：全站 Tab/按钮/表单图标统一
+- [x] framer-motion 动画库：Tab 指示器滑动、卡片入场、面板展开收起、弹窗过渡
+- [x] sonner 全局 Toast：分析成功/失败即时反馈
+- [x] AuthModal 升级：Radix 风格无障碍弹窗动画（layout 动画）
+- [x] 构建分包：echarts/motion/vendor 独立 chunk，首屏 JS 从 1.4MB → 119KB
+- [x] vercel.json 缓存策略：index.html no-cache 根治部署后白屏，assets 长期缓存
+
 ### 非实时数据持久化
 - [x] 明日推衍 → daily_predictions 表
 - [x] 每日推荐 → daily_recommend_snapshots + daily_recommendations

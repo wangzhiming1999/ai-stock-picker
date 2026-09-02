@@ -1,4 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import type { ComponentType, SVGProps } from "react";
+import { BarChart3, Lightbulb, LogIn, ScanSearch, TrendingUp, UserRound } from "lucide-react";
+import { motion } from "framer-motion";
+import { Toaster, toast } from "sonner";
 import { useAuth } from "./auth/AuthContext";
 import { fetchStock, streamAnalysis } from "./api/client";
 import AuthModal from "./components/AuthModal";
@@ -9,16 +13,19 @@ import PortfolioPanel from "./components/PortfolioPanel";
 import ScanPanel from "./components/ScanPanel";
 import StockCard from "./components/StockCard";
 import StockSearchInput from "./components/StockSearchInput";
+import { cardItem, stagger } from "./lib/motion";
 import type { StockAnalysis, StockInfo, SSEEvent } from "./types";
 
 type Phase = "idle" | "running" | "done" | "error";
 type Tab = "discover" | "scan" | "analyze" | "mine";
 
-const TAB_LIST: { key: Tab; label: string; icon: string; desc: string }[] = [
-  { key: "discover", label: "发现好股", icon: "💡", desc: "每日推荐 · 大盘推衍 · 板块热榜" },
-  { key: "scan", label: "选股扫描", icon: "🔍", desc: "策略扫描 · 全市场 · 胜率 · 回测" },
-  { key: "analyze", label: "深度分析", icon: "📊", desc: "AI 综合分析个股" },
-  { key: "mine", label: "我的", icon: "👤", desc: "持仓管理 · 历史记录" },
+type IconComp = ComponentType<SVGProps<SVGSVGElement>>;
+
+const TAB_LIST: { key: Tab; label: string; icon: IconComp; desc: string }[] = [
+  { key: "discover", label: "发现好股", icon: Lightbulb, desc: "每日推荐 · 大盘推衍 · 板块热榜" },
+  { key: "scan", label: "选股扫描", icon: ScanSearch, desc: "策略扫描 · 全市场 · 胜率 · 回测" },
+  { key: "analyze", label: "深度分析", icon: BarChart3, desc: "AI 综合分析个股" },
+  { key: "mine", label: "我的", icon: UserRound, desc: "持仓管理 · 历史记录" },
 ];
 
 const TAB_STORAGE_KEY = "ai:activeTab";
@@ -137,10 +144,12 @@ export default function App() {
         case "done":
           setPhase("done");
           setStatus(e.message);
+          toast.success("分析完成", { description: e.message });
           break;
         case "error":
           setPhase("error");
           setErrorMsg(e.message);
+          toast.error("分析失败", { description: e.message });
           break;
       }
     };
@@ -149,8 +158,10 @@ export default function App() {
       await Promise.all([infoTask, streamAnalysis(list, handleEvent, signal)]);
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
+        const msg = (err as Error).message || "分析失败，请检查后端服务是否启动、API Key 是否配置";
         setPhase("error");
-        setErrorMsg((err as Error).message || "分析失败，请检查后端服务是否启动、API Key 是否配置");
+        setErrorMsg(msg);
+        toast.error("分析失败", { description: msg });
       }
     }
   };
@@ -190,23 +201,30 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, phase, codes]);
 
-  const activeTab = TAB_LIST.find((t) => t.key === tab)!;
-
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
+      <Toaster theme="dark" position="top-center" richColors toastOptions={{ style: { background: "#0f172a", border: "1px solid #334155" } }} />
       {/* 顶部 */}
       <header className="sticky top-0 z-40 border-b border-slate-800/80 bg-slate-900/80 backdrop-blur">
         <div className="mx-auto max-w-6xl px-4 py-3 sm:px-6">
           <div className="flex items-center justify-between gap-3">
-            <button onClick={() => changeTab("discover")} className="flex items-center gap-3 text-left">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand text-lg font-black text-white">
-                股
-              </div>
+            <motion.button
+              onClick={() => changeTab("discover")}
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.97 }}
+              className="flex items-center gap-3 text-left"
+            >
+              <motion.div
+                whileHover={{ rotate: 8 }}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-brand to-orange-500 text-white shadow-[0_2px_10px_rgba(220,38,38,0.4)]"
+              >
+                <TrendingUp className="h-5 w-5" strokeWidth={2.4} />
+              </motion.div>
               <div className="hidden sm:block">
                 <h1 className="text-base font-bold leading-tight">AI 选股分析</h1>
                 <p className="text-[11px] text-slate-400">发现 · 扫描 · 分析 · 持仓</p>
               </div>
-            </button>
+            </motion.button>
 
             {/* 全局快捷搜索 */}
             <div className="relative flex-1 max-w-md">
@@ -215,19 +233,27 @@ export default function App() {
 
             <div className="flex shrink-0 items-center gap-2">
               {user ? (
-                <div className="flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-1.5">
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-1.5"
+                >
                   <span className="hidden max-w-[140px] truncate text-xs text-slate-300 md:inline">{user.email}</span>
-                  <button onClick={signOut} className="text-xs text-slate-500 hover:text-slate-200">
+                  <button onClick={signOut} className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-200">
+                    <LogIn className="h-3.5 w-3.5" />
                     退出
                   </button>
-                </div>
+                </motion.div>
               ) : (
-                <button
+                <motion.button
                   onClick={() => setAuthOpen(true)}
-                  className="rounded-lg bg-brand px-4 py-1.5 text-xs font-medium text-white hover:bg-brand-dark"
+                  whileHover={{ scale: 1.04 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="flex items-center gap-1.5 rounded-lg bg-brand px-4 py-1.5 text-xs font-medium text-white shadow-[0_2px_8px_rgba(220,38,38,0.3)] hover:bg-brand-dark"
                 >
+                  <LogIn className="h-3.5 w-3.5" />
                   登录
-                </button>
+                </motion.button>
               )}
             </div>
           </div>
@@ -238,35 +264,36 @@ export default function App() {
 
       <main className="mx-auto max-w-6xl px-4 pb-20 pt-4 sm:px-6 sm:pt-6">
         {/* Tab 导航（桌面横向排列 / 移动横向滚动） */}
-        <nav className="mb-5 flex gap-1 overflow-x-auto rounded-xl border border-slate-800 bg-slate-900/60 p-1 sm:grid sm:grid-cols-4 sm:overflow-visible">
-          {TAB_LIST.map((t) => (
-            <button
-              key={t.key}
-              onClick={() => changeTab(t.key)}
-              className={`flex min-w-[96px] flex-1 flex-col items-center gap-0.5 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition-colors sm:min-w-0 ${
-                tab === t.key
-                  ? "bg-brand text-white shadow"
-                  : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
-              }`}
-            >
-              <span className="flex items-center gap-1.5">
-                <span className="text-xs">{t.icon}</span>
-                {t.label}
-              </span>
-              <span className={`hidden text-[10px] font-normal lg:block ${tab === t.key ? "text-white/70" : "text-slate-500"}`}>
-                {t.desc}
-              </span>
-            </button>
-          ))}
+        <nav className="relative mb-5 grid grid-cols-4 gap-1 rounded-xl border border-slate-800 bg-slate-900/60 p-1">
+          {TAB_LIST.map((t) => {
+            const Icon = t.icon;
+            const active = tab === t.key;
+            return (
+              <button
+                key={t.key}
+                onClick={() => changeTab(t.key)}
+                className={`relative flex min-w-0 flex-col items-center gap-1 rounded-lg px-2 py-2.5 text-sm font-medium transition-colors ${
+                  active ? "text-white" : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
+                }`}
+              >
+                {active && (
+                  <motion.span
+                    layoutId="tab-pill"
+                    className="absolute inset-0 rounded-lg bg-brand shadow-[0_0_12px_rgba(220,38,38,0.35)]"
+                    transition={{ type: "spring", stiffness: 400, damping: 32 }}
+                  />
+                )}
+                <span className="relative flex items-center gap-1.5">
+                  <Icon className={`h-4 w-4 ${active ? "text-white" : ""}`} strokeWidth={2.2} />
+                  {t.label}
+                </span>
+                <span className={`relative hidden text-[10px] font-normal sm:block ${active ? "text-white/70" : "text-slate-500"}`}>
+                  {t.desc}
+                </span>
+              </button>
+            );
+          })}
         </nav>
-
-        {/* 当前 Tab 页说明条（移动端显示） */}
-        <div className="mb-4 flex items-center justify-between lg:hidden">
-          <p className="text-xs text-slate-500">
-            <span className="mr-1">{activeTab.icon}</span>
-            {activeTab.desc}
-          </p>
-        </div>
 
         <ErrorBoundary>
           {/* 深度分析：常驻 DOM，切走仅隐藏（保留结果，避免重复加载） */}
@@ -360,20 +387,27 @@ export default function App() {
                     </div>
                   ))}
                 </div>
-                <div className="grid gap-6 lg:grid-cols-2">
+                <motion.div className="grid gap-6 lg:grid-cols-2" variants={stagger} initial="hidden" animate="visible" key={items.length}>
                   {items.map((item, idx) => (
-                    <StockCard key={item.analysis.code + idx} analysis={item.analysis} info={infos[item.analysis.code]} />
+                    <motion.div key={item.analysis.code + idx} variants={cardItem}>
+                      <StockCard analysis={item.analysis} info={infos[item.analysis.code]} />
+                    </motion.div>
                   ))}
-                </div>
+                </motion.div>
               </div>
             )}
 
             {/* 空状态 */}
             {phase === "idle" && (
               <div className="mt-12 text-center">
-                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-slate-800 bg-slate-900 text-3xl">
-                  📊
-                </div>
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ duration: 0.4 }}
+                  className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-slate-800 bg-slate-900 text-3xl"
+                >
+                  <BarChart3 className="h-8 w-8 text-brand" />
+                </motion.div>
                 <p className="mt-4 text-sm text-slate-500">
                   输入 A 股代码，AI 将综合行情、K线趋势与最新新闻给出选股评分
                 </p>
@@ -401,9 +435,14 @@ export default function App() {
             <div className="space-y-5">
               {!user ? (
                 <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-8 text-center">
-                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-800 bg-slate-900 text-2xl">
-                    👤
-                  </div>
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ duration: 0.35 }}
+                    className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-800 bg-slate-900"
+                  >
+                    <UserRound className="h-7 w-7 text-brand" />
+                  </motion.div>
                   <h2 className="mt-4 text-base font-semibold text-slate-200">登录后管理你的持仓与历史记录</h2>
                   <p className="mt-1 text-sm text-slate-500">持仓数据、风险等级建议与历史分析将按账号隔离保存</p>
                   <button
@@ -428,18 +467,23 @@ export default function App() {
       {/* 移动端底部导航 */}
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-800 bg-slate-900/95 backdrop-blur sm:hidden">
         <div className="grid grid-cols-4">
-          {TAB_LIST.map((t) => (
-            <button
-              key={t.key}
-              onClick={() => changeTab(t.key)}
-              className={`flex flex-col items-center gap-0.5 py-2.5 text-[11px] font-medium transition-colors ${
-                tab === t.key ? "text-brand" : "text-slate-500"
-              }`}
-            >
-              <span className="text-base leading-none">{t.icon}</span>
-              {t.label}
-            </button>
-          ))}
+          {TAB_LIST.map((t) => {
+            const Icon = t.icon;
+            const active = tab === t.key;
+            return (
+              <motion.button
+                key={t.key}
+                onClick={() => changeTab(t.key)}
+                whileTap={{ scale: 0.92 }}
+                className={`flex flex-col items-center gap-0.5 py-2.5 text-[11px] font-medium transition-colors ${
+                  active ? "text-brand" : "text-slate-500"
+                }`}
+              >
+                <Icon className={`h-5 w-5 ${active ? "fill-brand/10" : ""}`} strokeWidth={active ? 2.4 : 2} />
+                {t.label}
+              </motion.button>
+            );
+          })}
         </div>
       </nav>
 

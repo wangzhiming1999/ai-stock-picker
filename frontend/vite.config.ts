@@ -13,4 +13,15 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ["react", "react-dom"],
+          echarts: ["echarts"],
+          motion: ["framer-motion", "lucide-react"],
+        },
+      },
+    },
+  },
 });

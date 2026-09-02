@@ -1,4 +1,5 @@
 import type { StockAnalysis, StockInfo } from "../types";
+import { motion } from "framer-motion";
 import KLineChart from "./KLineChart";
 import ScoreBar from "./ScoreBar";
 import { fmtNum, safeArray } from "../lib/safe";
@@ -16,7 +17,11 @@ export default function StockCard({ analysis, info }: Props) {
   const suggestions = safeArray<string>(analysis.suggestions);
 
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 backdrop-blur">
+    <motion.div
+      whileHover={{ y: -3 }}
+      transition={{ duration: 0.2 }}
+      className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 backdrop-blur hover:border-slate-700"
+    >
       {/* 头部 */}
       <div className="flex items-start justify-between">
         <div>
@@ -132,6 +137,6 @@ export default function StockCard({ analysis, info }: Props) {
           </ul>
         </div>
       )}
-    </div>
+    </motion.div>
   );
 }
