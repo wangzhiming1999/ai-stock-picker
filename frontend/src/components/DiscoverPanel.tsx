@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { fetchIndustries } from "../api/client";
 import CollapsiblePanel from "./CollapsiblePanel";
+import DailyBriefing from "./DailyBriefing";
 import DailyRecommendCard from "./DailyRecommendCard";
 import PredictionCard from "./PredictionCard";
 import type { Industry } from "../types";
@@ -32,6 +33,8 @@ export default function DiscoverPanel({ onPick }: Props) {
 
   return (
     <div className="space-y-5">
+      <DailyBriefing onPick={onPick} />
+
       <DailyRecommendCard onPick={onPick} />
 
       <PredictionCard />

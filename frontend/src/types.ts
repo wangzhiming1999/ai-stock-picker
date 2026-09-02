@@ -396,3 +396,70 @@ export interface AnalysisBatch {
 export interface AnalysisBatchDetail extends AnalysisBatch {
   results: StockAnalysis[];
 }
+
+// ---------- 今日作战简报（V6 体验重构） ----------
+
+/** 早盘关注的一只票（含技术信号与建议仓位） */
+export interface BriefingStock {
+  code: string;
+  name: string;
+  price?: number;
+  change_pct?: number;
+  reason: string;
+  confidence?: number;
+  buy_point?: number | null;
+  stop_loss?: number | null;
+  sell_point?: number | null;
+  strength?: number | null;
+  rr_ratio?: number | null;
+  suggest_amount?: number | null;
+  suggest_shares?: number | null;
+  risk_level?: string;
+}
+
+/** 尾盘持仓操作项 */
+export interface BriefingHolding {
+  code: string;
+  name: string;
+  price?: number;
+  cost_price?: number;
+  pnl_pct?: number;
+  position_pct?: number;
+  strength?: number;
+  rr_ratio?: number;
+  support?: number | null;
+  resistance?: number | null;
+  stop_loss?: number | null;
+  action: string;
+  tips: string[];
+}
+
+export interface Briefing {
+  session: string;
+  is_trading_day: boolean;
+  target_date?: string;
+  /** morning | tail | closed —— 当前时段首屏主卡 */
+  phase: "morning" | "tail" | "closed";
+  generated_at: string;
+  market: {
+    index?: string;
+    direction: string;
+    direction_score: number;
+    position_pct: number;
+    position_suggestion: string;
+    summary?: string;
+    trading_advice?: string;
+    key_levels?: Record<string, number | undefined>;
+  };
+  morning: {
+    stocks: BriefingStock[];
+    source?: string;
+    candidates?: number;
+  };
+  tail: {
+    holdings: BriefingHolding[];
+    summary?: string | null;
+    need_login: boolean;
+    risk_level?: string;
+  };
+}

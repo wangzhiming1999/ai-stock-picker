@@ -1,6 +1,7 @@
 import type {
   AnalysisBatch,
   AnalysisBatchDetail,
+  Briefing,
   BacktestResult,
   DailyRecommendResult,
   Holding,
@@ -246,6 +247,12 @@ export async function fetchPortfolioAdvice(): Promise<PortfolioAdvice> {
 export async function fetchIndexHistory(days = 120): Promise<IndexHistory> {
   const res = await fetch(`${API}/market/prediction/index-history?days=${days}`);
   if (!res.ok) throw new Error(`获取大盘走势失败: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchBriefing(): Promise<Briefing> {
+  const res = await authFetch(`${API}/briefing/today`);
+  if (!res.ok) throw new Error(`获取今日简报失败: ${res.status}`);
   return res.json();
 }
 
