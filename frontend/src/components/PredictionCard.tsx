@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchPrediction } from "../api/client";
-import type { MarketPrediction } from "../types";
+import { fetchPrediction, fetchPredictionHistory, fetchPredictionStats } from "../api/client";
+import type { MarketPrediction, PredictionRecord, PredictionStats } from "../types";
 
 function directionColor(d: string): string {
   if (d.includes("上涨") || d.includes("强")) return "text-green-400";
@@ -8,8 +8,15 @@ function directionColor(d: string): string {
   return "text-yellow-400";
 }
 
+function fmtDate(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getMonth() + 1}-${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
 export default function PredictionCard() {
   const [data, setData] = useState<MarketPrediction | null>(null);
+  const [stats, setStats] = useState<PredictionStats | null>(null);
+  const [history, setHistory] = useState<PredictionRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
@@ -17,7 +24,14 @@ export default function PredictionCard() {
     setLoading(true);
     setErr("");
     try {
-      setData(await fetchPrediction());
+      const [p, s, h] = await Promise.all([
+        fetchPrediction(),
+        fetchPredictionStats().catch(() => null),
+        fetchPredictionHistory(15).catch(() => []),
+      ]);
+      setData(p);
+      setStats(s);
+      setHistory(h);
     } catch (e) {
       setErr((e as Error).message);
     } finally {
@@ -29,10 +43,12 @@ export default function PredictionCard() {
     void load();
   }, [load]);
 
+  const hitColor = (hit: boolean | undefined) => (hit ? "bg-green-900/40 text-green-300" : "bg-red-900/40 text-red-300");
+
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
       <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-slate-200">明日大盘推衍</h3>
+        <h3 className="text-sm font-semibold text-slate-200">明日大盘推衍 · 预测准确率</h3>
         <button onClick={() => void load()} disabled={loading} className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-slate-400 hover:text-slate-200 disabled:opacity-50">
           {loading ? "分析中..." : "刷新"}
         </button>
@@ -108,6 +124,91 @@ export default function PredictionCard() {
             {data.technical.signal && (
               <span>信号强度 {data.technical.signal.strength.toFixed(1)}</span>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* 准确率统计 */}
+      {stats && (stats.total > 0 || (stats.by_direction && Object.keys(stats.by_direction).length > 0)) && (
+        <div className="mt-4 border-t border-slate-800 pt-3">
+          <div className="mb-2 text-xs font-semibold text-slate-400">预测准确率</div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div className="rounded-lg bg-slate-800/50 px-3 py-2 text-center">
+              <div className="text-lg font-bold text-slate-200">{stats.total}</div>
+              <div className="text-[11px] text-slate-500">已记录</div>
+            </div>
+            <div className="rounded-lg bg-slate-800/50 px-3 py-2 text-center">
+              <div className="text-lg font-bold text-slate-200">{stats.settled}</div>
+              <div className="text-[11px] text-slate-500">已结算</div>
+            </div>
+            <div className="rounded-lg bg-slate-800/50 px-3 py-2 text-center">
+              <div className="text-lg font-bold text-slate-200">{stats.hit}</div>
+              <div className="text-[11px] text-slate-500">命中</div>
+            </div>
+            <div className="rounded-lg bg-slate-800/50 px-3 py-2 text-center">
+              <div className={`text-lg font-bold ${stats.hit_rate != null && stats.hit_rate >= 50 ? "text-green-400" : stats.hit_rate != null && stats.hit_rate < 50 ? "text-red-400" : "text-slate-200"}`}>
+                {stats.hit_rate != null ? `${stats.hit_rate}%` : "-"}
+              </div>
+              <div className="text-[11px] text-slate-500">命中率</div>
+            </div>
+          </div>
+          {Object.entries(stats.by_direction).length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+              {Object.entries(stats.by_direction).map(([d, b]) => (
+                <span key={d} className="rounded bg-slate-800/60 px-2 py-1 text-slate-400">
+                  {d} {b.hit}/{b.total}（{b.hit_rate ?? "-"}%）
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 历史预测记录 */}
+      {history.length > 0 && (
+        <div className="mt-4 border-t border-slate-800 pt-3">
+          <div className="mb-2 text-xs font-semibold text-slate-400">历史预测</div>
+          <div className="max-h-64 overflow-y-auto rounded-lg border border-slate-800">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-slate-900 text-left text-xs text-slate-400">
+                <tr>
+                  <th className="px-2 py-1.5">时间</th>
+                  <th className="px-2 py-1.5">预测</th>
+                  <th className="px-2 py-1.5 text-right">实际</th>
+                  <th className="px-2 py-1.5 text-center">结果</th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.map((r) => (
+                  <tr key={r.id} className="border-t border-slate-800/60">
+                    <td className="px-2 py-1.5 text-[11px] text-slate-500">{fmtDate(r.created_at)}</td>
+                    <td className="px-2 py-1.5">
+                      <span className={`text-xs font-medium ${directionColor(r.direction_raw || r.direction)}`}>
+                        {r.direction_raw || r.direction}
+                      </span>
+                    </td>
+                    <td className="px-2 py-1.5 text-right text-xs">
+                      {r.actual_direction ? (
+                        <span className={r.actual_change != null && r.actual_change >= 0 ? "text-green-400" : "text-red-400"}>
+                          {r.actual_direction} {r.actual_change != null ? `${r.actual_change > 0 ? "+" : ""}${r.actual_change}%` : ""}
+                        </span>
+                      ) : (
+                        <span className="text-slate-600">待结算</span>
+                      )}
+                    </td>
+                    <td className="px-2 py-1.5 text-center">
+                      {r.hit != null ? (
+                        <span className={`rounded px-1.5 py-0.5 text-[11px] ${hitColor(r.hit)}`}>
+                          {r.hit ? "命中" : "未中"}
+                        </span>
+                      ) : (
+                        <span className="text-slate-600">-</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}

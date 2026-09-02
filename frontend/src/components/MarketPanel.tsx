@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { fetchIndustries, scanMarket, strategyScan } from "../api/client";
+import DailyRecommendCard from "./DailyRecommendCard";
 import PredictionCard from "./PredictionCard";
 import type { Industry, ScanStock, StrategyDef, StrategyName, StrategyStock } from "../types";
 
@@ -119,6 +120,9 @@ export default function MarketPanel({ onPick }: Props) {
 
   return (
     <div className="space-y-5">
+      {/* 每日收盘推荐 */}
+      <DailyRecommendCard onPick={onPick} />
+
       {/* 明日大盘推衍 */}
       <PredictionCard />
 

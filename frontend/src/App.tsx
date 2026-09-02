@@ -5,6 +5,7 @@ import AuthModal from "./components/AuthModal";
 import HistoryPanel from "./components/HistoryPanel";
 import MarketPanel from "./components/MarketPanel";
 import StockCard from "./components/StockCard";
+import StockSearchInput from "./components/StockSearchInput";
 import type { StockAnalysis, StockInfo, SSEEvent } from "./types";
 
 type Phase = "idle" | "running" | "done" | "error";
@@ -30,12 +31,16 @@ export default function App() {
 
   const abortRef = useRef<AbortController | null>(null);
 
-  const parseCodes = useCallback((): string[] => {
-    return codes
+  const parseCodesFromText = useCallback((text: string): string[] => {
+    return text
       .split(/[\s,，;；、]+/)
       .map((s) => s.trim())
       .filter((s) => /^\d{6}$/.test(s));
-  }, [codes]);
+  }, []);
+
+  const parseCodes = useCallback((): string[] => {
+    return parseCodesFromText(codes);
+  }, [codes, parseCodesFromText]);
 
   const runAnalysis = async () => {
     const list = parseCodes();
@@ -115,13 +120,6 @@ export default function App() {
     setStatus("已手动停止");
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault();
-      void runAnalysis();
-    }
-  };
-
   // 从市场面板带回勾选的股票
   const handleMarketPick = (codesList: string[]) => {
     setCodes(codesList.join(", "));
@@ -198,15 +196,21 @@ export default function App() {
           <>
             {/* 输入区 */}
             <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
-              <label className="mb-2 block text-sm font-medium text-slate-300">股票代码</label>
+              <label className="mb-2 block text-sm font-medium text-slate-300">股票搜索（支持代码或名称）</label>
               <div className="flex flex-col gap-3 sm:flex-row">
-                <input
+                <StockSearchInput
                   value={codes}
-                  onChange={(e) => setCodes(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder="输入 6 位代码，逗号分隔，如：600519, 000858, 300750"
+                  onChange={setCodes}
+                  onPickCode={(code) => {
+                    // 选择联想结果后，追加到现有输入
+                    setCodes((prev) => {
+                      const existing = parseCodesFromText(prev);
+                      if (existing.includes(code)) return prev;
+                      const next = [...existing, code];
+                      return next.join(", ");
+                    });
+                  }}
                   disabled={phase === "running"}
-                  className="flex-1 rounded-lg border border-slate-700 bg-slate-800/80 px-4 py-2.5 text-sm outline-none placeholder:text-slate-500 focus:border-brand disabled:opacity-50"
                 />
                 {phase === "running" ? (
                   <button

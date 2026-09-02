@@ -133,6 +133,56 @@ export interface StrategyDef {
   desc: string;
 }
 
+export interface StockSearchResult {
+  code: string;
+  name: string;
+  price: number;
+  change_pct: number;
+}
+
+export interface DailyRecommendation {
+  code: string;
+  name: string;
+  price: number;
+  change_pct: number;
+  reason: string;
+  confidence: number;
+  tags?: string[];
+}
+
+export interface DailyRecommendResult {
+  date: string;
+  source: "llm" | "rule" | "empty";
+  recommendations: DailyRecommendation[];
+  candidates: number;
+  message?: string;
+}
+
+export interface PredictionStats {
+  total: number;
+  settled: number;
+  hit: number;
+  hit_rate: number | null;
+  by_direction: Record<string, { total: number; hit: number; hit_rate: number | null }>;
+}
+
+export interface PredictionRecord {
+  id: number;
+  created_at: string;
+  target_date: string;
+  direction: string;
+  direction_raw: string;
+  direction_score?: number;
+  probability?: string;
+  expected_low?: number;
+  expected_high?: number;
+  summary?: string;
+  actual_change?: number;
+  actual_direction?: string;
+  hit?: boolean;
+  settled_at?: string;
+}
+
 export interface MarketPrediction {
   index: string;
   date: string;

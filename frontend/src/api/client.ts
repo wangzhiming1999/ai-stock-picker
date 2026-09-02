@@ -1,11 +1,15 @@
 import type {
   AnalysisBatch,
   AnalysisBatchDetail,
+  DailyRecommendResult,
   Industry,
   MarketPrediction,
   NewsItem,
+  PredictionRecord,
+  PredictionStats,
   ScanStock,
   StockInfo,
+  StockSearchResult,
   StrategyName,
   StrategyStock,
   SSEEvent,
@@ -83,6 +87,36 @@ export async function strategyScan(strategy: StrategyName, limit = 20, minAmount
 export async function fetchPrediction(): Promise<MarketPrediction> {
   const res = await fetch(`${API}/market/prediction`);
   if (!res.ok) throw new Error(`大盘推衍失败: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchPredictionStats(): Promise<PredictionStats> {
+  const res = await fetch(`${API}/market/prediction/stats`);
+  if (!res.ok) throw new Error(`获取预测统计失败: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchPredictionHistory(limit = 30): Promise<PredictionRecord[]> {
+  const res = await fetch(`${API}/market/prediction/history?limit=${limit}`);
+  if (!res.ok) throw new Error(`获取预测历史失败: ${res.status}`);
+  return res.json();
+}
+
+export async function settlePrediction(): Promise<{ settled: number }> {
+  const res = await fetch(`${API}/market/prediction/settle`, { method: "POST" });
+  if (!res.ok) throw new Error(`结算失败: ${res.status}`);
+  return res.json();
+}
+
+export async function searchStocks(q: string, limit = 8): Promise<StockSearchResult[]> {
+  const res = await fetch(`${API}/market/search?q=${encodeURIComponent(q)}&limit=${limit}`);
+  if (!res.ok) throw new Error(`搜索失败: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchDailyRecommend(): Promise<DailyRecommendResult> {
+  const res = await fetch(`${API}/market/daily-recommend`);
+  if (!res.ok) throw new Error(`每日推荐失败: ${res.status}`);
   return res.json();
 }
 

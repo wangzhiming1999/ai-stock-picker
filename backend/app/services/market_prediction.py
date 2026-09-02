@@ -1,11 +1,14 @@
-"""明日大盘推衍：基于上证指数技术信号 + LLM 生成次日走势预判。"""
+"""明日大盘推衍：基于上证指数技术信号 + LLM 生成次日走势预判，并记录/结算预测准确率。"""
 from __future__ import annotations
+
+import asyncio
+import datetime as dt
 
 import akshare as ak
 from openai import AsyncOpenAI
 
 from app.config import get_settings
-from app.services import signal_service
+from app.services import signal_service, supabase_store
 
 MARKET_INDEX = "sh000001"
 MARKET_NAME = "上证指数"
@@ -150,15 +153,151 @@ async def predict_tomorrow() -> dict:
             "LLM 预测输出异常，已回退规则预判。"
             + rule["summary"].get("summary", "")
         )
-        return rule
+        result = rule
+    else:
+        result = {
+            "index": MARKET_NAME,
+            "date": hist[-1]["date"],
+            "summary": prediction,
+            "technical": summary,
+            "source": "llm",
+        }
 
+    # 保存预测记录（用于准确率统计）
+    try:
+        await save_prediction_record(result)
+    except Exception as e:
+        print(f"[prediction] 保存记录失败: {e}")
+
+    return result
+
+
+async def save_prediction_record(pred: dict) -> None:
+    """将预测结果写入 Supabase prediction_records 表。"""
+    if not supabase_store.is_configured():
+        return
+    s = pred.get("summary", {})
+    norm = normalize_direction(str(s.get("direction", "震荡")))
+    try:
+        sb = await supabase_store.get_service_client()
+        await sb.table("prediction_records").insert(
+            {
+                "target_date": (dt.date.today() + dt.timedelta(days=1)).isoformat(),
+                "direction": norm,
+                "direction_raw": str(s.get("direction", "")),
+                "direction_score": s.get("direction_score"),
+                "probability": str(s.get("probability", "")),
+                "expected_low": (s.get("expected_range") or {}).get("low") if isinstance(s.get("expected_range"), dict) else None,
+                "expected_high": (s.get("expected_range") or {}).get("high") if isinstance(s.get("expected_range"), dict) else None,
+                "summary": str(s.get("summary", "")),
+            }
+        ).execute()
+    except Exception as e:
+        print(f"[prediction] insert error: {e}")
+
+
+def normalize_direction(raw: str) -> str:
+    """将方向描述归一化为 上涨/震荡/下跌。"""
+    raw = raw.strip()
+    if any(k in raw for k in ("上涨", "涨", "偏多", "强", "看多")):
+        return "上涨"
+    if any(k in raw for k in ("下跌", "跌", "偏空", "弱", "看空")):
+        return "下跌"
+    return "震荡"
+
+
+async def settle_predictions() -> int:
+    """结算待结算的预测：对比最近一个交易日的实际走势。
+
+    返回本次结算的记录数。
+    """
+    if not supabase_store.is_configured():
+        return 0
+    sb = await supabase_store.get_service_client()
+    # 拉最近一个交易日的实际涨跌
+    hist = await asyncio_hist()
+    if len(hist) < 2:
+        return 0
+    last = hist[-1]
+    prev = hist[-2]
+    actual_change = (last["close"] / prev["close"] - 1) * 100
+    actual_dir = "上涨" if actual_change >= 0.2 else ("下跌" if actual_change <= -0.2 else "震荡")
+
+    # 找未结算的记录（不含今天的）
+    today = dt.date.today().isoformat()
+    res = await (
+        sb.table("prediction_records")
+        .select("id", "direction")
+        .is_("settled_at", "null")
+        .lt("target_date", today)
+        .execute()
+    )
+    rows = res.data
+    settled = 0
+    for row in rows:
+        hit = row["direction"] == actual_dir
+        await (
+            sb.table("prediction_records")
+            .update(
+                {
+                    "actual_change": round(actual_change, 2),
+                    "actual_direction": actual_dir,
+                    "hit": hit,
+                    "settled_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+                }
+            )
+            .eq("id", row["id"])
+            .execute()
+        )
+        settled += 1
+    return settled
+
+
+async def get_prediction_stats() -> dict:
+    """统计历史预测准确率。"""
+    if not supabase_store.is_configured():
+        return {"total": 0, "settled": 0, "hit": 0, "hit_rate": None, "by_direction": {}}
+    sb = await supabase_store.get_service_client()
+    res = await (
+        sb.table("prediction_records")
+        .select("direction", "hit")
+        .is_("settled_at", "not.null")
+        .execute()
+    )
+    rows = res.data
+    total = len(rows)
+    hit = sum(1 for r in rows if r.get("hit"))
+    by_direction: dict = {}
+    for r in rows:
+        d = r.get("direction", "未知")
+        b = by_direction.setdefault(d, {"total": 0, "hit": 0})
+        b["total"] += 1
+        if r.get("hit"):
+            b["hit"] += 1
+    for d, b in by_direction.items():
+        b["hit_rate"] = round(b["hit"] / b["total"] * 100, 1) if b["total"] else None
     return {
-        "index": MARKET_NAME,
-        "date": hist[-1]["date"],
-        "summary": prediction,
-        "technical": summary,
-        "source": "llm",
+        "total": total,
+        "settled": total,
+        "hit": hit,
+        "hit_rate": round(hit / total * 100, 1) if total else None,
+        "by_direction": by_direction,
     }
+
+
+async def get_prediction_history(limit: int = 30) -> list[dict]:
+    """历史预测记录（含结算结果）。"""
+    if not supabase_store.is_configured():
+        return []
+    sb = await supabase_store.get_service_client()
+    res = await (
+        sb.table("prediction_records")
+        .select("*")
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    return res.data
 
 
 async def asyncio_hist() -> list[dict]:

@@ -6,7 +6,7 @@ import akshare as ak
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from app.services import data_service, market_prediction
+from app.services import data_service, market_prediction, recommend_service
 
 router = APIRouter(prefix="/api/market", tags=["market"])
 
@@ -302,6 +302,43 @@ async def strategy_scan(req: StrategyScanRequest):
     return results[: req.limit]
 
 
+@router.get("/search")
+async def search_stocks(q: str = "", limit: int = 10):
+    """按名称或代码模糊搜索股票（基于全市场快照缓存）。"""
+    q = q.strip().upper().replace(" ", "")
+    if not q:
+        return []
+    try:
+        spot = await _get_spot()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"搜索失败: {e}")
+    results = []
+    for row in spot:
+        name = row.get("name", "").replace(" ", "")
+        code = row["code"].replace("sh", "").replace("sz", "").replace("bj", "")
+        if q in name.upper() or q in code:
+            results.append(
+                {
+                    "code": code,
+                    "name": row.get("name", "").strip(),
+                    "price": row["price"],
+                    "change_pct": row["change"],
+                }
+            )
+            if len(results) >= limit:
+                break
+    return results
+
+
+@router.get("/daily-recommend")
+async def daily_recommend_endpoint():
+    """每日收盘推荐：策略扫描候选 + LLM 精选 10 只并给出推荐理由。"""
+    try:
+        return await recommend_service.generate_daily_recommendations()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"每日推荐失败: {e}")
+
+
 @router.get("/prediction")
 async def market_prediction_endpoint():
     """明日大盘推衍：基于上证指数技术信号 + LLM 预测次日走势。"""
@@ -309,6 +346,28 @@ async def market_prediction_endpoint():
         return await market_prediction.predict_tomorrow()
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"大盘推衍失败: {e}")
+
+
+@router.post("/prediction/settle")
+async def settle_prediction_endpoint():
+    """结算预测：对比最近一个交易日的实际走势，标记命中/未命中。"""
+    try:
+        n = await market_prediction.settle_predictions()
+        return {"settled": n}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"结算失败: {e}")
+
+
+@router.get("/prediction/stats")
+async def prediction_stats_endpoint():
+    """预测准确率统计。"""
+    return await market_prediction.get_prediction_stats()
+
+
+@router.get("/prediction/history")
+async def prediction_history_endpoint(limit: int = 30):
+    """历史预测记录（含结算结果）。"""
+    return await market_prediction.get_prediction_history(limit)
 
 
 @router.post("/scan")
