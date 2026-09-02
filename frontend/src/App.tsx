@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { ComponentType, SVGProps } from "react";
-import { BarChart3, Lightbulb, LogIn, ScanSearch, TrendingUp, UserRound } from "lucide-react";
+import { BarChart3, Lightbulb, LogIn, ScanSearch, UserRound } from "lucide-react";
 import { motion } from "framer-motion";
 import { Toaster, toast } from "sonner";
 import { useAuth } from "./auth/AuthContext";
 import { fetchStock, streamAnalysis } from "./api/client";
 import AuthModal from "./components/AuthModal";
+import BrandLogo from "./components/BrandLogo";
 import DiscoverPanel from "./components/DiscoverPanel";
 import ErrorBoundary from "./components/ErrorBoundary";
 import HistoryPanel from "./components/HistoryPanel";
@@ -208,23 +209,7 @@ export default function App() {
       <header className="sticky top-0 z-40 border-b border-slate-800/80 bg-slate-900/80 backdrop-blur">
         <div className="mx-auto max-w-6xl px-4 py-3 sm:px-6">
           <div className="flex items-center justify-between gap-3">
-            <motion.button
-              onClick={() => changeTab("discover")}
-              whileHover={{ scale: 1.03 }}
-              whileTap={{ scale: 0.97 }}
-              className="flex items-center gap-3 text-left"
-            >
-              <motion.div
-                whileHover={{ rotate: 8 }}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-brand to-orange-500 text-white shadow-[0_2px_10px_rgba(220,38,38,0.4)]"
-              >
-                <TrendingUp className="h-5 w-5" strokeWidth={2.4} />
-              </motion.div>
-              <div className="hidden sm:block">
-                <h1 className="text-base font-bold leading-tight">AI 选股分析</h1>
-                <p className="text-[11px] text-slate-400">发现 · 扫描 · 分析 · 持仓</p>
-              </div>
-            </motion.button>
+            <BrandLogo onClick={() => changeTab("discover")} />
 
             {/* 全局快捷搜索 */}
             <div className="relative flex-1 max-w-md">

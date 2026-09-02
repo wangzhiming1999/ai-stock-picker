@@ -16,6 +16,20 @@ class TokenRequest(BaseModel):
     token: str
 
 
+@router.get("/config")
+async def auth_config():
+    """返回前端需要的公开配置（Supabase URL + anon key）。
+
+    anon key 设计上就是公开的（用于浏览器端访问 Supabase Auth）。
+    """
+    from app.config import get_settings
+    s = get_settings()
+    return {
+        "supabase_url": s.supabase_url,
+        "anon_key": s.supabase_anon_key,
+    }
+
+
 @router.post("/signup")
 async def sign_up(req: AuthRequest):
     if not supabase_store.is_configured():

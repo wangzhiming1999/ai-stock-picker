@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { signin, signup } from "../api/auth";
+import { getSupabase } from "../api/supabase";
+import { signin, signup, signout } from "../api/auth";
+import type { Session } from "@supabase/supabase-js";
 
 export interface AuthUser {
   id: string;
@@ -13,88 +15,72 @@ interface AuthContextValue {
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string) => Promise<void>;
-  signOut: () => void;
+  signOut: () => Promise<void>;
 }
-
-const TOKEN_KEY = "ai_stock_token";
-const USER_KEY = "ai_stock_user";
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-function readStored(): { user: AuthUser | null; token: string | null } {
-  try {
-    const token = localStorage.getItem(TOKEN_KEY);
-    const rawUser = localStorage.getItem(USER_KEY);
-    return { token, user: rawUser ? (JSON.parse(rawUser) as AuthUser) : null };
-  } catch {
-    return { user: null, token: null };
-  }
+function sessionToAuth(s: Session | null): { user: AuthUser | null; token: string | null } {
+  if (!s?.user) return { user: null, token: null };
+  return {
+    user: { id: s.user.id, email: s.user.email ?? "" },
+    token: s.access_token ?? null,
+  };
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState(readStored);
+  const [state, setState] = useState<{ user: AuthUser | null; token: string | null }>(() => ({ user: null, token: null }));
   const [loading, setLoading] = useState(false);
 
+  // 初始化：从 Supabase 恢复 session（cookie + localStorage）
   useEffect(() => {
-    if (!state.token) return;
-    // 静默校验 token 是否有效 —— 只在明确 401 时清除登录态
-    // 避免偶发抖动 / 冷启动 5xx 把用户踢出登录
-    fetch("/api/auth/user", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: state.token }),
-    })
-      .then((res) => {
-        if (res.status === 401) {
-          localStorage.removeItem(TOKEN_KEY);
-          localStorage.removeItem(USER_KEY);
-          setState({ user: null, token: null });
-        }
-        // 200：保持登录；其他（500、网络）：保留登录态等下次再校验
-      })
-      .catch(() => {
-        // 网络错误等：保留登录态，下次刷新再校验
-      });
-  }, [state.token]);
+    let mounted = true;
+    (async () => {
+      try {
+        const sb = await getSupabase();
+        const { data } = await sb.auth.getSession();
+        if (mounted) setState(sessionToAuth(data.session ?? null));
+      } catch {
+        /* ignore */
+      }
+    })();
 
-  const persist = useCallback((user: AuthUser, token: string) => {
-    localStorage.setItem(TOKEN_KEY, token);
-    localStorage.setItem(USER_KEY, JSON.stringify(user));
-    setState({ user, token });
+    // 监听 session 变化（登录/退出/自动 refresh 都会触发）
+    const sbPromise = getSupabase();
+    let sub: { unsubscribe: () => void } | null = null;
+    sbPromise.then((sb) => {
+      const { data } = sb.auth.onAuthStateChange((_event, session) => {
+        if (mounted) setState(sessionToAuth(session));
+      });
+      sub = data.subscription;
+    });
+    return () => {
+      mounted = false;
+      sub?.unsubscribe();
+    };
   }, []);
 
-  const signIn = useCallback(
-    async (email: string, password: string) => {
-      setLoading(true);
-      try {
-        const data = await signin(email, password);
-        persist(data.user, data.access_token);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [persist]
-  );
+  const signIn = useCallback(async (email: string, password: string) => {
+    setLoading(true);
+    try {
+      await signin(email, password);
+      // onAuthStateChange 会自动更新 state
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const signUp = useCallback(
-    async (email: string, password: string) => {
-      setLoading(true);
-      try {
-        const data = await signup(email, password);
-        // 邮箱确认开启时可能没有 session，仅注册成功
-        if (data.session?.access_token && data.user) {
-          persist(data.user, data.session.access_token);
-        }
-      } finally {
-        setLoading(false);
-      }
-    },
-    [persist]
-  );
+  const signUp = useCallback(async (email: string, password: string) => {
+    setLoading(true);
+    try {
+      await signup(email, password);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const signOut = useCallback(() => {
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(USER_KEY);
+  const signOut = useCallback(async () => {
+    await signout();
     setState({ user: null, token: null });
   }, []);
 

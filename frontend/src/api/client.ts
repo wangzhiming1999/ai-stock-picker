@@ -31,9 +31,16 @@ const BASE = (import.meta.env.VITE_API_BASE as string | undefined)
   .replace(/\/$/, "") ?? "";
 const API = `${BASE}/api`;
 
-/** 从 localStorage 读取登录 token（供请求鉴权） */
+/** 从 Supabase session 读取登录 token（向后兼容 localStorage） */
 export function getAuthToken(): string | null {
   try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.includes("-auth-token")) {
+        const v = JSON.parse(localStorage.getItem(k) || "{}");
+        if (v?.access_token) return v.access_token as string;
+      }
+    }
     return localStorage.getItem("ai_stock_token");
   } catch {
     return null;
@@ -41,8 +48,24 @@ export function getAuthToken(): string | null {
 }
 
 function authHeaders(): Record<string, string> {
-  const token = getAuthToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  // 从 Supabase client 读取当前 session（自动 cookie/localStorage + 自动 refresh）
+  // 注意：getSession 内部异步；同步接口仅返回缓存的 token，已在 onAuthStateChange 同步
+  // 兜底：直接读 Supabase localStorage key
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.includes("-auth-token")) {
+        const v = JSON.parse(localStorage.getItem(k) || "{}");
+        if (v?.access_token) return { Authorization: `Bearer ${v.access_token}` };
+      }
+    }
+    // 兼容旧 key
+    const t = localStorage.getItem("ai_stock_token");
+    if (t) return { Authorization: `Bearer ${t}` };
+  } catch {
+    /* ignore */
+  }
+  return {};
 }
 
 export async function fetchStock(code: string): Promise<StockInfo> {
