@@ -114,13 +114,48 @@ async def save_batch(user_id: str | None, codes: list[str], mode: str, results: 
 
 
 async def list_batches(user_id: str | None, limit: int = 20) -> list[dict]:
-    """列出最近的分析批次（只查当前用户的）。"""
+    """列出最近的分析批次（只查当前用户的），附带每批次的股票名称。"""
     sb = await get_service_client()
     query = sb.table("analysis_batches").select("*").order("created_at", desc=True).limit(limit)
     if user_id:
         query = query.eq("user_id", user_id)
     res = await query.execute()
-    return res.data
+    batches = res.data or []
+    if not batches:
+        return []
+
+    # 一次性查出这些批次的 code+name，组装到每个批次上（前端列表要显示名称而非只有代码）
+    batch_ids = [b["id"] for b in batches]
+    try:
+        r_res = (
+            await sb.table("analysis_results")
+            .select("batch_id, code, name, overall_score")
+            .in_("batch_id", batch_ids)
+            .execute()
+        )
+        stocks_map: dict[int, list[dict]] = {}
+        for row in r_res.data or []:
+            stocks_map.setdefault(row["batch_id"], []).append(
+                {
+                    "code": row.get("code", ""),
+                    "name": row.get("name", ""),
+                    "overall_score": row.get("overall_score"),
+                }
+            )
+        for b in batches:
+            stocks = stocks_map.get(b["id"], [])
+            b["stocks"] = stocks
+            # 便捷字段：名称串（如"贵州茅台、五粮液"），兜底用代码
+            b["names"] = "、".join(
+                (s["name"] or s["code"]) for s in stocks if s.get("name") or s.get("code")
+            )
+    except Exception as e:
+        print(f"[history] 查询股票名称失败: {e}")
+        for b in batches:
+            b["stocks"] = []
+            b["names"] = ""
+
+    return batches
 
 
 async def get_batch(batch_id: int, user_id: str | None) -> dict | None:

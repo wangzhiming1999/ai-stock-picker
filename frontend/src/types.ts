@@ -338,6 +338,19 @@ export interface PredictionRecord {
   settled_at?: string;
 }
 
+export interface IndexHistory {
+  index: string;
+  dates: string[];
+  opens: number[];
+  highs: number[];
+  lows: number[];
+  closes: number[];
+  volumes: number[];
+  latest: number | null;
+  change_pct: number | null;
+  days: number;
+}
+
 export interface MarketPrediction {
   index: string;
   date: string;
@@ -374,6 +387,10 @@ export interface AnalysisBatch {
   mode: "mock" | "llm";
   total: number;
   avg_score: number | null;
+  /** 该批次的股票（含名称），由后端附带上 */
+  stocks?: { code: string; name: string; overall_score?: number }[];
+  /** 便捷字段：名称串，如"贵州茅台、五粮液" */
+  names?: string;
 }
 
 export interface AnalysisBatchDetail extends AnalysisBatch {

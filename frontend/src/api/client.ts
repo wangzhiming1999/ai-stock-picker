@@ -5,6 +5,7 @@ import type {
   DailyRecommendResult,
   Holding,
   HoldingsData,
+  IndexHistory,
   Industry,
   MarketPrediction,
   NewsItem,
@@ -239,6 +240,12 @@ export async function fetchPortfolioAdvice(): Promise<PortfolioAdvice> {
     const d = await res.json().catch(() => ({}));
     throw new Error(d.detail || `获取建议失败: ${res.status}`);
   }
+  return res.json();
+}
+
+export async function fetchIndexHistory(days = 120): Promise<IndexHistory> {
+  const res = await fetch(`${API}/market/prediction/index-history?days=${days}`);
+  if (!res.ok) throw new Error(`获取大盘走势失败: ${res.status}`);
   return res.json();
 }
 

@@ -360,6 +360,32 @@ async def market_prediction_endpoint(refresh: bool = False):
         raise HTTPException(status_code=502, detail=f"大盘推衍失败: {e}")
 
 
+@router.get("/prediction/index-history")
+async def index_history_endpoint(days: int = 120):
+    """上证指数历史 K 线（供大盘走势图使用，只读行情、不跑 LLM，速度快）。"""
+    days = max(20, min(days, 500))
+    try:
+        hist = await market_prediction.asyncio_hist()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"获取指数K线失败: {e}")
+    hist = hist[-days:]
+    if not hist:
+        raise HTTPException(status_code=502, detail="未获取到指数K线数据")
+    closes = [h["close"] for h in hist]
+    return {
+        "index": market_prediction.MARKET_NAME,
+        "dates": [h["date"] for h in hist],
+        "opens": [h["open"] for h in hist],
+        "highs": [h["high"] for h in hist],
+        "lows": [h["low"] for h in hist],
+        "closes": closes,
+        "volumes": [h["volume"] for h in hist],
+        "latest": closes[-1] if closes else None,
+        "change_pct": round((closes[-1] / closes[-2] - 1) * 100, 2) if len(closes) >= 2 else None,
+        "days": len(hist),
+    }
+
+
 @router.post("/prediction/settle")
 async def settle_prediction_endpoint():
     """结算预测：对比最近一个交易日的实际走势，标记命中/未命中。"""

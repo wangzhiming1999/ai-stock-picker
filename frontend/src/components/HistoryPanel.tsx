@@ -73,7 +73,20 @@ export default function HistoryPanel({ refreshKey }: Props) {
                 {batches.map((b) => (
                   <tr key={b.id} className="border-t border-slate-800/60 hover:bg-slate-800/40">
                     <td className="px-3 py-2 text-slate-400">{fmtTime(b.created_at)}</td>
-                    <td className="px-3 py-2 text-slate-200">{b.codes}</td>
+                    <td className="px-3 py-2">
+                      {b.names ? (
+                        <div className="max-w-[260px]">
+                          <div className="truncate text-slate-200" title={b.names}>
+                            {b.names}
+                          </div>
+                          <div className="truncate text-[11px] text-slate-500" title={b.codes}>
+                            {b.codes}
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-slate-200">{b.codes}</span>
+                      )}
+                    </td>
                     <td className="px-3 py-2">
                       <span className={`rounded px-1.5 py-0.5 text-xs ${b.mode === "llm" ? "bg-purple-900/50 text-purple-300" : "bg-slate-800 text-slate-400"}`}>
                         {b.mode === "llm" ? "LLM" : "规则"}

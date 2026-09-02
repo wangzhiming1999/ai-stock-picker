@@ -66,7 +66,9 @@ export default function StockSearchInput({ value, onChange, onPickCode, disabled
         className="w-full rounded-lg border border-slate-700 bg-slate-800/80 py-2.5 pl-9 pr-8 text-sm outline-none placeholder:text-slate-500 focus:border-brand disabled:opacity-50"
       />
       {loading && (
-        <span className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin rounded-full border-2 border-slate-500 border-t-transparent" />
+        <span className="absolute right-3 top-1/2 -translate-y-1/2">
+          <span className="block h-4 w-4 animate-spin rounded-full border-2 border-slate-500 border-t-transparent" />
+        </span>
       )}
       {show && suggestions.length > 0 && (
         <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-lg border border-slate-700 bg-slate-900 shadow-xl">

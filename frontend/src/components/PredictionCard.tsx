@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchPrediction, fetchPredictionHistory, fetchPredictionStats } from "../api/client";
+import { fetchIndexHistory, fetchPrediction, fetchPredictionHistory, fetchPredictionStats } from "../api/client";
 import CollapsiblePanel from "./CollapsiblePanel";
+import KLineChart from "./KLineChart";
 import { safeArray, safeObj } from "../lib/safe";
-import type { MarketPrediction, PredictionRecord, PredictionStats } from "../types";
+import type { IndexHistory, MarketPrediction, PredictionRecord, PredictionStats, StockHistory } from "../types";
 
 function directionColor(d: string): string {
   if (d.includes("上涨") || d.includes("强")) return "text-green-400";
@@ -19,6 +20,7 @@ export default function PredictionCard() {
   const [data, setData] = useState<MarketPrediction | null>(null);
   const [stats, setStats] = useState<PredictionStats | null>(null);
   const [history, setHistory] = useState<PredictionRecord[]>([]);
+  const [indexHist, setIndexHist] = useState<IndexHistory | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
@@ -34,12 +36,21 @@ export default function PredictionCard() {
       setData(p);
       setStats(s);
       setHistory(h);
+      // 大盘走势图（只读行情，失败不影响主流程）
+      fetchIndexHistory(120)
+        .then(setIndexHist)
+        .catch(() => setIndexHist(null));
     } catch (e) {
       setErr((e as Error).message);
     } finally {
       setLoading(false);
     }
   }, []);
+
+  // 转成 KLineChart 需要的结构
+  const chartHistory: StockHistory | undefined = indexHist
+    ? { dates: indexHist.dates, closes: indexHist.closes, volumes: indexHist.volumes }
+    : undefined;
 
   useEffect(() => {
     void load();
@@ -84,6 +95,31 @@ export default function PredictionCard() {
               </div>
             )}
           </div>
+
+          {/* 大盘走势图 */}
+          {chartHistory && (
+            <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-2">
+              <div className="mb-1 flex items-center justify-between px-1">
+                <span className="text-[11px] text-slate-500">
+                  {indexHist?.index ?? "上证指数"} · 近 {indexHist?.days ?? 0} 个交易日
+                </span>
+                {indexHist?.latest != null && (
+                  <span className="flex items-baseline gap-1.5">
+                    <span className="text-sm font-semibold text-slate-200">{indexHist.latest.toFixed(2)}</span>
+                    <span
+                      className={`text-[11px] font-medium ${
+                        (indexHist.change_pct ?? 0) >= 0 ? "text-green-400" : "text-red-400"
+                      }`}
+                    >
+                      {(indexHist.change_pct ?? 0) >= 0 ? "+" : ""}
+                      {indexHist.change_pct?.toFixed(2)}%
+                    </span>
+                  </span>
+                )}
+              </div>
+              <KLineChart history={chartHistory} height={200} />
+            </div>
+          )}
 
           {/* 关键点位 */}
           {data.summary.key_levels && (
