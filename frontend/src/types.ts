@@ -321,6 +321,8 @@ export interface MarketPrediction {
     ret20: number;
     position_60d: number;
     signal?: TradeSignal;
+    data_date?: string;
+    target_date?: string;
   };
 }
 

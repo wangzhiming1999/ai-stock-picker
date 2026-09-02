@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import datetime as dt
 
-from app.services import data_service, market_prediction, supabase_store
+from app.services import data_service, market_prediction, supabase_store, trade_calendar_service
 
 
 async def settle_daily_recommendations() -> int:
@@ -12,13 +12,13 @@ async def settle_daily_recommendations() -> int:
         return 0
     sb = await supabase_store.get_service_client()
 
-    # 找未结算的推荐（排除今天刚生成的）
-    today = dt.date.today().isoformat()
+    # 找未结算的推荐（rec_date 早于最近交易日，即已到结算时点）
+    data_day = await trade_calendar_service.last_trading_day()
     res = (
         await sb.table("daily_recommendations")
         .select("id", "code", "recommend_price")
         .is_("settled_at", "null")
-        .lt("rec_date", today)
+        .lt("rec_date", data_day.isoformat())
         .execute()
     )
     rows = res.data

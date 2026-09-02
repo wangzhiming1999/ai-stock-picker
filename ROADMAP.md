@@ -61,6 +61,19 @@
 - [x] Supabase Auth 客户端集成：cookie + localStorage 双重持久化 + auto refresh token
 - [x] AuthContext 改用 onAuthStateChange 自动同步 session
 
+### V5.8 · 交易日历（时间敏感体系，学同花顺/指南针）
+- [x] `trade_calendar` 表（Supabase 持久化，akshare 拉取 ±2 年）
+- [x] 交易日映射服务：`last_trading_day` / `next_trading_day` / `is_trading_day` / `session_label`
+- [x] 北京时区交易时段：盘前/集合竞价/早盘/午休/午后/尾盘/收盘后
+- [x] 预测缓存 key 改为最近交易日（非自然日）：周五生成 → 周末/盘前复用同一份
+- [x] `target_date` = 下一交易日（自动跳周末/国庆等法定节假日）
+- [x] 结算逻辑按交易日对齐（`.lte(target_date, data_day)`）
+- [x] 推荐缓存同样按最近交易日存储
+- [x] 提示词升级（参考开源/同花顺研报风格）：
+  - 预测 prompt：显式"交易日 T/T+1"语义 + 复盘研报写作风格 + 多空分水岭
+  - 推荐 prompt：给每只推荐"T+1 观察要点/触发条件"，不再是泛泛推荐
+  - 上下文注入 data_date / target_date，LLM 明确知道基于哪天预测哪天
+
 ---
 
 ## 后续迭代规划

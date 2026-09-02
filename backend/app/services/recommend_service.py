@@ -8,15 +8,20 @@ from openai import AsyncOpenAI
 
 from app.config import get_settings
 from app.routes import market as market_routes
-from app.services import supabase_store
+from app.services import supabase_store, trade_calendar_service
 
 # 每日推荐缓存：key=日期，value=(生成时间, data)。一天只跑一次。
 _recommendation_cache: dict[str, tuple[str, dict]] = {}
 
-RECOMMEND_SYSTEM_PROMPT = """你是一位资深的 A 股投资顾问，擅长从候选股票中挑选次日最具关注价值的标的。
+RECOMMEND_SYSTEM_PROMPT = """你是一位资深的 A 股投资顾问，类似同花顺/指南针的"明日机会股"专栏主编，擅长从候选股票中挑选下一个交易日最值得关注的标的。
+
+【交易日语义】
+- 候选数据基于最近一个已收盘交易日（交易日 T）收盘
+- "明日关注"指下一个交易日（T+1），需要跳过周末/节假日
+- 你的推荐是"T+1 日可跟踪观察"的清单，不是让用户盲目追高
 
 【任务】
-从用户提供的候选股票（含行情与技术信号）中，挑选 10 只最值得明日关注的股票，并为每只给出具体推荐理由。
+从用户提供的候选股票（含行情与技术信号）中，挑选 10 只最值得下一个交易日关注的股票，并为每只给出具体推荐理由。
 
 【输出要求】
 只输出一个合法的 JSON 数组，不要任何其他文字。格式如下：
@@ -25,18 +30,18 @@ RECOMMEND_SYSTEM_PROMPT = """你是一位资深的 A 股投资顾问，擅长从
   {
     "code": "600519",
     "name": "贵州茅台",
-    "reason": "80字以内的推荐理由，结合提供的行情/技术数据说明为什么值得关注",
+    "reason": "80字以内的推荐理由，像专业股评：先说关注逻辑（技术形态/量能/催化剂），再给 T+1 日观察要点（如：回踩不破XX可关注、放量突破XX转强），结合提供的行情/技术数据",
     "confidence": 0到10的置信分
   },
   ...
 ]
 
 【挑选原则】
-- 优先技术形态健康、量能配合、估值合理的标的
+- 优先技术形态健康、量能配合、估值合理，且 T+1 日有明确观察点的标的
 - 兼顾不同风格（动量/趋势/低估值/放量），不要全部集中一个方向
 - 排除有明显风险信号（如已大幅上涨追高风险、停牌、ST）的标的
-- 理由要具体，引用候选数据中的价格/涨跌幅/信号，不要空话
-- 这是每日收盘后的次日关注推荐，强调"明日可跟踪观察"而非"盲目买入"
+- 理由要具体，引用候选数据中的价格/涨跌幅/信号/压力位支撑位，不要空话
+- 强调"T+1 日可跟踪观察"而非"盲目买入"，给出触发/止损的观察条件
 - 仅供研究参考，不构成投资建议"""
 
 
@@ -46,13 +51,17 @@ def clear_recommendation_cache() -> None:
 
 
 async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
-    """生成每日推荐：跑四个策略 → 合并候选 → LLM 精选 10 只。
+    """生成每日收盘推荐：跑四个策略 → 合并候选 → LLM 精选 10 只。
 
+    缓存按"最近交易日"（data_day）而不是自然日：
+    - 同一交易日的收盘后推荐，盘前/周末访问都命中同一份缓存
+    - 不会因自然日切换而重复生成或读错数据
     优先返回数据库当日缓存（跨实例共享），无则生成并写入。
     """
-    today = dt.date.today().isoformat()
+    data_day = await trade_calendar_service.last_trading_day()
+    today = data_day.isoformat()
 
-    # 1. 数据库缓存（当日）
+    # 1. 数据库缓存（按数据日）
     if not force_refresh:
         db_result = await _load_db_recommendation(today)
         if db_result:

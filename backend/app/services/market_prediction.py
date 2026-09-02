@@ -8,7 +8,7 @@ import akshare as ak
 from openai import AsyncOpenAI
 
 from app.config import get_settings
-from app.services import signal_service, supabase_store
+from app.services import signal_service, supabase_store, trade_calendar_service
 
 MARKET_INDEX = "sh000001"
 MARKET_NAME = "上证指数"
@@ -16,7 +16,13 @@ MARKET_NAME = "上证指数"
 # 每日大盘推衍缓存：key=日期，value=(生成时间, data)。一天只跑一次。
 _prediction_cache: dict[str, tuple[str, dict]] = {}
 
-PREDICTION_SYSTEM_PROMPT = """你是一位擅长 A 股大盘研判的资深策略分析师。基于用户提供的上证指数技术数据，预测明日大盘走势。
+PREDICTION_SYSTEM_PROMPT = """你是一位擅长 A 股大盘研判的资深策略分析师，风格类似同花顺/指南针的收盘复盘研报。基于用户提供的上证指数【最新交易日收盘后】技术数据，研判【下一个交易日】的走势。
+
+【核心概念：交易日（T 日）】
+- A 股只在交易日开盘（周一至周五，法定节假日休市）
+- 你收到的数据是最近一个已收盘交易日（记为 T）的收盘数据
+- 你要预测的是 T 之后的下一个交易日（T+1）
+- 如果 T 是周五，T+1 就是下周一，中间周末不预测
 
 【输出要求】
 只输出一个合法 JSON 对象，不要任何其他文字。结构如下：
@@ -27,16 +33,21 @@ PREDICTION_SYSTEM_PROMPT = """你是一位擅长 A 股大盘研判的资深策�
   "expected_range": {"low": 预计最低点位, "high": 预计最高点位},
   "probability": "各方向概率，如：上涨40%/震荡35%/下跌25%",
   "key_levels": {"support1": "第一支撑", "support2": "第二支撑", "resistance1": "第一压力", "resistance2": "第二压力"},
-  "summary": "120字以内的明日走势研判，先结论后逻辑",
-  "drivers": ["2-4条影响明日走势的关键因素"],
-  "trading_advice": "给散户的操作建议，含仓位、关注板块、风险提示"
+  "summary": "120字以内的下一个交易日走势研判，先结论后逻辑，句式像专业复盘报告",
+  "drivers": ["2-4条影响下一个交易日走势的关键因素"],
+  "trading_advice": "给散户的操作建议，含建议仓位、关注板块、风险提示"
 }
 
 【分析维度】
-- 技术面：均线多头/空头、MACD 状态、RSI 超买超卖、布林带位置、量价配合
-- 位置：指数处于近期区间的高位还是低位
-- 情绪：结合当日涨跌和量能判断市场情绪
-- 注意：仅基于提供的数据研判，数据不足时如实说明
+- 技术面：均线多头/空头排列、MACD 金叉死叉状态、RSI 是否超买超卖、布林带位置、量价是否配合
+- 位置与空间：指数处于近期 60 日区间的高位还是低位，距离支撑/压力位的空间
+- 情绪与节奏：结合当日涨跌幅、量比、5日/20日动量判断市场情绪强弱
+- 多空博弈：结合关键点位给出多空分水岭
+【写作风格】
+- summary 要像专业股评：先给结论方向，再用数据支撑逻辑，避免空话套话
+- drivers 要具体可验证（技术信号/量能/位置），不要泛泛而谈
+【注意】
+- 仅基于提供的数据研判，数据不足时如实说明，绝不编造
 - 预测仅供研究参考，不构成投资建议"""
 
 
@@ -57,8 +68,8 @@ def get_index_history(days: int = 180) -> list[dict]:
     ]
 
 
-def build_market_context(hist: list[dict]) -> tuple[str, dict]:
-    """组装指数上下文 + 技术信号。"""
+def build_market_context(hist: list[dict], data_day: dt.date | None = None, next_day: dt.date | None = None) -> tuple[str, dict]:
+    """组装指数上下文 + 技术信号 + 交易日信息。"""
     closes = [h["close"] for h in hist]
     volumes = [h["volume"] for h in hist]
     last = hist[-1]
@@ -79,7 +90,12 @@ def build_market_context(hist: list[dict]) -> tuple[str, dict]:
     high60 = max(closes[-60:]) if len(closes) >= 60 else max(closes)
     pos = (price - low60) / (high60 - low60) * 100 if high60 > low60 else 50
 
+    # 交易日（T / T+1）语义
+    data_day_s = data_day.isoformat() if data_day else (hist[-1]["date"] if hist else "-")
+    next_day_s = next_day.isoformat() if next_day else "下一交易日"
+
     ctx = (
+        f"【交易日基准】数据基于 {data_day_s}（交易日 T）收盘；请预测 {next_day_s}（下一个交易日 T+1）的走势。\n"
         f"指数：{MARKET_NAME}，最新收盘 {price:.2f}\n"
         f"当日涨跌 {day_change:+.2f}%，量比 {vol_ratio:.2f}\n"
         f"近5日 {ret5:+.2f}%，近20日 {ret20:+.2f}%，60日区间位置 {pos:.0f}%\n"
@@ -101,19 +117,28 @@ def build_market_context(hist: list[dict]) -> tuple[str, dict]:
         "ret20": round(ret20, 2),
         "position_60d": round(pos, 1),
         "signal": sig,
+        "data_date": data_day_s,
+        "target_date": next_day_s,
     }
     return ctx, summary
 
 
 async def predict_tomorrow(force_refresh: bool = False) -> dict:
-    """生成明日大盘走势预测。
+    """生成明日（下一个交易日）大盘走势预测。
 
-    优先返回数据库当日缓存（跨实例共享），无则生成并写入。
+    缓存按"最近交易日"（data_day）而不是自然日：
+    - 周五收盘后生成 → 数据基准周五；周末/盘前访问都命中同一份缓存
+    - "明日" = 下一个交易日（自动跳过周末与法定节假日）
+    优先返回数据库缓存（跨实例共享），无则生成并写入。
     """
     settings = get_settings()
-    today = dt.date.today().isoformat()
 
-    # 1. 数据库缓存（当日）
+    # 数据基准日 = 最近交易日（收盘后有完整数据的那天）
+    data_day = await trade_calendar_service.last_trading_day()
+    today = data_day.isoformat()
+    next_day = await trade_calendar_service.next_trading_day(data_day)
+
+    # 1. 数据库缓存（按数据日）
     if not force_refresh:
         db_result = await _load_db_prediction(today)
         if db_result:
@@ -124,7 +149,7 @@ async def predict_tomorrow(force_refresh: bool = False) -> dict:
         return _prediction_cache[today][1]
 
     hist = await asyncio_hist()
-    ctx, summary = build_market_context(hist)
+    ctx, summary = build_market_context(hist, data_day=data_day, next_day=next_day)
 
     if not settings.deepseek_api_key:
         # 未配置 LLM：返回基于规则的基础预判
@@ -183,7 +208,7 @@ async def predict_tomorrow(force_refresh: bool = False) -> dict:
 
     # 保存预测记录（用于准确率统计）
     try:
-        await save_prediction_record(result)
+        await save_prediction_record(result, data_date=today, target_date=next_day.isoformat())
     except Exception as e:
         print(f"[prediction] 保存记录失败: {e}")
 
@@ -242,17 +267,20 @@ def clear_prediction_cache() -> None:
     _prediction_cache.clear()
 
 
-async def save_prediction_record(pred: dict) -> None:
+async def save_prediction_record(pred: dict, data_date: str | None = None, target_date: str | None = None) -> None:
     """将预测结果写入 Supabase prediction_records 表。"""
     if not supabase_store.is_configured():
         return
     s = pred.get("summary", {})
     norm = normalize_direction(str(s.get("direction", "震荡")))
+    # target_date：显式传入的下一交易日；否则回退次日（兼容旧逻辑）
+    target = target_date or (dt.date.today() + dt.timedelta(days=1)).isoformat()
     try:
         sb = await supabase_store.get_service_client()
         await sb.table("prediction_records").insert(
             {
-                "target_date": (dt.date.today() + dt.timedelta(days=1)).isoformat(),
+                "data_date": data_date or dt.date.today().isoformat(),
+                "target_date": target,
                 "direction": norm,
                 "direction_raw": str(s.get("direction", "")),
                 "direction_score": s.get("direction_score"),
@@ -277,13 +305,20 @@ def normalize_direction(raw: str) -> str:
 
 
 async def settle_predictions() -> int:
-    """结算待结算的预测：对比最近一个交易日的实际走势。
+    """结算待结算的预测：对比最近已结束交易日的实际走势。
+
+    交易日对齐：
+    - 用最近收盘的交易日（data_day）作为结算基准
+    - 结算所有 target_date <= data_day 的未结算预测
+    - 周五收盘后结算 target=周一 的记录；节假日自动顺延
 
     返回本次结算的记录数。
     """
     if not supabase_store.is_configured():
         return 0
     sb = await supabase_store.get_service_client()
+    # 最近已收盘交易日
+    data_day = await trade_calendar_service.last_trading_day()
     # 拉最近一个交易日的实际涨跌
     hist = await asyncio_hist()
     if len(hist) < 2:
@@ -293,13 +328,12 @@ async def settle_predictions() -> int:
     actual_change = (last["close"] / prev["close"] - 1) * 100
     actual_dir = "上涨" if actual_change >= 0.2 else ("下跌" if actual_change <= -0.2 else "震荡")
 
-    # 找未结算的记录（不含今天的）
-    today = dt.date.today().isoformat()
+    # 找未结算的记录（target_date <= 最近交易日，即今天已经"到点"的预测）
     res = await (
         sb.table("prediction_records")
         .select("id", "direction")
         .is_("settled_at", "null")
-        .lt("target_date", today)
+        .lte("target_date", data_day.isoformat())
         .execute()
     )
     rows = res.data

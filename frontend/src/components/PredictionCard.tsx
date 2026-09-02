@@ -68,7 +68,9 @@ export default function PredictionCard() {
           {/* 方向 + 概率 */}
           <div className="flex items-center gap-4">
             <div>
-              <div className="text-xs text-slate-500">明日方向</div>
+              <div className="text-xs text-slate-500">
+                {data.technical?.target_date ? `${data.technical.target_date} 方向` : "下一个交易日方向"}
+              </div>
               <div className={`text-2xl font-black ${directionColor(data.summary.direction)}`}>
                 {data.summary.direction ?? "-"}
                 {data.summary.direction_score > 0 && (
