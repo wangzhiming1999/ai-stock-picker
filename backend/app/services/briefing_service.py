@@ -110,6 +110,71 @@ def _tail_summary(holdings: list[dict]) -> str:
     return "、".join(parts) if parts else "持仓均持有观察"
 
 
+def _enrich_tail_holding(h: dict) -> dict:
+    """补尾盘挂单价与挂单建议（算法推导，非成交价）。"""
+    out = dict(h)
+    out["limit_price"] = None
+    out["order_action"] = None
+    out["order_hint"] = "暂不操作，观望为主"
+    price = h.get("price")
+    if not price:
+        return out
+    try:
+        price = float(price)
+        action = h.get("action") or "持有观察"
+        if "减仓" in action:
+            limit = round(price * 1.005, 2)
+            out["limit_price"] = limit
+            out["order_action"] = "卖出"
+            out["order_hint"] = f"尾盘挂单：现价上方约 0.5% 卖出（≈{limit}），优先减仓控风险"
+        elif "加仓" in action:
+            support = h.get("support")
+            base = float(support) if support else round(price * 0.995, 2)
+            limit = round(base, 2)
+            out["limit_price"] = limit
+            out["order_action"] = "买入"
+            ref = "支撑位" if support else "现价下方约 0.5%"
+            out["order_hint"] = f"尾盘挂单：回踩{ref}买入（≈{limit}）"
+    except Exception as e:
+        print(f"[briefing] tail enrich {h.get('code')} 失败: {e}")
+    return out
+
+
+async def _fetch_overseas() -> dict | None:
+    """隔夜外盘（美股三大指数），供盘前预读。失败返回 None，绝不拖垮主流程。"""
+    try:
+        import akshare as ak
+
+        def _pull() -> list[dict]:
+            df = ak.index_us_stock_sina()
+            cols = list(df.columns)
+            name_col = "name" if "name" in cols else cols[1]
+            price_col = "latest_price" if "latest_price" in cols else ("close" if "close" in cols else cols[2])
+            chg_col = "change_pct" if "change_pct" in cols else ("pct_change" if "pct_change" in cols else None)
+            wanted = ("道琼斯", "纳斯达克", "标普")
+            out = []
+            for _, row in df.iterrows():
+                nm = str(row[name_col])
+                if any(w in nm for w in wanted):
+                    try:
+                        out.append(
+                            {
+                                "name": nm,
+                                "price": float(row[price_col]),
+                                "change_pct": float(row[chg_col]) if chg_col else 0.0,
+                            }
+                        )
+                    except Exception:
+                        continue
+            return out
+
+        res = await asyncio.wait_for(asyncio.to_thread(_pull), timeout=6)
+        return {"indices": res, "note": None} if res else None
+    except Exception as e:
+        print(f"[briefing] 外盘获取失败: {e}")
+        return None
+
+
 async def build_today(user_id: str | None = None) -> dict:
     """聚合今日作战简报。
 
@@ -158,10 +223,23 @@ async def build_today(user_id: str | None = None) -> dict:
             tail["summary"] = "持仓建议获取失败"
 
     phase = _phase_for_session(session, is_trading)
+    is_premarket = session in ("盘前", "集合竞价")
+    is_tail_urgent = session == "尾盘"
+
+    # 盘前预读：隔夜外盘（仅盘前时段抓取，避免无谓延迟）
+    overseas = None
+    if is_premarket:
+        overseas = await _fetch_overseas()
+
+    # 尾盘持仓补挂单价
+    if user_id and tail.get("holdings"):
+        tail["holdings"] = [_enrich_tail_holding(h) for h in tail["holdings"]]
 
     return {
         "session": session,
         "is_trading_day": is_trading,
+        "is_premarket": is_premarket,
+        "is_tail_urgent": is_tail_urgent,
         "target_date": pred.get("date") if isinstance(pred, dict) else None,
         "phase": phase,  # morning | tail | closed
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
@@ -174,6 +252,10 @@ async def build_today(user_id: str | None = None) -> dict:
             "summary": summary.get("summary"),
             "trading_advice": summary.get("trading_advice"),
             "key_levels": summary.get("key_levels"),
+            "pre_market": {
+                "overseas": overseas["indices"] if overseas else None,
+                "note": (overseas["note"] if overseas else "外盘数据暂不可用（网络受限）"),
+            },
         },
         "morning": {
             "stocks": morning_stocks,

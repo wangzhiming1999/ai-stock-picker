@@ -1,5 +1,5 @@
 import { type MouseEvent, useCallback, useEffect, useState } from "react";
-import { ArrowDownRight, ArrowUpRight, Bell, Plus, RefreshCw, Target } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Bell, Plus, RefreshCw, Sunrise, Target } from "lucide-react";
 import { addToWatchlist, fetchBriefing, getAuthToken } from "../api/client";
 import type { Briefing, BriefingHolding, BriefingStock } from "../types";
 
@@ -120,6 +120,48 @@ function MorningStockCard({ s, onPick }: { s: BriefingStock; onPick: (c: string)
   );
 }
 
+function PreMarketBlock({ data }: { data: Briefing }) {
+  const m = data.market;
+  const tone = dirTone(m.direction ?? "");
+  const overseas = m.pre_market?.overseas;
+  return (
+    <div className="rounded-lg border border-amber-800/40 bg-amber-500/5 p-3">
+      <div className="flex items-center gap-2 text-sm font-medium text-amber-200/90">
+        <Sunrise className="h-4 w-4" />
+        盘前预读 · 今日大方向
+      </div>
+      <div className="mt-2 flex flex-wrap items-end gap-x-4 gap-y-1">
+        <div className="flex items-baseline gap-2">
+          <span className="text-xs text-slate-500">大方向</span>
+          <span className={`text-xl font-bold ${tone.text}`}>{m.direction || "—"}</span>
+        </div>
+        <div className="flex items-baseline gap-2">
+          <span className="text-xs text-slate-500">建议仓位</span>
+          <span className="text-base font-semibold text-slate-100">{m.position_suggestion || "—"}</span>
+        </div>
+      </div>
+      <div className="mt-3">
+        <div className="text-xs text-slate-500">隔夜外盘</div>
+        {overseas && overseas.length > 0 ? (
+          <div className="mt-1 grid grid-cols-3 gap-2">
+            {overseas.map((o) => (
+              <div key={o.name} className="rounded bg-slate-800/60 px-2 py-1 text-xs">
+                <div className="truncate text-slate-400">{o.name}</div>
+                <div className={o.change_pct >= 0 ? "text-green-300" : "text-red-300"}>
+                  {o.change_pct >= 0 ? "+" : ""}
+                  {o.change_pct.toFixed(2)}%
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="mt-1 text-xs text-slate-500">{m.pre_market?.note || "外盘数据暂不可用"}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function TailHoldingCard({ h }: { h: BriefingHolding }) {
   const tone = actionTone(h.action);
   const [watching, setWatching] = useState(false);
@@ -200,6 +242,28 @@ function TailHoldingCard({ h }: { h: BriefingHolding }) {
           ))}
         </ul>
       )}
+
+      {(h.order_action || h.limit_price != null) && (
+        <div
+          className={`mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border px-2 py-1.5 text-xs ${
+            h.order_action === "卖出"
+              ? "border-red-800/40 bg-red-500/5"
+              : "border-green-800/40 bg-green-500/5"
+          }`}
+        >
+          <span className={`font-semibold ${h.order_action === "卖出" ? "text-red-300" : "text-green-300"}`}>
+            {h.order_action}挂单
+          </span>
+          {h.limit_price != null && (
+            <span className="text-slate-200">
+              价 ≈ <Money v={h.limit_price} />
+            </span>
+          )}
+          <span className="text-slate-400">
+            <AlgoTag /> {h.order_hint}
+          </span>
+        </div>
+      )}
       {tip && <div className="mt-2 text-[11px] text-amber-300">{tip}</div>}
     </div>
   );
@@ -277,6 +341,9 @@ export default function DailyBriefing({ onPick }: Props) {
       <div className="p-4">
         {err && <div className="mb-3 rounded-lg border border-red-800 bg-red-950/40 px-3 py-2 text-xs text-red-300">{err}</div>}
 
+        {/* 盘前预读（仅盘前时段 9:00–9:25） */}
+        {data?.is_premarket && <PreMarketBlock data={data} />}
+
         {/* 主区：按交易时段切换 */}
         {phase === "closed" && (
           <div className="rounded-lg border border-amber-800/40 bg-amber-500/5 px-4 py-3 text-sm text-amber-200/90">
@@ -286,6 +353,12 @@ export default function DailyBriefing({ onPick }: Props) {
 
         {phase === "tail" && (
           <div className="space-y-3">
+            {data?.is_tail_urgent && (
+              <div className="flex items-center gap-2 rounded-lg border border-red-800/50 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-200">
+                <Bell className="h-4 w-4 animate-pulse" />
+                尾盘窗口（14:45–15:00）：收盘前必须完成挂单，否则今日无法操作
+              </div>
+            )}
             <div className="flex items-center gap-2 text-sm font-medium text-slate-200">
               <Bell className="h-4 w-4 text-brand" />
               尾盘操作（{data?.tail.summary ?? "持仓决策"}）

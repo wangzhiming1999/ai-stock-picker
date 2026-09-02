@@ -435,11 +435,28 @@ export interface BriefingHolding {
   stop_loss?: number | null;
   action: string;
   tips: string[];
+  /** 尾盘挂单价（算法推导，非成交价） */
+  limit_price?: number | null;
+  /** 挂单方向：卖出 / 买入 / null */
+  order_action?: string | null;
+  /** 挂单建议文案 */
+  order_hint?: string;
+}
+
+/** 隔夜外盘指数（盘前预读） */
+export interface OverseasIndex {
+  name: string;
+  price: number;
+  change_pct: number;
 }
 
 export interface Briefing {
   session: string;
   is_trading_day: boolean;
+  /** 当前是否盘前时段（9:00–9:25），决定是否展示盘前预读 */
+  is_premarket: boolean;
+  /** 当前是否尾盘时段（14:45–15:00），决定是否展示"收盘前必须动" */
+  is_tail_urgent: boolean;
   target_date?: string;
   /** morning | tail | closed —— 当前时段首屏主卡 */
   phase: "morning" | "tail" | "closed";
@@ -453,6 +470,10 @@ export interface Briefing {
     summary?: string;
     trading_advice?: string;
     key_levels?: Record<string, number | undefined>;
+    pre_market?: {
+      overseas?: OverseasIndex[] | null;
+      note?: string | null;
+    };
   };
   morning: {
     stocks: BriefingStock[];
