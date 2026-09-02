@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { fetchPrediction, fetchPredictionHistory, fetchPredictionStats } from "../api/client";
 import CollapsiblePanel from "./CollapsiblePanel";
+import { safeArray, safeObj } from "../lib/safe";
 import type { MarketPrediction, PredictionRecord, PredictionStats } from "../types";
 
 function directionColor(d: string): string {
@@ -69,7 +70,7 @@ export default function PredictionCard() {
             <div>
               <div className="text-xs text-slate-500">明日方向</div>
               <div className={`text-2xl font-black ${directionColor(data.summary.direction)}`}>
-                {data.summary.direction}
+                {data.summary.direction ?? "-"}
                 {data.summary.direction_score > 0 && (
                   <span className="ml-1 text-sm font-semibold text-slate-400">({data.summary.direction_score.toFixed(1)})</span>
                 )}
@@ -85,7 +86,7 @@ export default function PredictionCard() {
           {/* 关键点位 */}
           {data.summary.key_levels && (
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {Object.entries(data.summary.key_levels).map(([k, v]) => (
+              {Object.entries(safeObj<Record<string, string | number>>(data.summary.key_levels, {})).map(([k, v]) => (
                 <div key={k} className="rounded-lg bg-slate-800/50 px-2 py-1.5 text-center">
                   <div className="text-[11px] text-slate-500">{k}</div>
                   <div className="text-sm font-semibold text-slate-200">{v ?? "-"}</div>
@@ -95,14 +96,14 @@ export default function PredictionCard() {
           )}
 
           {/* 研判 */}
-          <p className="text-sm leading-relaxed text-slate-300">{data.summary.summary}</p>
+          <p className="text-sm leading-relaxed text-slate-300">{data.summary.summary ?? ""}</p>
 
           {/* 驱动因素 */}
           {data.summary.drivers && data.summary.drivers.length > 0 && (
             <div>
               <div className="mb-1 text-xs font-semibold text-slate-400">关键因素</div>
               <ul className="list-disc pl-4 text-xs text-slate-300 space-y-0.5">
-                {data.summary.drivers.map((d, i) => (
+                {safeArray<string>(data.summary.drivers).map((d, i) => (
                   <li key={i}>{d}</li>
                 ))}
               </ul>
@@ -169,7 +170,7 @@ export default function PredictionCard() {
       )}
 
       {/* 历史预测记录 */}
-      {history.length > 0 && (
+      {safeArray(history).length > 0 && (
         <div className="mt-4 border-t border-slate-800 pt-3">
           <div className="mb-2 text-xs font-semibold text-slate-400">历史预测</div>
           <div className="max-h-64 overflow-y-auto rounded-lg border border-slate-800">
@@ -188,7 +189,7 @@ export default function PredictionCard() {
                     <td className="px-2 py-1.5 text-[11px] text-slate-500">{fmtDate(r.created_at)}</td>
                     <td className="px-2 py-1.5">
                       <span className={`text-xs font-medium ${directionColor(r.direction_raw || r.direction)}`}>
-                        {r.direction_raw || r.direction}
+                        {r.direction_raw || r.direction || "-"}
                       </span>
                     </td>
                     <td className="px-2 py-1.5 text-right text-xs">

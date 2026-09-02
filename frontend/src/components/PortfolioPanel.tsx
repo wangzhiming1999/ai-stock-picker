@@ -10,6 +10,7 @@ import {
 import StockSearchInput from "./StockSearchInput";
 import type { HoldingsData, PortfolioAdvice, UserProfile } from "../types";
 import { useAuth } from "../auth/AuthContext";
+import { fmtPct, safeNumber } from "../lib/safe";
 
 const RISK_LEVELS = [
   { name: "保守", desc: "低波动优先，严格控制仓位" },
@@ -204,20 +205,19 @@ export default function PortfolioPanel() {
       {holdings && holdings.holdings.length > 0 && (
         <div className="mb-4 grid grid-cols-3 gap-2">
           <div className="rounded-lg bg-slate-800/50 px-3 py-2 text-center">
-            <div className="text-lg font-bold text-slate-200">{(holdings.total_value).toLocaleString()}</div>
+            <div className="text-lg font-bold text-slate-200">{safeNumber(holdings.total_value).toLocaleString()}</div>
             <div className="text-[11px] text-slate-500">市值</div>
           </div>
           <div className="rounded-lg bg-slate-800/50 px-3 py-2 text-center">
             <div className={`text-lg font-bold ${pnlColor(holdings.total_pnl)}`}>
               {holdings.total_pnl >= 0 ? "+" : ""}
-              {(holdings.total_pnl).toLocaleString()}
+              {safeNumber(holdings.total_pnl).toLocaleString()}
             </div>
             <div className="text-[11px] text-slate-500">总盈亏</div>
           </div>
           <div className="rounded-lg bg-slate-800/50 px-3 py-2 text-center">
             <div className={`text-lg font-bold ${pnlColor(holdings.total_pnl_pct)}`}>
-              {holdings.total_pnl_pct >= 0 ? "+" : ""}
-              {holdings.total_pnl_pct}%
+              {fmtPct(holdings.total_pnl_pct)}
             </div>
             <div className="text-[11px] text-slate-500">盈亏率</div>
           </div>

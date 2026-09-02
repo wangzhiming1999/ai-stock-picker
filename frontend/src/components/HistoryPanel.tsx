@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { fetchBatchDetail, fetchBatches } from "../api/client";
-import type { AnalysisBatch, AnalysisBatchDetail } from "../types";
+import { safeArray } from "../lib/safe";
+import type { AnalysisBatch, AnalysisBatchDetail, StockAnalysis } from "../types";
 import StockCard from "./StockCard";
 
 interface Props {
@@ -104,7 +105,7 @@ export default function HistoryPanel({ refreshKey }: Props) {
             </button>
           </div>
           <div className="grid gap-6 lg:grid-cols-2">
-            {selectedBatch.results.map((r) => (
+            {safeArray<StockAnalysis>(selectedBatch.results).map((r) => (
               <StockCard key={r.code} analysis={r} />
             ))}
           </div>

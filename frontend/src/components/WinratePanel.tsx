@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { fetchWinrate } from "../api/client";
 import CollapsiblePanel from "./CollapsiblePanel";
+import { safeObj } from "../lib/safe";
 import type { WinrateStats } from "../types";
 
 function rateColor(rate: number | null | undefined): string {
@@ -75,7 +76,7 @@ export default function WinratePanel() {
             )}
             {data.prediction && Object.keys(data.prediction.by_direction || {}).length > 0 && (
               <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
-                {Object.entries(data.prediction.by_direction).map(([d, b]) => (
+                {Object.entries(safeObj<Record<string, { hit?: number; total?: number; hit_rate?: number }>>(data.prediction.by_direction, {})).map(([d, b]) => (
                   <span key={d} className="rounded bg-slate-800/60 px-2 py-1 text-slate-400">
                     {d} {b.hit}/{b.total}（{b.hit_rate ?? "-"}%）
                   </span>

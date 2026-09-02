@@ -1,6 +1,7 @@
 import type { StockAnalysis, StockInfo } from "../types";
 import KLineChart from "./KLineChart";
 import ScoreBar from "./ScoreBar";
+import { fmtNum, safeArray } from "../lib/safe";
 
 interface Props {
   analysis: StockAnalysis;
@@ -10,6 +11,9 @@ interface Props {
 export default function StockCard({ analysis, info }: Props) {
   const quote = info?.quote;
   const rising = (quote?.change_pct ?? 0) >= 0;
+  const dimensions = safeArray<{ name?: string; score?: number }>(analysis.dimensions);
+  const risks = safeArray<string>(analysis.risks);
+  const suggestions = safeArray<string>(analysis.suggestions);
 
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 backdrop-blur">
@@ -32,7 +36,7 @@ export default function StockCard({ analysis, info }: Props) {
         </div>
         <div className="text-right">
           <div className="text-sm text-slate-400">综合评分</div>
-          <div className="text-4xl font-black text-brand">{analysis.overall_score.toFixed(1)}</div>
+          <div className="text-4xl font-black text-brand">{fmtNum(analysis.overall_score, 1, "0")}</div>
           <div className="text-xs text-slate-500">/ 10</div>
         </div>
       </div>
@@ -43,7 +47,7 @@ export default function StockCard({ analysis, info }: Props) {
       </div>
 
       {/* 综合点评 */}
-      <p className="mt-4 text-sm leading-relaxed text-slate-300">{analysis.summary}</p>
+      <p className="mt-4 text-sm leading-relaxed text-slate-300">{analysis.summary ?? ""}</p>
 
       {/* 技术信号（压力位/买卖点/止损） */}
       {analysis.signal && (
@@ -53,38 +57,38 @@ export default function StockCard({ analysis, info }: Props) {
             <span className="flex items-center gap-1">
               <span className="text-[11px] text-slate-500">强度</span>
               <span className={`text-sm font-bold ${analysis.signal.strength >= 6 ? "text-green-400" : analysis.signal.strength >= 4 ? "text-yellow-400" : "text-red-400"}`}>
-                {analysis.signal.strength.toFixed(1)}
+                {fmtNum(analysis.signal.strength, 1)}
               </span>
               <span className="text-[11px] text-slate-500">风报比</span>
               <span className={`text-sm font-bold ${analysis.signal.rr_ratio >= 2 ? "text-green-400" : analysis.signal.rr_ratio >= 1 ? "text-yellow-400" : "text-red-400"}`}>
-                {analysis.signal.rr_ratio.toFixed(2)}
+                {fmtNum(analysis.signal.rr_ratio, 2)}
               </span>
             </span>
           </div>
           <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs sm:grid-cols-3">
             <div className="flex justify-between rounded bg-slate-800/50 px-2 py-1">
               <span className="text-slate-500">支撑位</span>
-              <span className="font-medium text-slate-200">{analysis.signal.support.toFixed(2)}</span>
+              <span className="font-medium text-slate-200">{fmtNum(analysis.signal.support)}</span>
             </div>
             <div className="flex justify-between rounded bg-slate-800/50 px-2 py-1">
               <span className="text-slate-500">压力位</span>
-              <span className="font-medium text-slate-200">{analysis.signal.resistance.toFixed(2)}</span>
+              <span className="font-medium text-slate-200">{fmtNum(analysis.signal.resistance)}</span>
             </div>
             <div className="flex justify-between rounded bg-green-900/30 px-2 py-1">
               <span className="text-slate-400">买入区</span>
-              <span className="font-medium text-green-400">{analysis.signal.buy_point.toFixed(2)}</span>
+              <span className="font-medium text-green-400">{fmtNum(analysis.signal.buy_point)}</span>
             </div>
             <div className="flex justify-between rounded bg-red-900/30 px-2 py-1">
               <span className="text-slate-400">卖出区</span>
-              <span className="font-medium text-red-400">{analysis.signal.sell_point.toFixed(2)}</span>
+              <span className="font-medium text-red-400">{fmtNum(analysis.signal.sell_point)}</span>
             </div>
             <div className="flex justify-between rounded bg-slate-800/50 px-2 py-1">
               <span className="text-slate-500">止损位</span>
-              <span className="font-medium text-orange-400">{analysis.signal.stop_loss.toFixed(2)}</span>
+              <span className="font-medium text-orange-400">{fmtNum(analysis.signal.stop_loss)}</span>
             </div>
             <div className="flex justify-between rounded bg-slate-800/50 px-2 py-1">
               <span className="text-slate-500">现价</span>
-              <span className="font-medium text-slate-200">{analysis.signal.price.toFixed(2)}</span>
+              <span className="font-medium text-slate-200">{fmtNum(analysis.signal.price)}</span>
             </div>
           </div>
         </div>
@@ -100,17 +104,17 @@ export default function StockCard({ analysis, info }: Props) {
 
       {/* 维度评分 */}
       <div className="mt-4 space-y-2">
-        {analysis.dimensions.map((d) => (
-          <ScoreBar key={d.name} label={d.name} score={d.score} />
+        {dimensions.map((d) => (
+          <ScoreBar key={d.name ?? String(d.score)} label={d.name ?? "-"} score={d.score ?? 0} />
         ))}
       </div>
 
       {/* 风险 */}
-      {analysis.risks.length > 0 && (
+      {risks.length > 0 && (
         <div className="mt-4 rounded-lg bg-red-950/40 border border-red-900/50 p-3">
           <div className="mb-1 text-xs font-semibold text-red-400">风险提示</div>
           <ul className="list-disc pl-4 text-xs text-red-300/80 space-y-0.5">
-            {analysis.risks.map((r, i) => (
+            {risks.map((r, i) => (
               <li key={i}>{r}</li>
             ))}
           </ul>
@@ -118,11 +122,11 @@ export default function StockCard({ analysis, info }: Props) {
       )}
 
       {/* 建议 */}
-      {analysis.suggestions.length > 0 && (
+      {suggestions.length > 0 && (
         <div className="mt-3 rounded-lg bg-slate-800/60 p-3">
           <div className="mb-1 text-xs font-semibold text-slate-400">操作建议</div>
           <ul className="list-disc pl-4 text-xs text-slate-300 space-y-0.5">
-            {analysis.suggestions.map((s, i) => (
+            {suggestions.map((s, i) => (
               <li key={i}>{s}</li>
             ))}
           </ul>

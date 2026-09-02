@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import * as echarts from "echarts";
 import { runBacktest } from "../api/client";
 import CollapsiblePanel from "./CollapsiblePanel";
+import { safeArray, safeNumber } from "../lib/safe";
 import type { BacktestResult } from "../types";
 
 const STRATEGIES = [
@@ -36,11 +37,12 @@ export default function BacktestPanel() {
 
   useEffect(() => {
     if (!chart.current || !result) return;
-    const dates = result.equity_curve.map((p) => p.date);
-    const values = result.equity_curve.map((p) => p.value);
-    const base = result.initial_capital;
+    const equity = safeArray<{ date: string; value: number }>(result.equity_curve);
+    const dates = equity.map((p) => p.date);
+    const values = equity.map((p) => p.value);
+    const base = safeNumber(result.initial_capital);
     // 基准曲线（按总收益线性近似）
-    const bench = result.benchmark_return != null ? result.equity_curve.map(() => base * (1 + result.benchmark_return! / 100)) : [];
+    const bench = result.benchmark_return != null ? equity.map(() => base * (1 + result.benchmark_return! / 100)) : [];
 
     chart.current.setOption({
       tooltip: { trigger: "axis", backgroundColor: "rgba(15,23,42,0.95)", borderColor: "#334155", textStyle: { color: "#e2e8f0" } },
