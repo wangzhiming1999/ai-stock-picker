@@ -37,20 +37,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!state.token) return;
-    // 校验 token 是否仍有效（静默）
+    // 静默校验 token 是否有效 —— 只在明确 401 时清除登录态
+    // 避免偶发抖动 / 冷启动 5xx 把用户踢出登录
     fetch("/api/auth/user", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token: state.token }),
     })
       .then((res) => {
-        if (!res.ok) {
+        if (res.status === 401) {
           localStorage.removeItem(TOKEN_KEY);
           localStorage.removeItem(USER_KEY);
           setState({ user: null, token: null });
         }
+        // 200：保持登录；其他（500、网络）：保留登录态等下次再校验
       })
-      .catch(() => {});
+      .catch(() => {
+        // 网络错误等：保留登录态，下次刷新再校验
+      });
   }, [state.token]);
 
   const persist = useCallback((user: AuthUser, token: string) => {

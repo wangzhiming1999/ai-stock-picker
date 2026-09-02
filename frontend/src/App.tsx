@@ -3,6 +3,7 @@ import { useAuth } from "./auth/AuthContext";
 import { fetchStock, streamAnalysis } from "./api/client";
 import AuthModal from "./components/AuthModal";
 import DiscoverPanel from "./components/DiscoverPanel";
+import ErrorBoundary from "./components/ErrorBoundary";
 import HistoryPanel from "./components/HistoryPanel";
 import PortfolioPanel from "./components/PortfolioPanel";
 import ScanPanel from "./components/ScanPanel";
@@ -257,7 +258,8 @@ export default function App() {
           </p>
         </div>
 
-        {/* 深度分析 */}
+        <ErrorBoundary>
+          {/* 深度分析 */}
         {tab === "analyze" && (
           <>
             {/* 输入区 */}
@@ -399,6 +401,7 @@ export default function App() {
             )}
           </div>
         )}
+        </ErrorBoundary>
       </main>
 
       {/* 移动端底部导航 */}
