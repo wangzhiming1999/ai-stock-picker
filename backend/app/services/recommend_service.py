@@ -60,16 +60,22 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
     """
     data_day = await trade_calendar_service.last_trading_day()
     today = data_day.isoformat()
+    target_day = (await trade_calendar_service.next_trading_day(data_day)).isoformat()
+
+    def _with_target(result: dict) -> dict:
+        result.setdefault("target_date", target_day)
+        return result
 
     # 1. 数据库缓存（按数据日）
     if not force_refresh:
         db_result = await _load_db_recommendation(today)
         if db_result:
+            db_result = _with_target(db_result)
             _recommendation_cache[today] = (dt.datetime.now().isoformat(), db_result)
             return db_result
     # 2. 内存缓存
     if not force_refresh and today in _recommendation_cache:
-        return _recommendation_cache[today][1]
+        return _with_target(_recommendation_cache[today][1])
 
     settings = get_settings()
     candidates: dict[str, dict] = {}
@@ -89,7 +95,7 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
     # 2. 按策略分排序取 top 15
     ranked = sorted(candidates.values(), key=lambda x: x["strategy_score"], reverse=True)[:15]
     if not ranked:
-        result = {"date": today, "source": "empty", "recommendations": [], "candidates": 0, "message": "没有找到合适的候选股票（可能是非交易日或盘前）"}
+        result = {"date": today, "target_date": target_day, "source": "empty", "recommendations": [], "candidates": 0, "message": "没有找到合适的候选股票（可能是非交易日或盘前）"}
         _recommendation_cache[today] = (dt.datetime.now().isoformat(), result)
         return result
 
@@ -167,6 +173,7 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
 
     result = {
         "date": today,
+        "target_date": target_day,
         "source": source,
         "recommendations": recs,
         "candidates": len(ranked),

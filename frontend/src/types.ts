@@ -179,7 +179,10 @@ export interface DailyRecommendation {
 }
 
 export interface DailyRecommendResult {
+  /** 数据日：行情收盘对应的最近交易日 */
   date: string;
+  /** 目标关注日：下一个交易日（T+1） */
+  target_date?: string;
   source: "llm" | "rule" | "empty";
   recommendations: DailyRecommendation[];
   candidates: number;

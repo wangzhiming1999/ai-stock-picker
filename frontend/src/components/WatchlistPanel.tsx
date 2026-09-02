@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
+import { CalendarDays } from "lucide-react";
 import { fetchDailyRecommend, fetchWatchlist, importToWatchlist, removeFromWatchlist } from "../api/client";
+import { fmtDayLabel, isTodayCN } from "../lib/dates";
 import { fmtNum, fmtPct } from "../lib/safe";
 import type { DailyRecommendResult, WatchlistData } from "../types";
 import { useAuth } from "../auth/AuthContext";
@@ -33,6 +35,20 @@ export default function WatchlistPanel({ onAnalyze }: Props) {
   useEffect(() => {
     if (user) void load();
   }, [user, load]);
+
+  // 拉取每日推荐（带日期），用于"导入每日推荐"的日期提示；失败静默不影响自选展示
+  const loadDaily = useCallback(async () => {
+    try {
+      const d = await fetchDailyRecommend();
+      if (d?.recommendations?.length) setDaily(d);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    if (user) void loadDaily();
+  }, [user, loadDaily]);
 
   const doImportDaily = async () => {
     setImporting(true);
@@ -85,7 +101,7 @@ export default function WatchlistPanel({ onAnalyze }: Props) {
             disabled={importing}
             className="rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-dark disabled:opacity-50"
           >
-            {importing ? "导入中..." : "+ 导入今日推荐"}
+            {importing ? "导入中..." : "+ 导入每日推荐"}
           </button>
           <button onClick={() => void load()} className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200">
             刷新
@@ -93,6 +109,25 @@ export default function WatchlistPanel({ onAnalyze }: Props) {
         </div>
       </div>
 
+      {daily?.date && daily.recommendations.length > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-slate-800 bg-slate-800/40 px-3 py-2 text-xs text-slate-400">
+          <CalendarDays className="h-3.5 w-3.5 shrink-0 text-slate-500" />
+          <span>
+            可导入推荐基于 <span className="font-medium text-slate-200">{fmtDayLabel(daily.date)}</span> 收盘
+            {daily.target_date && (
+              <>
+                <span className="mx-1.5 text-slate-600">→</span>
+                目标关注 <span className="font-medium text-amber-300">{fmtDayLabel(daily.target_date)}</span>
+              </>
+            )}
+          </span>
+          {isTodayCN(daily.date) ? (
+            <span className="rounded bg-green-500/10 px-1.5 py-0.5 text-[11px] text-green-400">当日收盘</span>
+          ) : (
+            <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[11px] text-amber-400">最近交易日</span>
+          )}
+        </div>
+      )}
       {err && <div className="mb-3 rounded-lg border border-red-800 bg-red-950/40 px-3 py-2 text-sm text-red-300">{err}</div>}
       {importMsg && <div className="mb-3 rounded-lg border border-green-800 bg-green-950/40 px-3 py-2 text-sm text-green-300">{importMsg}</div>}
       {loading && <div className="p-3 text-sm text-slate-500">加载中...</div>}
@@ -174,7 +209,7 @@ export default function WatchlistPanel({ onAnalyze }: Props) {
         </div>
       ) : (
         <div className="rounded-lg bg-slate-800/40 p-4 text-center text-sm text-slate-500">
-          暂无自选股。点击"导入今日推荐"一键添加，或在下方扫描结果中加星。
+          暂无自选股。点击"导入每日推荐"一键添加，或在下方扫描结果中加星。
         </div>
       )}
       <p className="mt-2 text-right text-[11px] text-slate-600">行情为实时快照，仅供研究参考</p>

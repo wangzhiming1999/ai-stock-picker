@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
+import { CalendarDays } from "lucide-react";
 import { fetchDailyRecommend } from "../api/client";
+import { fmtDate, fmtDayLabel, isTodayCN } from "../lib/dates";
 import CollapsiblePanel from "./CollapsiblePanel";
 import WatchStar from "./WatchStar";
 import type { DailyRecommendResult } from "../types";
@@ -49,8 +51,8 @@ export default function DailyRecommendCard({ onPick }: Props) {
   return (
     <CollapsiblePanel
       id="daily_recommend"
-      title="每日收盘推荐"
-      subtitle="策略扫描 + AI 精选明日最值得关注的 10 只标的"
+      title={data ? `每日收盘推荐 · ${fmtDate(data.date)}` : "每日收盘推荐"}
+      subtitle="策略扫描 + AI 精选收盘后下一个交易日值得关注的标的"
       action={
         <div className="flex items-center gap-2">
           {data?.recommendations?.length ? (
@@ -69,6 +71,26 @@ export default function DailyRecommendCard({ onPick }: Props) {
       }
     >
       {err && <div className="rounded-lg border border-red-800 bg-red-950/40 px-3 py-2 text-sm text-red-300">{err}</div>}
+
+      {data?.date && (
+        <div className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-slate-800 bg-slate-800/40 px-3 py-2 text-xs text-slate-400">
+          <CalendarDays className="h-3.5 w-3.5 shrink-0 text-slate-500" />
+          <span>
+            数据截至 <span className="font-medium text-slate-200">{fmtDayLabel(data.date)}</span> 收盘
+            {data.target_date && (
+              <>
+                <span className="mx-1.5 text-slate-600">→</span>
+                目标关注 <span className="font-medium text-amber-300">{fmtDayLabel(data.target_date)}</span>
+              </>
+            )}
+          </span>
+          {isTodayCN(data.date) ? (
+            <span className="rounded bg-green-500/10 px-1.5 py-0.5 text-[11px] text-green-400">当日收盘</span>
+          ) : (
+            <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[11px] text-amber-400">最近交易日</span>
+          )}
+        </div>
+      )}
 
       {!data && !err && <div className="p-3 text-sm text-slate-500">正在扫描全市场并生成 AI 推荐...</div>}
 
