@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { fetchIndustries, scanMarket, strategyScan } from "../api/client";
+import BacktestPanel from "./BacktestPanel";
 import DailyRecommendCard from "./DailyRecommendCard";
 import PredictionCard from "./PredictionCard";
 import WinratePanel from "./WinratePanel";
@@ -129,6 +130,9 @@ export default function MarketPanel({ onPick }: Props) {
 
       {/* 胜率看板 */}
       <WinratePanel />
+
+      {/* 策略回测 */}
+      <BacktestPanel />
 
       {/* 策略选股 */}
       <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">

@@ -1,6 +1,7 @@
 import type {
   AnalysisBatch,
   AnalysisBatchDetail,
+  BacktestResult,
   DailyRecommendResult,
   Industry,
   MarketPrediction,
@@ -112,6 +113,27 @@ export async function settlePrediction(): Promise<{ settled: number }> {
 export async function searchStocks(q: string, limit = 8): Promise<StockSearchResult[]> {
   const res = await fetch(`${API}/market/search?q=${encodeURIComponent(q)}&limit=${limit}`);
   if (!res.ok) throw new Error(`搜索失败: ${res.status}`);
+  return res.json();
+}
+
+export async function runBacktest(params: {
+  strategy: string;
+  start_date: string;
+  end_date: string;
+  top_n: number;
+  rebalance_days: number;
+  initial_capital?: number;
+  codes?: string[];
+}): Promise<BacktestResult> {
+  const res = await fetch(`${API}/backtest/run`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || `回测失败: ${res.status}`);
+  }
   return res.json();
 }
 

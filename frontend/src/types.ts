@@ -158,6 +158,23 @@ export interface DailyRecommendResult {
   message?: string;
 }
 
+export interface BacktestResult {
+  strategy: string;
+  start: string;
+  end: string;
+  initial_capital: number;
+  final_value: number;
+  total_return: number;
+  annual_return: number;
+  max_drawdown: number;
+  sharpe: number;
+  win_rate: number;
+  periods: number;
+  benchmark_return: number | null;
+  equity_curve: { date: string; value: number; holdings: string[] }[];
+  pool_size: number;
+}
+
 export interface WinrateStats {
   prediction: {
     total: number;
