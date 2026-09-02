@@ -120,7 +120,14 @@ async def list_holdings(user_id: str) -> list[dict]:
     )
     holdings = res.data or []
     if not holdings:
-        return []
+        # 无持仓也返回标准 dict 结构（避免调用方 list.get 崩溃）
+        return {
+            "holdings": [],
+            "total_value": 0.0,
+            "total_cost": 0.0,
+            "total_pnl": 0.0,
+            "total_pnl_pct": 0.0,
+        }
 
     # 批量获取行情
     codes = [h["code"] for h in holdings]
