@@ -3,9 +3,12 @@ import type {
   AnalysisBatchDetail,
   BacktestResult,
   DailyRecommendResult,
+  Holding,
+  HoldingsData,
   Industry,
   MarketPrediction,
   NewsItem,
+  PortfolioAdvice,
   PredictionRecord,
   PredictionStats,
   ScanStock,
@@ -14,6 +17,7 @@ import type {
   StrategyName,
   StrategyStock,
   SSEEvent,
+  UserProfile,
   WinrateStats,
 } from "../types";
 
@@ -140,6 +144,75 @@ export async function runBacktest(params: {
 export async function fetchWinrate(): Promise<WinrateStats> {
   const res = await fetch(`${API}/market/winrate`);
   if (!res.ok) throw new Error(`获取胜率失败: ${res.status}`);
+  return res.json();
+}
+
+// ---------- 持仓 ----------
+
+async function authFetch(url: string, init?: RequestInit): Promise<Response> {
+  const token = getAuthToken();
+  const headers = new Headers(init?.headers);
+  headers.set("Content-Type", "application/json");
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  return fetch(url, { ...init, headers });
+}
+
+export async function fetchPortfolioProfile(): Promise<UserProfile> {
+  const res = await authFetch(`${API}/portfolio/profile`);
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(d.detail || `获取配置失败: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function updatePortfolioProfile(payload: { risk_level?: string; total_capital?: number }): Promise<UserProfile> {
+  const res = await authFetch(`${API}/portfolio/profile`, { method: "PUT", body: JSON.stringify(payload) });
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(d.detail || `更新配置失败: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function fetchHoldings(): Promise<HoldingsData> {
+  const res = await authFetch(`${API}/portfolio/holdings`);
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(d.detail || `获取持仓失败: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function addHolding(payload: { code: string; cost_price: number; shares: number; buy_date?: string; note?: string }): Promise<Holding> {
+  const res = await authFetch(`${API}/portfolio/holdings`, { method: "POST", body: JSON.stringify(payload) });
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(d.detail || `添加持仓失败: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function updateHolding(id: number, payload: Partial<{ cost_price: number; shares: number; note: string }>): Promise<Holding> {
+  const res = await authFetch(`${API}/portfolio/holdings/${id}`, { method: "PUT", body: JSON.stringify(payload) });
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(d.detail || `更新持仓失败: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function removeHolding(id: number): Promise<void> {
+  const res = await authFetch(`${API}/portfolio/holdings/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(`删除持仓失败: ${res.status}`);
+}
+
+export async function fetchPortfolioAdvice(): Promise<PortfolioAdvice> {
+  const res = await authFetch(`${API}/portfolio/advice`);
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(d.detail || `获取建议失败: ${res.status}`);
+  }
   return res.json();
 }
 

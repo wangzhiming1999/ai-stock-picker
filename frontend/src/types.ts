@@ -175,6 +175,64 @@ export interface BacktestResult {
   pool_size: number;
 }
 
+export interface UserProfile {
+  user_id: string;
+  risk_level: string;
+  total_capital: number;
+}
+
+export interface Holding {
+  id: number;
+  user_id: string;
+  code: string;
+  name: string;
+  cost_price: number;
+  shares: number;
+  buy_date?: string | null;
+  note?: string;
+  created_at: string;
+  current_price?: number | null;
+  market_value?: number;
+  pnl?: number | null;
+  pnl_pct?: number | null;
+  signal?: TradeSignal | null;
+}
+
+export interface HoldingsData {
+  holdings: Holding[];
+  total_value: number;
+  total_cost: number;
+  total_pnl: number;
+  total_pnl_pct: number;
+}
+
+export interface HoldingAdviceItem {
+  code: string;
+  name: string;
+  price?: number | null;
+  cost_price: number;
+  pnl_pct?: number | null;
+  position_pct: number;
+  strength: number;
+  rr_ratio: number;
+  support?: number | null;
+  resistance?: number | null;
+  stop_loss?: number | null;
+  action: string;
+  tips: string[];
+}
+
+export interface PortfolioAdvice {
+  risk_level: string;
+  risk_desc: string;
+  total_capital: number;
+  total_value?: number;
+  total_pnl_pct?: number;
+  portfolio_tips: string[];
+  holdings_advice: HoldingAdviceItem[];
+  generated_at: string;
+}
+
 export interface WinrateStats {
   prediction: {
     total: number;

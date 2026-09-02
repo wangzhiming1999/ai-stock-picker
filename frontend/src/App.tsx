@@ -4,12 +4,13 @@ import { fetchStock, streamAnalysis } from "./api/client";
 import AuthModal from "./components/AuthModal";
 import HistoryPanel from "./components/HistoryPanel";
 import MarketPanel from "./components/MarketPanel";
+import PortfolioPanel from "./components/PortfolioPanel";
 import StockCard from "./components/StockCard";
 import StockSearchInput from "./components/StockSearchInput";
 import type { StockAnalysis, StockInfo, SSEEvent } from "./types";
 
 type Phase = "idle" | "running" | "done" | "error";
-type Tab = "analyze" | "market" | "history";
+type Tab = "analyze" | "market" | "history" | "portfolio";
 
 interface AnalysisItem {
   analysis: StockAnalysis;
@@ -129,6 +130,7 @@ export default function App() {
   const tabs: { key: Tab; label: string }[] = [
     { key: "analyze", label: "AI 选股" },
     { key: "market", label: "市场扫描" },
+    { key: "portfolio", label: "我的持仓" },
     { key: "history", label: "历史记录" },
   ];
 
@@ -306,6 +308,8 @@ export default function App() {
         )}
 
         {tab === "market" && <MarketPanel onPick={handleMarketPick} />}
+
+        {tab === "portfolio" && <PortfolioPanel />}
 
         {tab === "history" && <HistoryPanel refreshKey={historyRefresh} />}
       </main>
