@@ -1,7 +1,19 @@
-import { useCallback, useEffect, useState } from "react";
-import { ArrowDownRight, ArrowUpRight, Bell, RefreshCw, Target } from "lucide-react";
-import { fetchBriefing } from "../api/client";
+import { type MouseEvent, useCallback, useEffect, useState } from "react";
+import { ArrowDownRight, ArrowUpRight, Bell, Plus, RefreshCw, Target } from "lucide-react";
+import { addToWatchlist, fetchBriefing, getAuthToken } from "../api/client";
 import type { Briefing, BriefingHolding, BriefingStock } from "../types";
+
+/** 技术位由规则推导的标识，避免误当确定性建议 */
+function AlgoTag() {
+  return (
+    <span
+      className="rounded bg-slate-700/40 px-1 text-[9px] leading-none text-slate-400"
+      title="该价位/手数由技术位规则推导，非确定性建议"
+    >
+      算法推导
+    </span>
+  );
+}
 
 interface Props {
   onPick: (codes: string[]) => void;
@@ -25,19 +37,61 @@ function Money({ v }: { v?: number | null }) {
 }
 
 function MorningStockCard({ s, onPick }: { s: BriefingStock; onPick: (c: string) => void }) {
+  const [added, setAdded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [tip, setTip] = useState("");
+
+  const flashTip = (msg: string) => {
+    setTip(msg);
+    setTimeout(() => setTip(""), 1800);
+  };
+
+  const addWatch = async (e: MouseEvent) => {
+    e.stopPropagation();
+    if (busy || added) return;
+    if (!getAuthToken()) {
+      flashTip("请先登录");
+      return;
+    }
+    setBusy(true);
+    try {
+      await addToWatchlist(s.code);
+      setAdded(true);
+      flashTip("已加入自选");
+    } catch (err) {
+      flashTip((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <button
+    <div
       onClick={() => onPick(s.code)}
-      className="w-full rounded-lg border border-slate-800 bg-slate-900/60 p-3 text-left transition-colors hover:border-brand/50 hover:bg-slate-900"
+      className="cursor-pointer rounded-lg border border-slate-800 bg-slate-900/60 p-3 transition-colors hover:border-brand/50 hover:bg-slate-900"
     >
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-2">
         <div className="flex items-baseline gap-2">
           <span className="font-semibold text-slate-100">{s.name}</span>
           <span className="text-xs text-slate-500">{s.code}</span>
         </div>
-        <span className="text-xs text-slate-400">
-          置信 <span className="font-semibold text-brand">{s.confidence ?? "—"}</span>
-        </span>
+        <button
+          onClick={addWatch}
+          disabled={added}
+          className={`flex shrink-0 items-center gap-1 rounded border px-2 py-0.5 text-[11px] transition-colors ${
+            added
+              ? "border-green-700 text-green-400"
+              : "border-slate-700 text-slate-300 hover:border-brand hover:text-brand"
+          }`}
+        >
+          <Plus className="h-3 w-3" />
+          {added ? "已自选" : busy ? "..." : "加自选"}
+        </button>
+      </div>
+
+      <div className="mt-1 flex items-center gap-1 text-xs text-slate-400">
+        置信 <span className="font-semibold text-brand">{s.confidence ?? "—"}</span>
+        {tip && <span className="ml-1 text-[11px] text-amber-300">{tip}</span>}
       </div>
 
       <div className="mt-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
@@ -46,15 +100,15 @@ function MorningStockCard({ s, onPick }: { s: BriefingStock; onPick: (c: string)
           <div className="text-slate-200"><Money v={s.price} /></div>
         </div>
         <div className="rounded bg-green-500/10 px-2 py-1">
-          <div className="text-green-500/70">买点</div>
+          <div className="flex items-center gap-1 text-green-500/70">买点 <AlgoTag /></div>
           <div className="text-green-300"><Money v={s.buy_point} /></div>
         </div>
         <div className="rounded bg-red-500/10 px-2 py-1">
-          <div className="text-red-500/70">止损</div>
+          <div className="flex items-center gap-1 text-red-500/70">止损 <AlgoTag /></div>
           <div className="text-red-300"><Money v={s.stop_loss} /></div>
         </div>
         <div className="rounded bg-slate-800/60 px-2 py-1">
-          <div className="text-slate-500">建议</div>
+          <div className="flex items-center gap-1 text-slate-500">建议 <AlgoTag /></div>
           <div className="text-slate-200">
             {s.suggest_shares ? `${s.suggest_shares}股` : "—"}
           </div>
@@ -62,20 +116,60 @@ function MorningStockCard({ s, onPick }: { s: BriefingStock; onPick: (c: string)
       </div>
 
       <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-slate-400">{s.reason}</p>
-    </button>
+    </div>
   );
 }
 
 function TailHoldingCard({ h }: { h: BriefingHolding }) {
   const tone = actionTone(h.action);
+  const [watching, setWatching] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [tip, setTip] = useState("");
+
+  const flashTip = (msg: string) => {
+    setTip(msg);
+    setTimeout(() => setTip(""), 1800);
+  };
+
+  const setReminder = async () => {
+    if (busy || watching) return;
+    if (!getAuthToken()) {
+      flashTip("请先登录");
+      return;
+    }
+    setBusy(true);
+    try {
+      await addToWatchlist(h.code);
+      setWatching(true);
+      flashTip("已盯盘，盘中提醒即将上线");
+    } catch (err) {
+      flashTip((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-3">
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-2">
         <div className="flex items-baseline gap-2">
           <span className="font-semibold text-slate-100">{h.name}</span>
           <span className="text-xs text-slate-500">{h.code}</span>
         </div>
-        <span className={`rounded px-2 py-0.5 text-xs font-medium ${tone.bg} ${tone.text}`}>{tone.label}</span>
+        <div className="flex shrink-0 items-center gap-2">
+          <span className={`rounded px-2 py-0.5 text-xs font-medium ${tone.bg} ${tone.text}`}>{tone.label}</span>
+          <button
+            onClick={setReminder}
+            disabled={watching}
+            className={`rounded border px-2 py-0.5 text-[11px] transition-colors ${
+              watching
+                ? "border-brand/50 text-brand"
+                : "border-slate-700 text-slate-300 hover:border-brand hover:text-brand"
+            }`}
+          >
+            {watching ? "已盯盘" : busy ? "..." : "设提醒"}
+          </button>
+        </div>
       </div>
 
       <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
@@ -87,7 +181,7 @@ function TailHoldingCard({ h }: { h: BriefingHolding }) {
           </div>
         </div>
         <div className="rounded bg-red-500/10 px-2 py-1">
-          <div className="text-red-500/70">止损</div>
+          <div className="flex items-center gap-1 text-red-500/70">止损 <AlgoTag /></div>
           <div className="text-red-300"><Money v={h.stop_loss} /></div>
         </div>
         <div className="rounded bg-slate-800/60 px-2 py-1">
@@ -106,6 +200,7 @@ function TailHoldingCard({ h }: { h: BriefingHolding }) {
           ))}
         </ul>
       )}
+      {tip && <div className="mt-2 text-[11px] text-amber-300">{tip}</div>}
     </div>
   );
 }
@@ -232,8 +327,8 @@ export default function DailyBriefing({ onPick }: Props) {
           )}
         </div>
 
-        <p className="mt-3 text-center text-[11px] text-slate-600">
-          信号由技术位推导，仅供参考，不构成投资建议
+        <p className="mt-3 text-center text-[11px] leading-relaxed text-slate-600">
+          买点 / 止损 / 手数均为<span className="text-slate-500">算法推导</span>，仅供参考，不构成投资建议；据此操作风险自担。
         </p>
       </div>
     </section>

@@ -5,7 +5,7 @@ const WEEK_CN = ["日", "一", "二", "三", "四", "五", "六"];
 /** "2026-09-01" → "9月1日"；空值返回 "" */
 export function fmtDate(iso?: string): string {
   if (!iso) return "";
-  const [y, m, d] = iso.split("-").map(Number);
+  const [, m, d] = iso.split("-").map(Number);
   return `${m}月${d}日`;
 }
 

@@ -35,9 +35,23 @@ export default function DiscoverPanel({ onPick }: Props) {
     <div className="space-y-5">
       <DailyBriefing onPick={onPick} />
 
-      <DailyRecommendCard onPick={onPick} />
+      <CollapsiblePanel
+        id="daily-recommend-detail"
+        title="每日推荐明细"
+        subtitle="早盘关注池完整版 · 与上方简报同源，展开看全量推荐"
+        defaultOpen={false}
+      >
+        <DailyRecommendCard onPick={onPick} collapsed />
+      </CollapsiblePanel>
 
-      <PredictionCard />
+      <CollapsiblePanel
+        id="prediction-detail"
+        title="大盘推衍详情"
+        subtitle="含指数走势图与推衍逻辑 · 展开看完整分析"
+        defaultOpen={false}
+      >
+        <PredictionCard />
+      </CollapsiblePanel>
 
       <CollapsiblePanel
         id="industry"

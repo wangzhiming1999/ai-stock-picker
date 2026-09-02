@@ -8,9 +8,11 @@ import type { DailyRecommendResult } from "../types";
 
 interface Props {
   onPick: (codes: string[]) => void;
+  /** 折叠态：被外层 CollapsiblePanel 包裹时，不再渲染自身面板头，避免双层标题 */
+  collapsed?: boolean;
 }
 
-export default function DailyRecommendCard({ onPick }: Props) {
+export default function DailyRecommendCard({ onPick, collapsed = false }: Props) {
   const [data, setData] = useState<DailyRecommendResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
@@ -48,28 +50,27 @@ export default function DailyRecommendCard({ onPick }: Props) {
     }
   };
 
-  return (
-    <CollapsiblePanel
-      id="daily_recommend"
-      title={data ? `每日收盘推荐 · ${fmtDate(data.date)}` : "每日收盘推荐"}
-      subtitle="策略扫描 + AI 精选收盘后下一个交易日值得关注的标的"
-      action={
-        <div className="flex items-center gap-2">
-          {data?.recommendations?.length ? (
-            <button onClick={pickAll} className="rounded-lg bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-500">
-              全部去分析 →
-            </button>
-          ) : null}
-          <button
-            onClick={() => void load(true)}
-            disabled={loading}
-            className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-slate-400 hover:text-slate-200 disabled:opacity-50"
-          >
-            {loading ? "生成中..." : "强制刷新"}
-          </button>
-        </div>
-      }
+  const actions = data?.recommendations?.length ? (
+    <button
+      onClick={pickAll}
+      className="rounded-lg bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-500"
     >
+      全部去分析 →
+    </button>
+  ) : null;
+
+  const refreshBtn = (
+    <button
+      onClick={() => void load(true)}
+      disabled={loading}
+      className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-slate-400 hover:text-slate-200 disabled:opacity-50"
+    >
+      {loading ? "生成中..." : "强制刷新"}
+    </button>
+  );
+
+  const body = (
+    <>
       {err && <div className="rounded-lg border border-red-800 bg-red-950/40 px-3 py-2 text-sm text-red-300">{err}</div>}
 
       {data?.date && (
@@ -132,6 +133,34 @@ export default function DailyRecommendCard({ onPick }: Props) {
           ))}
         </div>
       ) : null}
+    </>
+  );
+
+  if (collapsed) {
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center justify-end gap-2">
+          {actions}
+          {refreshBtn}
+        </div>
+        {body}
+      </div>
+    );
+  }
+
+  return (
+    <CollapsiblePanel
+      id="daily_recommend"
+      title={data ? `每日收盘推荐 · ${fmtDate(data.date)}` : "每日收盘推荐"}
+      subtitle="策略扫描 + AI 精选收盘后下一个交易日值得关注的标的"
+      action={
+        <div className="flex items-center gap-2">
+          {actions}
+          {refreshBtn}
+        </div>
+      }
+    >
+      {body}
     </CollapsiblePanel>
   );
 }
