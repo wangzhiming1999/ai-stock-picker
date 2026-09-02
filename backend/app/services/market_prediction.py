@@ -106,11 +106,23 @@ def build_market_context(hist: list[dict]) -> tuple[str, dict]:
 
 
 async def predict_tomorrow(force_refresh: bool = False) -> dict:
-    """生成明日大盘走势预测（每日缓存，仅 force_refresh 时重跑）。"""
+    """生成明日大盘走势预测。
+
+    优先返回数据库当日缓存（跨实例共享），无则生成并写入。
+    """
     settings = get_settings()
     today = dt.date.today().isoformat()
+
+    # 1. 数据库缓存（当日）
+    if not force_refresh:
+        db_result = await _load_db_prediction(today)
+        if db_result:
+            _prediction_cache[today] = (dt.datetime.now().isoformat(), db_result)
+            return db_result
+    # 2. 内存缓存
     if not force_refresh and today in _prediction_cache:
         return _prediction_cache[today][1]
+
     hist = await asyncio_hist()
     ctx, summary = build_market_context(hist)
 
@@ -175,9 +187,54 @@ async def predict_tomorrow(force_refresh: bool = False) -> dict:
     except Exception as e:
         print(f"[prediction] 保存记录失败: {e}")
 
-    # 写入每日缓存
+    # 写入每日缓存（内存 + 数据库）
     _prediction_cache[today] = (dt.datetime.now().isoformat(), result)
+    try:
+        await _save_db_prediction(today, result)
+    except Exception as e:
+        print(f"[prediction] 数据库缓存写入失败: {e}")
     return result
+
+
+async def _load_db_prediction(pred_date: str) -> dict | None:
+    """从数据库读取当日预测。"""
+    if not supabase_store.is_configured():
+        return None
+    try:
+        sb = await supabase_store.get_service_client()
+        res = (
+            await sb.table("daily_predictions")
+            .select("result")
+            .eq("pred_date", pred_date)
+            .limit(1)
+            .execute()
+        )
+        if res.data:
+            return res.data[0]["result"]
+    except Exception as e:
+        print(f"[prediction] 数据库读取失败: {e}")
+    return None
+
+
+async def _save_db_prediction(pred_date: str, result: dict) -> None:
+    """写入当日预测到数据库（upsert）。"""
+    if not supabase_store.is_configured():
+        return
+    sb = await supabase_store.get_service_client()
+    existing = (
+        await sb.table("daily_predictions")
+        .select("id")
+        .eq("pred_date", pred_date)
+        .limit(1)
+        .execute()
+    )
+    import json
+
+    payload = {"pred_date": pred_date, "result": result}
+    if existing.data:
+        await sb.table("daily_predictions").update(payload).eq("id", existing.data[0]["id"]).execute()
+    else:
+        await sb.table("daily_predictions").insert(payload).execute()
 
 
 def clear_prediction_cache() -> None:
