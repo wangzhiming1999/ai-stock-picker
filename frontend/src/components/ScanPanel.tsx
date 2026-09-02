@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { scanMarket, strategyScan } from "../api/client";
+import { fetchAuctionOpportunity, fetchClosingOpportunity, scanMarket, strategyScan } from "../api/client";
 import CollapsiblePanel from "./CollapsiblePanel";
 import BacktestPanel from "./BacktestPanel";
 import WinratePanel from "./WinratePanel";
-import type { ScanStock, StrategyDef, StrategyName, StrategyStock } from "../types";
+import type { OpportunityResult, ScanStock, StrategyDef, StrategyName, StrategyStock } from "../types";
 
 interface Props {
   onPick: (codes: string[]) => void;
@@ -33,6 +33,55 @@ export default function ScanPanel({ onPick }: Props) {
   const [maxPrice, setMaxPrice] = useState("500");
   const [limit, setLimit] = useState("50");
   const [err, setErr] = useState("");
+
+  // 早盘竞价 / 尾盘机会状态
+  const [auctionResult, setAuctionResult] = useState<OpportunityResult | null>(null);
+  const [auctionLoading, setAuctionLoading] = useState(false);
+  const [closingResult, setClosingResult] = useState<OpportunityResult | null>(null);
+  const [closingLoading, setClosingLoading] = useState(false);
+  const [opportunitySelected, setOpportunitySelected] = useState<Set<string>>(new Set());
+
+  const runAuction = async () => {
+    setAuctionLoading(true);
+    setErr("");
+    setAuctionResult(null);
+    setOpportunitySelected(new Set());
+    try {
+      setAuctionResult(await fetchAuctionOpportunity(15));
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setAuctionLoading(false);
+    }
+  };
+
+  const runClosing = async () => {
+    setClosingLoading(true);
+    setErr("");
+    setClosingResult(null);
+    setOpportunitySelected(new Set());
+    try {
+      setClosingResult(await fetchClosingOpportunity(15));
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setClosingLoading(false);
+    }
+  };
+
+  const toggleOpportunity = (code: string) => {
+    setOpportunitySelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(code)) next.delete(code);
+      else next.add(code);
+      return next;
+    });
+  };
+
+  const pickOpportunitySelected = () => {
+    if (opportunitySelected.size === 0) return;
+    onPick(Array.from(opportunitySelected));
+  };
 
   const runStrategy = async (s: StrategyName) => {
     setStrategy(s);
@@ -103,6 +152,141 @@ export default function ScanPanel({ onPick }: Props) {
 
   return (
     <div className="space-y-5">
+      {/* 早盘竞价机会（9:15-9:30） */}
+      <CollapsiblePanel
+        id="scan_auction"
+        title="早盘竞价机会"
+        subtitle="9:15-9:30 集合竞价 · 博当日大涨（涨幅+量比筛选）"
+        action={
+          auctionResult?.items?.length ? (
+            <button
+              onClick={pickOpportunitySelected}
+              disabled={opportunitySelected.size === 0}
+              className="rounded-lg bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-500 disabled:opacity-40"
+            >
+              勾选 {opportunitySelected.size} 只去分析 →
+            </button>
+          ) : undefined
+        }
+      >
+        <button
+          onClick={() => void runAuction()}
+          disabled={auctionLoading}
+          className="rounded-lg bg-amber-600 px-5 py-2 text-sm font-medium text-white hover:bg-amber-500 disabled:opacity-50"
+        >
+          {auctionLoading ? "扫描中..." : "扫描早盘竞价（9:15-9:30）"}
+        </button>
+        {auctionResult?.items?.length ? (
+          <div className="mt-4 max-h-96 overflow-y-auto rounded-lg border border-slate-800">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-slate-900 text-left text-xs text-slate-400">
+                <tr>
+                  <th className="px-3 py-2">勾选</th>
+                  <th className="px-3 py-2">名称</th>
+                  <th className="px-3 py-2">代码</th>
+                  <th className="px-3 py-2 text-right">涨幅</th>
+                  <th className="px-3 py-2 text-right">量比</th>
+                  <th className="px-3 py-2 text-right">成交额(亿)</th>
+                  <th className="px-3 py-2 text-right">评分</th>
+                </tr>
+              </thead>
+              <tbody>
+                {auctionResult.items.map((s) => (
+                  <tr
+                    key={s.code}
+                    onClick={() => toggleOpportunity(s.code)}
+                    className={`cursor-pointer border-t border-slate-800/60 hover:bg-slate-800/40 ${opportunitySelected.has(s.code) ? "bg-slate-800/70" : ""}`}
+                  >
+                    <td className="px-3 py-1.5">
+                      <input type="checkbox" readOnly checked={opportunitySelected.has(s.code)} className="accent-brand" />
+                    </td>
+                    <td className="px-3 py-1.5 text-slate-200">{s.name}</td>
+                    <td className="px-3 py-1.5 text-slate-500">{s.code}</td>
+                    <td className={`px-3 py-1.5 text-right ${s.change_pct >= 0 ? "text-green-400" : "text-red-400"}`}>
+                      {s.change_pct >= 0 ? "+" : ""}
+                      {s.change_pct.toFixed(2)}%
+                    </td>
+                    <td className="px-3 py-1.5 text-right text-amber-400 font-semibold">{s.volume_ratio.toFixed(2)}</td>
+                    <td className="px-3 py-1.5 text-right text-slate-400">{s.amount_yi.toFixed(2)}</td>
+                    <td className="px-3 py-1.5 text-right font-semibold text-brand">{s.score.toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+      </CollapsiblePanel>
+
+      {/* 尾盘机会（14:45-15:00） */}
+      <CollapsiblePanel
+        id="scan_closing"
+        title="尾盘机会"
+        subtitle="14:45-15:00 尾盘 · 博次日高开（翘尾+量比+换手筛选）"
+        action={
+          closingResult?.items?.length ? (
+            <button
+              onClick={pickOpportunitySelected}
+              disabled={opportunitySelected.size === 0}
+              className="rounded-lg bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-500 disabled:opacity-40"
+            >
+              勾选 {opportunitySelected.size} 只去分析 →
+            </button>
+          ) : undefined
+        }
+      >
+        <button
+          onClick={() => void runClosing()}
+          disabled={closingLoading}
+          className="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
+        >
+          {closingLoading ? "扫描中..." : "扫描尾盘机会（14:45-15:00）"}
+        </button>
+        {closingResult?.items?.length ? (
+          <div className="mt-4 max-h-96 overflow-y-auto rounded-lg border border-slate-800">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-slate-900 text-left text-xs text-slate-400">
+                <tr>
+                  <th className="px-3 py-2">勾选</th>
+                  <th className="px-3 py-2">名称</th>
+                  <th className="px-3 py-2">代码</th>
+                  <th className="px-3 py-2 text-right">涨幅</th>
+                  <th className="px-3 py-2 text-right">5分</th>
+                  <th className="px-3 py-2 text-right">量比</th>
+                  <th className="px-3 py-2 text-right">换手%</th>
+                  <th className="px-3 py-2 text-right">评分</th>
+                </tr>
+              </thead>
+              <tbody>
+                {closingResult.items.map((s) => (
+                  <tr
+                    key={s.code}
+                    onClick={() => toggleOpportunity(s.code)}
+                    className={`cursor-pointer border-t border-slate-800/60 hover:bg-slate-800/40 ${opportunitySelected.has(s.code) ? "bg-slate-800/70" : ""}`}
+                  >
+                    <td className="px-3 py-1.5">
+                      <input type="checkbox" readOnly checked={opportunitySelected.has(s.code)} className="accent-brand" />
+                    </td>
+                    <td className="px-3 py-1.5 text-slate-200">{s.name}</td>
+                    <td className="px-3 py-1.5 text-slate-500">{s.code}</td>
+                    <td className={`px-3 py-1.5 text-right ${s.change_pct >= 0 ? "text-green-400" : "text-red-400"}`}>
+                      {s.change_pct >= 0 ? "+" : ""}
+                      {s.change_pct.toFixed(2)}%
+                    </td>
+                    <td className="px-3 py-1.5 text-right text-emerald-400 font-semibold">
+                      {s.change_5min >= 0 ? "+" : ""}
+                      {s.change_5min.toFixed(2)}%
+                    </td>
+                    <td className="px-3 py-1.5 text-right text-amber-400">{s.volume_ratio.toFixed(2)}</td>
+                    <td className="px-3 py-1.5 text-right text-slate-400">{s.turnover.toFixed(2)}</td>
+                    <td className="px-3 py-1.5 text-right font-semibold text-brand">{s.score.toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+      </CollapsiblePanel>
+
       <CollapsiblePanel
         id="scan_strategy"
         title="策略选股"

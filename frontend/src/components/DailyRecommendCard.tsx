@@ -40,7 +40,7 @@ export default function DailyRecommendCard({ onPick }: Props) {
   };
 
   const pickAll = () => {
-    if (data?.recommendations.length) {
+    if (data?.recommendations?.length) {
       onPick(data.recommendations.map((r) => r.code));
     }
   };
@@ -52,7 +52,7 @@ export default function DailyRecommendCard({ onPick }: Props) {
       subtitle="策略扫描 + AI 精选明日最值得关注的 10 只标的"
       action={
         <div className="flex items-center gap-2">
-          {data?.recommendations.length ? (
+          {data?.recommendations?.length ? (
             <button onClick={pickAll} className="rounded-lg bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-500">
               全部去分析 →
             </button>
@@ -73,7 +73,7 @@ export default function DailyRecommendCard({ onPick }: Props) {
 
       {data?.message && <div className="rounded-lg bg-slate-800/50 px-3 py-2 text-sm text-slate-400">{data.message}</div>}
 
-      {data?.recommendations.length ? (
+      {data?.recommendations?.length ? (
         <div className="max-h-[480px] space-y-2 overflow-y-auto pr-1">
           {data.recommendations.map((r, idx) => (
             <div

@@ -127,6 +127,28 @@ export interface StrategyStock {
 
 export type StrategyName = "momentum" | "trend" | "value" | "volume";
 
+export interface OpportunityStock {
+  code: string;
+  name: string;
+  price: number;
+  change_pct: number;
+  amount_yi: number;
+  volume_ratio: number;
+  turnover: number;
+  pe: number;
+  amplitude: number;
+  change_5min: number;
+  score: number;
+  stage: "auction" | "closing";
+}
+
+export interface OpportunityResult {
+  stage: "auction" | "closing";
+  stage_label: string;
+  goal: string;
+  items: OpportunityStock[];
+}
+
 export interface StrategyDef {
   name: StrategyName;
   label: string;

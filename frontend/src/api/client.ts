@@ -8,6 +8,7 @@ import type {
   Industry,
   MarketPrediction,
   NewsItem,
+  OpportunityResult,
   PortfolioAdvice,
   PredictionRecord,
   PredictionStats,
@@ -213,6 +214,18 @@ export async function fetchPortfolioAdvice(): Promise<PortfolioAdvice> {
     const d = await res.json().catch(() => ({}));
     throw new Error(d.detail || `获取建议失败: ${res.status}`);
   }
+  return res.json();
+}
+
+export async function fetchAuctionOpportunity(limit = 15): Promise<OpportunityResult> {
+  const res = await fetch(`${API}/market/opportunity/auction?limit=${limit}`);
+  if (!res.ok) throw new Error(`早盘竞价扫描失败: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchClosingOpportunity(limit = 15): Promise<OpportunityResult> {
+  const res = await fetch(`${API}/market/opportunity/closing?limit=${limit}`);
+  if (!res.ok) throw new Error(`尾盘扫描失败: ${res.status}`);
   return res.json();
 }
 

@@ -6,7 +6,7 @@ import akshare as ak
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from app.services import data_service, market_prediction, recommend_service, winrate_service
+from app.services import data_service, market_prediction, opportunity_service, recommend_service, winrate_service
 
 router = APIRouter(prefix="/api/market", tags=["market"])
 
@@ -417,3 +417,29 @@ async def scan_market(req: ScanRequest):
 
     results.sort(key=lambda x: x["amount_yi"], reverse=True)
     return results[: req.limit]
+
+
+@router.get("/opportunity/auction")
+async def auction_opportunity_endpoint(limit: int = 15):
+    """早盘竞价机会（9:15-9:30），博当日大涨。
+
+    基于实时快照：涨幅+量比+成交额筛选，开盘强势股。
+    """
+    try:
+        items = await opportunity_service.get_auction_opportunity(limit)
+        return {"stage": "auction", "items": items, "stage_label": "早盘竞价 9:15-9:30", "goal": "博当日大涨"}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"早盘竞价扫描失败: {e}")
+
+
+@router.get("/opportunity/closing")
+async def closing_opportunity_endpoint(limit: int = 15):
+    """尾盘机会（14:45-15:00），博次日高开/继续上涨。
+
+    基于实时快照：涨幅+5分钟翘尾+量比+换手率筛选。
+    """
+    try:
+        items = await opportunity_service.get_closing_opportunity(limit)
+        return {"stage": "closing", "items": items, "stage_label": "尾盘 14:45-15:00", "goal": "博次日高开"}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"尾盘扫描失败: {e}")
