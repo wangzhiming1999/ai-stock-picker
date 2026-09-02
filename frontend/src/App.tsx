@@ -78,8 +78,9 @@ export default function App() {
     } catch {
       /* ignore */
     }
-    // 记录当前 Tab 已访问（保持挂载）
+    // 记录当前 Tab 已访问（保持挂载）：仅在新增 tab 时才换引用，避免不必要的重渲染
     setMountedTabs((prev) => {
+      if (prev.has(tab)) return prev;
       const next = new Set(prev);
       next.add(tab);
       return next;

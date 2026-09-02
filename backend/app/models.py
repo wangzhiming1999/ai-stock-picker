@@ -39,6 +39,7 @@ class NewsItem(BaseModel):
 class AnalysisRequest(BaseModel):
     """选股分析请求"""
     codes: list[str] = Field(..., min_length=1, max_length=20, description="股票代码列表，如 ['600519']")
+    force: bool = Field(False, description="强制重跑，忽略当日缓存")
 
 
 class ScoreDimension(BaseModel):

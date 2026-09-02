@@ -53,7 +53,66 @@ async def analyze_stocks(req: AnalysisRequest, request: Request):
         yield _sse("status", f"获取到 {len(quotes)} 只股票行情，开始逐一分析...")
 
         results = []
+        # 当前交易日（按交易日缓存：每天每只股票只跑一次 LLM）
+        from app.services import trade_calendar_service
+
+        data_day = await trade_calendar_service.last_trading_day()
+        cache_date = data_day.isoformat()
+        cached_map: dict[str, dict] = {}
+        cache_sb = None
+        if supabase_store.is_configured():
+            cache_sb = await supabase_store.get_service_client()
+            if not req.force:
+                try:
+                    code_list = [q.code for q in quotes]
+                    res = (
+                        await cache_sb.table("stock_analysis_cache")
+                        .select("code, result")
+                        .eq("data_date", cache_date)
+                        .in_("code", code_list)
+                        .execute()
+                    )
+                    for row in res.data or []:
+                        cached_map[row["code"]] = row["result"]
+                except Exception as e:
+                    print(f"[analysis] 读缓存失败: {e}")
+
+        async def _write_cache(code: str, payload: dict, source: str):
+            """写入今日缓存（upsert，失败不影响主流程）。"""
+            if cache_sb is None:
+                return
+            try:
+                await cache_sb.table("stock_analysis_cache").upsert(
+                    {
+                        "code": code,
+                        "data_date": cache_date,
+                        "result": payload,
+                        "source": source,
+                    }
+                ).execute()
+            except Exception as e:
+                print(f"[analysis] 写缓存失败 {code}: {e}")
+
         for q in quotes:
+            # 1. 缓存命中：直接返回（force=False 时）
+            if not req.force and q.code in cached_map:
+                cached = cached_map[q.code]
+                yield _sse(
+                    "stock_start",
+                    f"{q.name}（{q.code}）命中今日缓存...",
+                    {"code": q.code, "name": q.name},
+                )
+                cached["code"] = q.code
+                cached["name"] = q.name
+                score = cached.get("overall_score", 0)
+                results.append(cached)
+                yield _sse(
+                    "stock_done",
+                    f"{q.name} 评分 {score:.1f} 分（缓存）",
+                    {"code": q.code, "result": cached, "cached": True},
+                )
+                continue
+
             yield _sse("stock_start", f"正在分析 {q.name}（{q.code}）...", {"code": q.code, "name": q.name})
 
             # 2. 组装上下文（K线 + 新闻 + 技术信号）
@@ -80,6 +139,7 @@ async def analyze_stocks(req: AnalysisRequest, request: Request):
                 if signal:
                     analysis.signal = signal_service.compute_signals(history.closes, q.price)
                 results.append(analysis)
+                await _write_cache(q.code, analysis.model_dump(), source="rule")
                 yield _sse(
                     "stock_done",
                     f"{q.name} 评分 {analysis.overall_score:.1f} 分",
@@ -110,6 +170,7 @@ async def analyze_stocks(req: AnalysisRequest, request: Request):
             if signal:
                 analysis.signal = signal_service.compute_signals(history.closes, q.price)
             results.append(analysis)
+            await _write_cache(q.code, analysis.model_dump(), source="llm")
             yield _sse(
                 "stock_done",
                 f"{q.name} 评分 {analysis.overall_score:.1f} 分",
@@ -119,7 +180,7 @@ async def analyze_stocks(req: AnalysisRequest, request: Request):
         # 5. 保存历史记录
         if results:
             try:
-                result_dicts = [r.model_dump() for r in results]
+                result_dicts = [r if isinstance(r, dict) else r.model_dump() for r in results]
                 if supabase_store.is_configured():
                     batch_id = await supabase_store.save_batch(
                         user_id, codes, "mock" if use_mock else "llm", result_dicts
