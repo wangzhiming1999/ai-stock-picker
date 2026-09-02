@@ -89,4 +89,7 @@ async def delete_holding(holding_id: int, user_id: str = Depends(_require_user))
 
 @router.get("/advice")
 async def get_advice(user_id: str = Depends(_require_user)):
-    return await portfolio_service.get_portfolio_advice(user_id)
+    try:
+        return await portfolio_service.get_portfolio_advice(user_id)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"持仓建议生成失败: {type(e).__name__}: {e}")

@@ -72,7 +72,7 @@ async def get_winrate_stats() -> dict:
         pred_res = (
             await sb.table("prediction_records")
             .select("direction", "hit")
-            .is_("settled_at", "not.null")
+            .not_.is_("settled_at", None)
             .execute()
         )
         pred_rows = pred_res.data or []
@@ -96,7 +96,7 @@ async def get_winrate_stats() -> dict:
         rec_res = (
             await sb.table("daily_recommendations")
             .select("hit")
-            .is_("settled_at", "not.null")
+            .not_.is_("settled_at", None)
             .execute()
         )
         rec_rows = rec_res.data or []

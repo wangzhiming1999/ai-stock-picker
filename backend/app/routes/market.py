@@ -373,7 +373,10 @@ async def settle_prediction_endpoint():
 @router.get("/prediction/stats")
 async def prediction_stats_endpoint():
     """预测准确率统计。"""
-    return await market_prediction.get_prediction_stats()
+    try:
+        return await market_prediction.get_prediction_stats()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"stats 计算失败: {type(e).__name__}: {e}")
 
 
 @router.get("/prediction/history")

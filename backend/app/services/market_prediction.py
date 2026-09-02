@@ -365,7 +365,7 @@ async def get_prediction_stats() -> dict:
     res = await (
         sb.table("prediction_records")
         .select("direction", "hit")
-        .is_("settled_at", "not.null")
+        .not_.is_("settled_at", None)
         .execute()
     )
     rows = res.data
