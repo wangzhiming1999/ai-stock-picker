@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { fetchIndustries, scanMarket, strategyScan } from "../api/client";
 import DailyRecommendCard from "./DailyRecommendCard";
 import PredictionCard from "./PredictionCard";
+import WinratePanel from "./WinratePanel";
 import type { Industry, ScanStock, StrategyDef, StrategyName, StrategyStock } from "../types";
 
 interface Props {
@@ -125,6 +126,9 @@ export default function MarketPanel({ onPick }: Props) {
 
       {/* 明日大盘推衍 */}
       <PredictionCard />
+
+      {/* 胜率看板 */}
+      <WinratePanel />
 
       {/* 策略选股 */}
       <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">

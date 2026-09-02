@@ -8,6 +8,7 @@ from openai import AsyncOpenAI
 
 from app.config import get_settings
 from app.routes import market as market_routes
+from app.services import supabase_store
 
 # 每日推荐缓存：key=日期，value=(生成时间, data)。一天只跑一次。
 _recommendation_cache: dict[str, tuple[str, dict]] = {}
@@ -154,7 +155,44 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
         "candidates": len(ranked),
     }
     _recommendation_cache[today] = (dt.datetime.now().isoformat(), result)
+
+    # 保存推荐记录（用于胜率跟踪）
+    try:
+        await save_recommendations(today, recs)
+    except Exception as e:
+        print(f"[recommend] 保存推荐记录失败: {e}")
+
     return result
+
+
+async def save_recommendations(rec_date: str, recs: list[dict]) -> None:
+    """将当日推荐写入 Supabase daily_recommendations 表（幂等）。"""
+    if not supabase_store.is_configured() or not recs:
+        return
+    sb = await supabase_store.get_service_client()
+    # 先检查当日是否已保存，避免重复
+    existing = (
+        await sb.table("daily_recommendations")
+        .select("id")
+        .eq("rec_date", rec_date)
+        .limit(1)
+        .execute()
+    )
+    if existing.data:
+        return
+    rows = [
+        {
+            "rec_date": rec_date,
+            "code": r["code"],
+            "name": r["name"],
+            "recommend_price": r["price"],
+            "reason": r.get("reason", ""),
+            "confidence": r.get("confidence"),
+            "source": "llm" if r.get("reason") and "策略分" not in r.get("reason", "") else "rule",
+        }
+        for r in recs
+    ]
+    await sb.table("daily_recommendations").insert(rows).execute()
 
 
 async def _scan_strategy(strategy: str) -> list[dict]:

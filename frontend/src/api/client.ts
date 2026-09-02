@@ -13,6 +13,7 @@ import type {
   StrategyName,
   StrategyStock,
   SSEEvent,
+  WinrateStats,
 } from "../types";
 
 // 后端地址解析：
@@ -111,6 +112,12 @@ export async function settlePrediction(): Promise<{ settled: number }> {
 export async function searchStocks(q: string, limit = 8): Promise<StockSearchResult[]> {
   const res = await fetch(`${API}/market/search?q=${encodeURIComponent(q)}&limit=${limit}`);
   if (!res.ok) throw new Error(`搜索失败: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchWinrate(): Promise<WinrateStats> {
+  const res = await fetch(`${API}/market/winrate`);
+  if (!res.ok) throw new Error(`获取胜率失败: ${res.status}`);
   return res.json();
 }
 

@@ -158,6 +158,25 @@ export interface DailyRecommendResult {
   message?: string;
 }
 
+export interface WinrateStats {
+  prediction: {
+    total: number;
+    hit: number;
+    hit_rate: number | null;
+    by_direction: Record<string, { total: number; hit: number; hit_rate: number | null }>;
+  } | null;
+  recommendation: {
+    total: number;
+    hit: number;
+    hit_rate: number | null;
+  } | null;
+  snapshot: {
+    snapshot_date: string;
+    prediction_rate: number | null;
+    recommend_rate: number | null;
+  } | null;
+}
+
 export interface PredictionStats {
   total: number;
   settled: number;

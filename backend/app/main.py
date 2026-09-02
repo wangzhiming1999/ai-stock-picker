@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 
 from app import store
 from app.config import get_settings
-from app.routes import analysis, auth, history, market, stock
+from app.routes import analysis, auth, cron, history, market, stock
 
 settings = get_settings()
 
@@ -81,6 +81,7 @@ app.include_router(analysis.router)
 app.include_router(market.router)
 app.include_router(history.router)
 app.include_router(auth.router)
+app.include_router(cron.router)
 
 
 @app.get("/api/health")
