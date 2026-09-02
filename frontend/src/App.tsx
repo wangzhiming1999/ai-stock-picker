@@ -58,6 +58,8 @@ export default function App() {
   const [infos, setInfos] = useState<Record<string, StockInfo>>({});
   const [historyRefresh, setHistoryRefresh] = useState(0);
   const [quickText, setQuickText] = useState("");
+  // 已挂载过的 Tab：首次访问后常驻 DOM（隐藏而非卸载），避免切换时重复拉数据
+  const [mountedTabs, setMountedTabs] = useState<Set<Tab>>(() => new Set([tab]));
 
   const abortRef = useRef<AbortController | null>(null);
 
@@ -67,7 +69,15 @@ export default function App() {
     } catch {
       /* ignore */
     }
+    // 记录当前 Tab 已访问（保持挂载）
+    setMountedTabs((prev) => {
+      const next = new Set(prev);
+      next.add(tab);
+      return next;
+    });
   }, [tab]);
+
+  const isTabVisible = (t: Tab) => (tab === t ? "" : "hidden");
 
   const changeTab = (t: Tab) => {
     setTab(t);
@@ -259,9 +269,8 @@ export default function App() {
         </div>
 
         <ErrorBoundary>
-          {/* 深度分析 */}
-        {tab === "analyze" && (
-          <>
+          {/* 深度分析：常驻 DOM，切走仅隐藏（保留结果，避免重复加载） */}
+        <div className={isTabVisible("analyze")}>
             {/* 输入区 */}
             <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 sm:p-5">
               <label className="mb-2 block text-sm font-medium text-slate-300">
@@ -370,35 +379,47 @@ export default function App() {
                 </p>
               </div>
             )}
-          </>
+        </div>
+
+        {/* 发现好股：常驻 DOM */}
+        {mountedTabs.has("discover") && (
+          <div className={isTabVisible("discover")}>
+            <DiscoverPanel onPick={handlePick} />
+          </div>
         )}
 
-        {tab === "discover" && <DiscoverPanel onPick={handlePick} />}
+        {/* 选股扫描：常驻 DOM */}
+        {mountedTabs.has("scan") && (
+          <div className={isTabVisible("scan")}>
+            <ScanPanel onPick={handlePick} />
+          </div>
+        )}
 
-        {tab === "scan" && <ScanPanel onPick={handlePick} />}
-
-        {tab === "mine" && (
-          <div className="space-y-5">
-            {!user ? (
-              <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-8 text-center">
-                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-800 bg-slate-900 text-2xl">
-                  👤
+        {/* 我的：常驻 DOM（登录引导无网络请求；面板仅登录后挂载一次） */}
+        {mountedTabs.has("mine") && (
+          <div className={isTabVisible("mine")}>
+            <div className="space-y-5">
+              {!user ? (
+                <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-8 text-center">
+                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-800 bg-slate-900 text-2xl">
+                    👤
+                  </div>
+                  <h2 className="mt-4 text-base font-semibold text-slate-200">登录后管理你的持仓与历史记录</h2>
+                  <p className="mt-1 text-sm text-slate-500">持仓数据、风险等级建议与历史分析将按账号隔离保存</p>
+                  <button
+                    onClick={() => setAuthOpen(true)}
+                    className="mt-5 rounded-lg bg-brand px-6 py-2 text-sm font-medium text-white hover:bg-brand-dark"
+                  >
+                    登录 / 注册
+                  </button>
                 </div>
-                <h2 className="mt-4 text-base font-semibold text-slate-200">登录后管理你的持仓与历史记录</h2>
-                <p className="mt-1 text-sm text-slate-500">持仓数据、风险等级建议与历史分析将按账号隔离保存</p>
-                <button
-                  onClick={() => setAuthOpen(true)}
-                  className="mt-5 rounded-lg bg-brand px-6 py-2 text-sm font-medium text-white hover:bg-brand-dark"
-                >
-                  登录 / 注册
-                </button>
-              </div>
-            ) : (
-              <>
-                <PortfolioPanel />
-                <HistoryPanel refreshKey={historyRefresh} />
-              </>
-            )}
+              ) : (
+                <>
+                  <PortfolioPanel />
+                  <HistoryPanel refreshKey={historyRefresh} />
+                </>
+              )}
+            </div>
           </div>
         )}
         </ErrorBoundary>
