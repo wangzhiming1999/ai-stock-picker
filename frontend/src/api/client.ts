@@ -84,8 +84,8 @@ export async function strategyScan(strategy: StrategyName, limit = 20, minAmount
   return res.json();
 }
 
-export async function fetchPrediction(): Promise<MarketPrediction> {
-  const res = await fetch(`${API}/market/prediction`);
+export async function fetchPrediction(refresh = false): Promise<MarketPrediction> {
+  const res = await fetch(`${API}/market/prediction${refresh ? "?refresh=true" : ""}`);
   if (!res.ok) throw new Error(`大盘推衍失败: ${res.status}`);
   return res.json();
 }
@@ -114,8 +114,8 @@ export async function searchStocks(q: string, limit = 8): Promise<StockSearchRes
   return res.json();
 }
 
-export async function fetchDailyRecommend(): Promise<DailyRecommendResult> {
-  const res = await fetch(`${API}/market/daily-recommend`);
+export async function fetchDailyRecommend(refresh = false): Promise<DailyRecommendResult> {
+  const res = await fetch(`${API}/market/daily-recommend${refresh ? "?refresh=true" : ""}`);
   if (!res.ok) throw new Error(`每日推荐失败: ${res.status}`);
   return res.json();
 }

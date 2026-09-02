@@ -1,12 +1,16 @@
 """每日收盘推荐：策略扫描候选 + LLM 精选 10 只并给出推荐理由。"""
 from __future__ import annotations
 
+import datetime as dt
 import json
 
 from openai import AsyncOpenAI
 
 from app.config import get_settings
 from app.routes import market as market_routes
+
+# 每日推荐缓存：key=日期，value=(生成时间, data)。一天只跑一次。
+_recommendation_cache: dict[str, tuple[str, dict]] = {}
 
 RECOMMEND_SYSTEM_PROMPT = """你是一位资深的 A 股投资顾问，擅长从候选股票中挑选次日最具关注价值的标的。
 
@@ -35,8 +39,20 @@ RECOMMEND_SYSTEM_PROMPT = """你是一位资深的 A 股投资顾问，擅长从
 - 仅供研究参考，不构成投资建议"""
 
 
-async def generate_daily_recommendations() -> dict:
-    """生成每日推荐：跑四个策略 → 合并候选 → LLM 精选 10 只。"""
+def clear_recommendation_cache() -> None:
+    """清除缓存（用于测试或强制刷新场景）。"""
+    _recommendation_cache.clear()
+
+
+async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
+    """生成每日推荐：跑四个策略 → 合并候选 → LLM 精选 10 只。
+
+    每天只跑一次，结果缓存到当日；force_refresh=True 时强制重跑。
+    """
+    today = dt.date.today().isoformat()
+    if not force_refresh and today in _recommendation_cache:
+        return _recommendation_cache[today][1]
+
     settings = get_settings()
     candidates: dict[str, dict] = {}
 
@@ -55,7 +71,9 @@ async def generate_daily_recommendations() -> dict:
     # 2. 按策略分排序取 top 15
     ranked = sorted(candidates.values(), key=lambda x: x["strategy_score"], reverse=True)[:15]
     if not ranked:
-        return {"date": "", "source": "empty", "recommendations": [], "message": "没有找到合适的候选股票"}
+        result = {"date": today, "source": "empty", "recommendations": [], "candidates": 0, "message": "没有找到合适的候选股票（可能是非交易日或盘前）"}
+        _recommendation_cache[today] = (dt.datetime.now().isoformat(), result)
+        return result
 
     # 3. 构造候选上下文
     ctx_lines = ["以下是候选股票（含实时行情与技术信号），请从中挑选明日最值得关注的 10 只：\n"]
@@ -129,12 +147,14 @@ async def generate_daily_recommendations() -> dict:
                 }
             )
 
-    return {
-        "date": "",
+    result = {
+        "date": today,
         "source": source,
         "recommendations": recs,
         "candidates": len(ranked),
     }
+    _recommendation_cache[today] = (dt.datetime.now().isoformat(), result)
+    return result
 
 
 async def _scan_strategy(strategy: str) -> list[dict]:

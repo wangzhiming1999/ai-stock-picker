@@ -13,6 +13,9 @@ from app.services import signal_service, supabase_store
 MARKET_INDEX = "sh000001"
 MARKET_NAME = "上证指数"
 
+# 每日大盘推衍缓存：key=日期，value=(生成时间, data)。一天只跑一次。
+_prediction_cache: dict[str, tuple[str, dict]] = {}
+
 PREDICTION_SYSTEM_PROMPT = """你是一位擅长 A 股大盘研判的资深策略分析师。基于用户提供的上证指数技术数据，预测明日大盘走势。
 
 【输出要求】
@@ -102,9 +105,12 @@ def build_market_context(hist: list[dict]) -> tuple[str, dict]:
     return ctx, summary
 
 
-async def predict_tomorrow() -> dict:
-    """生成明日大盘走势预测。"""
+async def predict_tomorrow(force_refresh: bool = False) -> dict:
+    """生成明日大盘走势预测（每日缓存，仅 force_refresh 时重跑）。"""
     settings = get_settings()
+    today = dt.date.today().isoformat()
+    if not force_refresh and today in _prediction_cache:
+        return _prediction_cache[today][1]
     hist = await asyncio_hist()
     ctx, summary = build_market_context(hist)
 
@@ -169,7 +175,14 @@ async def predict_tomorrow() -> dict:
     except Exception as e:
         print(f"[prediction] 保存记录失败: {e}")
 
+    # 写入每日缓存
+    _prediction_cache[today] = (dt.datetime.now().isoformat(), result)
     return result
+
+
+def clear_prediction_cache() -> None:
+    """清除缓存。"""
+    _prediction_cache.clear()
 
 
 async def save_prediction_record(pred: dict) -> None:

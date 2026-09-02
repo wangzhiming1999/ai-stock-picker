@@ -20,12 +20,12 @@ export default function PredictionCard() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     setLoading(true);
     setErr("");
     try {
       const [p, s, h] = await Promise.all([
-        fetchPrediction(),
+        fetchPrediction(force),
         fetchPredictionStats().catch(() => null),
         fetchPredictionHistory(15).catch(() => []),
       ]);
@@ -49,7 +49,7 @@ export default function PredictionCard() {
     <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-semibold text-slate-200">明日大盘推衍 · 预测准确率</h3>
-        <button onClick={() => void load()} disabled={loading} className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-slate-400 hover:text-slate-200 disabled:opacity-50">
+        <button onClick={() => void load(true)} disabled={loading} className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-slate-400 hover:text-slate-200 disabled:opacity-50">
           {loading ? "分析中..." : "刷新"}
         </button>
       </div>

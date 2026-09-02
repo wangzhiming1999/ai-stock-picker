@@ -12,12 +12,12 @@ export default function DailyRecommendCard({ onPick }: Props) {
   const [err, setErr] = useState("");
   const [picked, setPicked] = useState<Set<string>>(new Set());
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     setLoading(true);
     setErr("");
     setPicked(new Set());
     try {
-      setData(await fetchDailyRecommend());
+      setData(await fetchDailyRecommend(force));
     } catch (e) {
       setErr((e as Error).message);
     } finally {
@@ -58,11 +58,11 @@ export default function DailyRecommendCard({ onPick }: Props) {
             </button>
           ) : null}
           <button
-            onClick={() => void load()}
+            onClick={() => void load(true)}
             disabled={loading}
             className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-slate-400 hover:text-slate-200 disabled:opacity-50"
           >
-            {loading ? "生成中..." : "刷新"}
+            {loading ? "生成中..." : "强制刷新"}
           </button>
         </div>
       </div>

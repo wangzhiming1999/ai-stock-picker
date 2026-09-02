@@ -331,19 +331,25 @@ async def search_stocks(q: str = "", limit: int = 10):
 
 
 @router.get("/daily-recommend")
-async def daily_recommend_endpoint():
-    """每日收盘推荐：策略扫描候选 + LLM 精选 10 只并给出推荐理由。"""
+async def daily_recommend_endpoint(refresh: bool = False):
+    """每日收盘推荐：策略扫描候选 + LLM 精选 10 只并给出推荐理由。
+
+    refresh=true 时强制重跑（绕过当日缓存）。
+    """
     try:
-        return await recommend_service.generate_daily_recommendations()
+        return await recommend_service.generate_daily_recommendations(force_refresh=refresh)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"每日推荐失败: {e}")
 
 
 @router.get("/prediction")
-async def market_prediction_endpoint():
-    """明日大盘推衍：基于上证指数技术信号 + LLM 预测次日走势。"""
+async def market_prediction_endpoint(refresh: bool = False):
+    """明日大盘推衍：基于上证指数技术信号 + LLM 预测次日走势。
+
+    refresh=true 时强制重跑（绕过当日缓存）。
+    """
     try:
-        return await market_prediction.predict_tomorrow()
+        return await market_prediction.predict_tomorrow(force_refresh=refresh)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"大盘推衍失败: {e}")
 
