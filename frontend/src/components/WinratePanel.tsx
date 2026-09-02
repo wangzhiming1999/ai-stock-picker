@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { fetchWinrate } from "../api/client";
+import CollapsiblePanel from "./CollapsiblePanel";
 import type { WinrateStats } from "../types";
 
 function rateColor(rate: number | null | undefined): string {
@@ -31,13 +32,16 @@ export default function WinratePanel() {
   }, [load]);
 
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
-      <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-slate-200">胜率看板</h3>
+    <CollapsiblePanel
+      id="winrate"
+      title="胜率看板"
+      subtitle="预测与推荐的实际命中表现 · 每日自动结算"
+      action={
         <button onClick={() => void load()} disabled={loading} className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-slate-400 hover:text-slate-200 disabled:opacity-50">
           {loading ? "加载中..." : "刷新"}
         </button>
-      </div>
+      }
+    >
 
       {err && <div className="rounded-lg border border-red-800 bg-red-950/40 px-3 py-2 text-sm text-red-300">{err}</div>}
       {!data && !err && <div className="p-3 text-sm text-slate-500">加载中...</div>}
@@ -112,6 +116,6 @@ export default function WinratePanel() {
           </p>
         </div>
       )}
-    </div>
+    </CollapsiblePanel>
   );
 }

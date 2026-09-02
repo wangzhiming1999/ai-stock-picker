@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { fetchPrediction, fetchPredictionHistory, fetchPredictionStats } from "../api/client";
+import CollapsiblePanel from "./CollapsiblePanel";
 import type { MarketPrediction, PredictionRecord, PredictionStats } from "../types";
 
 function directionColor(d: string): string {
@@ -46,13 +47,16 @@ export default function PredictionCard() {
   const hitColor = (hit: boolean | undefined) => (hit ? "bg-green-900/40 text-green-300" : "bg-red-900/40 text-red-300");
 
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
-      <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-slate-200">明日大盘推衍 · 预测准确率</h3>
+    <CollapsiblePanel
+      id="prediction"
+      title="明日大盘推衍"
+      subtitle="上证指数技术信号 + AI 预测 · 附准确率追踪"
+      action={
         <button onClick={() => void load(true)} disabled={loading} className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-slate-400 hover:text-slate-200 disabled:opacity-50">
           {loading ? "分析中..." : "刷新"}
         </button>
-      </div>
+      }
+    >
 
       {err && <div className="rounded-lg border border-red-800 bg-red-950/40 px-3 py-2 text-sm text-red-300">{err}</div>}
 
@@ -212,6 +216,6 @@ export default function PredictionCard() {
           </div>
         </div>
       )}
-    </div>
+    </CollapsiblePanel>
   );
 }

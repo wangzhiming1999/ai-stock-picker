@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
-import { fetchIndustries, scanMarket, strategyScan } from "../api/client";
+import { useState } from "react";
+import { scanMarket, strategyScan } from "../api/client";
+import CollapsiblePanel from "./CollapsiblePanel";
 import BacktestPanel from "./BacktestPanel";
-import DailyRecommendCard from "./DailyRecommendCard";
-import PredictionCard from "./PredictionCard";
 import WinratePanel from "./WinratePanel";
-import type { Industry, ScanStock, StrategyDef, StrategyName, StrategyStock } from "../types";
+import type { ScanStock, StrategyDef, StrategyName, StrategyStock } from "../types";
 
 interface Props {
   onPick: (codes: string[]) => void;
@@ -17,9 +16,14 @@ const STRATEGIES: StrategyDef[] = [
   { name: "volume", label: "放量", desc: "量能活跃，温和上涨" },
 ];
 
-export default function MarketPanel({ onPick }: Props) {
-  const [industries, setIndustries] = useState<Industry[]>([]);
-  const [indLoading, setIndLoading] = useState(false);
+export default function ScanPanel({ onPick }: Props) {
+  // 策略选股状态
+  const [strategy, setStrategy] = useState<StrategyName>("momentum");
+  const [strategyRunning, setStrategyRunning] = useState(false);
+  const [strategyResult, setStrategyResult] = useState<StrategyStock[]>([]);
+  const [strategySelected, setStrategySelected] = useState<Set<string>>(new Set());
+
+  // 全市场扫描状态
   const [scanning, setScanning] = useState(false);
   const [scanResult, setScanResult] = useState<ScanStock[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -30,66 +34,6 @@ export default function MarketPanel({ onPick }: Props) {
   const [limit, setLimit] = useState("50");
   const [err, setErr] = useState("");
 
-  // 策略选股状态
-  const [strategy, setStrategy] = useState<StrategyName>("momentum");
-  const [strategyRunning, setStrategyRunning] = useState(false);
-  const [strategyResult, setStrategyResult] = useState<StrategyStock[]>([]);
-  const [strategySelected, setStrategySelected] = useState<Set<string>>(new Set());
-
-  const loadIndustries = useCallback(async () => {
-    setIndLoading(true);
-    setErr("");
-    try {
-      const list = await fetchIndustries();
-      setIndustries(list);
-    } catch (e) {
-      setErr((e as Error).message);
-    } finally {
-      setIndLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadIndustries();
-  }, [loadIndustries]);
-
-  const doScan = async () => {
-    setScanning(true);
-    setErr("");
-    setScanResult([]);
-    setSelected(new Set());
-    try {
-      const list = await scanMarket({
-        min_price: parseFloat(minPrice) || 0,
-        max_price: parseFloat(maxPrice) || 10000,
-        min_change: parseFloat(minChange) || -100,
-        max_change: 100,
-        min_amount_yi: parseFloat(minAmount) || 0,
-        max_pe: 1000,
-        limit: parseInt(limit) || 50,
-      });
-      setScanResult(list);
-    } catch (e) {
-      setErr((e as Error).message);
-    } finally {
-      setScanning(false);
-    }
-  };
-
-  const toggle = (code: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(code)) next.delete(code);
-      else next.add(code);
-      return next;
-    });
-  };
-
-  const pickSelected = () => {
-    if (selected.size === 0) return;
-    onPick(Array.from(selected));
-  };
-
   const runStrategy = async (s: StrategyName) => {
     setStrategy(s);
     setStrategyRunning(true);
@@ -97,8 +41,7 @@ export default function MarketPanel({ onPick }: Props) {
     setStrategyResult([]);
     setStrategySelected(new Set());
     try {
-      const list = await strategyScan(s, 20, 3);
-      setStrategyResult(list);
+      setStrategyResult(await strategyScan(s, 20, 3));
     } catch (e) {
       setErr((e as Error).message);
     } finally {
@@ -120,25 +63,52 @@ export default function MarketPanel({ onPick }: Props) {
     onPick(Array.from(strategySelected));
   };
 
+  const doScan = async () => {
+    setScanning(true);
+    setErr("");
+    setScanResult([]);
+    setSelected(new Set());
+    try {
+      setScanResult(
+        await scanMarket({
+          min_price: parseFloat(minPrice) || 0,
+          max_price: parseFloat(maxPrice) || 10000,
+          min_change: parseFloat(minChange) || -100,
+          max_change: 100,
+          min_amount_yi: parseFloat(minAmount) || 0,
+          max_pe: 1000,
+          limit: parseInt(limit) || 50,
+        })
+      );
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const toggle = (code: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(code)) next.delete(code);
+      else next.add(code);
+      return next;
+    });
+  };
+
+  const pickSelected = () => {
+    if (selected.size === 0) return;
+    onPick(Array.from(selected));
+  };
+
   return (
     <div className="space-y-5">
-      {/* 每日收盘推荐 */}
-      <DailyRecommendCard onPick={onPick} />
-
-      {/* 明日大盘推衍 */}
-      <PredictionCard />
-
-      {/* 胜率看板 */}
-      <WinratePanel />
-
-      {/* 策略回测 */}
-      <BacktestPanel />
-
-      {/* 策略选股 */}
-      <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-slate-200">策略选股</h3>
-          {strategyResult.length > 0 && (
+      <CollapsiblePanel
+        id="scan_strategy"
+        title="策略选股"
+        subtitle="按技术形态一键扫描（动量/趋势/低估值/放量）"
+        action={
+          strategyResult.length > 0 ? (
             <button
               onClick={pickStrategySelected}
               disabled={strategySelected.size === 0}
@@ -146,8 +116,9 @@ export default function MarketPanel({ onPick }: Props) {
             >
               勾选 {strategySelected.size} 只去分析 →
             </button>
-          )}
-        </div>
+          ) : undefined
+        }
+      >
         <div className="mb-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
           {STRATEGIES.map((s) => (
             <button
@@ -215,51 +186,13 @@ export default function MarketPanel({ onPick }: Props) {
             </table>
           </div>
         )}
-      </div>
+      </CollapsiblePanel>
 
-      <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
-        <h3 className="mb-3 text-sm font-semibold text-slate-200">行业板块（新浪行业）</h3>
-        <div className="max-h-64 overflow-y-auto rounded-lg border border-slate-800">
-          {indLoading && <div className="p-4 text-sm text-slate-500">加载中...</div>}
-          {!indLoading && industries.length === 0 && (
-            <div className="p-4 text-sm text-slate-500">暂无数据，点击下方按钮重新加载</div>
-          )}
-          {!indLoading && industries.length > 0 && (
-            <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-slate-900 text-left text-xs text-slate-400">
-                <tr>
-                  <th className="px-3 py-2">板块</th>
-                  <th className="px-3 py-2 text-right">家数</th>
-                  <th className="px-3 py-2 text-right">涨跌幅</th>
-                  <th className="px-3 py-2 text-right">平均价</th>
-                </tr>
-              </thead>
-              <tbody>
-                {industries.map((ind) => (
-                  <tr key={ind.label} className="border-t border-slate-800/60 hover:bg-slate-800/40">
-                    <td className="px-3 py-1.5 text-slate-200">{ind.name}</td>
-                    <td className="px-3 py-1.5 text-right text-slate-400">{ind.company_count}</td>
-                    <td className={`px-3 py-1.5 text-right ${ind.change_pct >= 0 ? "text-green-400" : "text-red-400"}`}>
-                      {ind.change_pct >= 0 ? "+" : ""}
-                      {ind.change_pct.toFixed(2)}%
-                    </td>
-                    <td className="px-3 py-1.5 text-right text-slate-400">{ind.avg_price.toFixed(2)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-        <div className="mt-2 flex gap-2">
-          <button onClick={() => void loadIndustries()} className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200">
-            刷新板块
-          </button>
-          <span className="text-xs text-slate-600 self-center">板块成分可配合下方扫描使用</span>
-        </div>
-      </div>
-
-      <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
-        <h3 className="mb-3 text-sm font-semibold text-slate-200">全市场扫描选股</h3>
+      <CollapsiblePanel
+        id="scan_market"
+        title="全市场扫描"
+        subtitle="按涨幅/成交额/股价过滤，扫描 A 股候选标的"
+      >
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           <label className="block">
             <span className="mb-1 block text-xs text-slate-500">最低涨幅 %</span>
@@ -296,15 +229,13 @@ export default function MarketPanel({ onPick }: Props) {
           <div className="mt-4">
             <div className="mb-2 flex items-center justify-between">
               <span className="text-sm text-slate-400">扫描结果 {scanResult.length} 只（按成交额排序）</span>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={pickSelected}
-                  disabled={selected.size === 0}
-                  className="rounded-lg bg-green-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-green-500 disabled:opacity-40"
-                >
-                  勾选 {selected.size} 只去分析 →
-                </button>
-              </div>
+              <button
+                onClick={pickSelected}
+                disabled={selected.size === 0}
+                className="rounded-lg bg-green-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-green-500 disabled:opacity-40"
+              >
+                勾选 {selected.size} 只去分析 →
+              </button>
             </div>
             <div className="max-h-96 overflow-y-auto rounded-lg border border-slate-800">
               <table className="w-full text-sm">
@@ -343,7 +274,10 @@ export default function MarketPanel({ onPick }: Props) {
             </div>
           </div>
         )}
-      </div>
+      </CollapsiblePanel>
+
+      <WinratePanel />
+      <BacktestPanel />
     </div>
   );
 }

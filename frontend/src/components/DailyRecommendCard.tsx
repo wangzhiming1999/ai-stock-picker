@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { fetchDailyRecommend } from "../api/client";
+import CollapsiblePanel from "./CollapsiblePanel";
 import type { DailyRecommendResult } from "../types";
 
 interface Props {
@@ -45,12 +46,11 @@ export default function DailyRecommendCard({ onPick }: Props) {
   };
 
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
-      <div className="mb-3 flex items-center justify-between">
-        <div>
-          <h3 className="text-sm font-semibold text-slate-200">每日收盘推荐</h3>
-          <p className="mt-0.5 text-[11px] text-slate-500">策略扫描 + AI 精选明日最值得关注的 10 只标的</p>
-        </div>
+    <CollapsiblePanel
+      id="daily_recommend"
+      title="每日收盘推荐"
+      subtitle="策略扫描 + AI 精选明日最值得关注的 10 只标的"
+      action={
         <div className="flex items-center gap-2">
           {data?.recommendations.length ? (
             <button onClick={pickAll} className="rounded-lg bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-500">
@@ -65,8 +65,8 @@ export default function DailyRecommendCard({ onPick }: Props) {
             {loading ? "生成中..." : "强制刷新"}
           </button>
         </div>
-      </div>
-
+      }
+    >
       {err && <div className="rounded-lg border border-red-800 bg-red-950/40 px-3 py-2 text-sm text-red-300">{err}</div>}
 
       {!data && !err && <div className="p-3 text-sm text-slate-500">正在扫描全市场并生成 AI 推荐...</div>}
@@ -108,6 +108,6 @@ export default function DailyRecommendCard({ onPick }: Props) {
           ))}
         </div>
       ) : null}
-    </div>
+    </CollapsiblePanel>
   );
 }

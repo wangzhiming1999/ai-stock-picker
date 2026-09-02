@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as echarts from "echarts";
 import { runBacktest } from "../api/client";
+import CollapsiblePanel from "./CollapsiblePanel";
 import type { BacktestResult } from "../types";
 
 const STRATEGIES = [
@@ -96,12 +97,12 @@ export default function BacktestPanel() {
   const fmt = (v: number | null | undefined) => (v == null ? "-" : v.toFixed(2));
 
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
-      <div className="mb-3 flex items-center justify-between">
-        <div>
-          <h3 className="text-sm font-semibold text-slate-200">策略回测</h3>
-          <p className="mt-0.5 text-[11px] text-slate-500">用历史数据验证策略胜率（默认股票池 28 只）</p>
-        </div>
+    <CollapsiblePanel
+      id="backtest"
+      title="策略回测"
+      subtitle="用历史数据验证策略胜率（默认股票池 28 只）"
+      onToggle={() => setTimeout(() => chart.current?.resize(), 80)}
+      action={
         <button
           onClick={() => void run()}
           disabled={running}
@@ -109,7 +110,8 @@ export default function BacktestPanel() {
         >
           {running ? "回测中..." : "开始回测"}
         </button>
-      </div>
+      }
+    >
 
       {/* 参数区 */}
       <div className="mb-4 flex flex-wrap items-end gap-4">
@@ -194,6 +196,6 @@ export default function BacktestPanel() {
           </div>
         </div>
       )}
-    </div>
+    </CollapsiblePanel>
   );
 }

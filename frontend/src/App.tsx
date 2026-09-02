@@ -1,26 +1,53 @@
-import { useCallback, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "./auth/AuthContext";
 import { fetchStock, streamAnalysis } from "./api/client";
 import AuthModal from "./components/AuthModal";
+import DiscoverPanel from "./components/DiscoverPanel";
 import HistoryPanel from "./components/HistoryPanel";
-import MarketPanel from "./components/MarketPanel";
 import PortfolioPanel from "./components/PortfolioPanel";
+import ScanPanel from "./components/ScanPanel";
 import StockCard from "./components/StockCard";
 import StockSearchInput from "./components/StockSearchInput";
 import type { StockAnalysis, StockInfo, SSEEvent } from "./types";
 
 type Phase = "idle" | "running" | "done" | "error";
-type Tab = "analyze" | "market" | "history" | "portfolio";
+type Tab = "discover" | "scan" | "analyze" | "mine";
+
+const TAB_LIST: { key: Tab; label: string; icon: string; desc: string }[] = [
+  { key: "discover", label: "发现好股", icon: "💡", desc: "每日推荐 · 大盘推衍 · 板块热榜" },
+  { key: "scan", label: "选股扫描", icon: "🔍", desc: "策略扫描 · 全市场 · 胜率 · 回测" },
+  { key: "analyze", label: "深度分析", icon: "📊", desc: "AI 综合分析个股" },
+  { key: "mine", label: "我的", icon: "👤", desc: "持仓管理 · 历史记录" },
+];
+
+const TAB_STORAGE_KEY = "ai:activeTab";
 
 interface AnalysisItem {
   analysis: StockAnalysis;
   info?: StockInfo;
 }
 
+function parseCodesFromText(text: string): string[] {
+  return text
+    .split(/[\s,，;；、]+/)
+    .map((s) => s.trim())
+    .filter((s) => /^\d{6}$/.test(s));
+}
+
+function readInitialTab(): Tab {
+  try {
+    const v = localStorage.getItem(TAB_STORAGE_KEY);
+    if (v && TAB_LIST.some((t) => t.key === v)) return v as Tab;
+  } catch {
+    /* ignore */
+  }
+  return "discover";
+}
+
 export default function App() {
   const { user, signOut } = useAuth();
   const [authOpen, setAuthOpen] = useState(false);
-  const [tab, setTab] = useState<Tab>("analyze");
+  const [tab, setTab] = useState<Tab>(readInitialTab);
   const [codes, setCodes] = useState("");
   const [phase, setPhase] = useState<Phase>("idle");
   const [status, setStatus] = useState("");
@@ -29,22 +56,24 @@ export default function App() {
   const [errorMsg, setErrorMsg] = useState("");
   const [infos, setInfos] = useState<Record<string, StockInfo>>({});
   const [historyRefresh, setHistoryRefresh] = useState(0);
+  const [quickText, setQuickText] = useState("");
 
   const abortRef = useRef<AbortController | null>(null);
 
-  const parseCodesFromText = useCallback((text: string): string[] => {
-    return text
-      .split(/[\s,，;；、]+/)
-      .map((s) => s.trim())
-      .filter((s) => /^\d{6}$/.test(s));
-  }, []);
+  useEffect(() => {
+    try {
+      localStorage.setItem(TAB_STORAGE_KEY, tab);
+    } catch {
+      /* ignore */
+    }
+  }, [tab]);
 
-  const parseCodes = useCallback((): string[] => {
-    return parseCodesFromText(codes);
-  }, [codes, parseCodesFromText]);
+  const changeTab = (t: Tab) => {
+    setTab(t);
+  };
 
   const runAnalysis = async () => {
-    const list = parseCodes();
+    const list = parseCodesFromText(codes);
     if (list.length === 0) {
       setErrorMsg("请输入有效的 6 位股票代码，多个用逗号分隔，例如：600519, 000858, 300750");
       return;
@@ -121,95 +150,130 @@ export default function App() {
     setStatus("已手动停止");
   };
 
-  // 从市场面板带回勾选的股票
-  const handleMarketPick = (codesList: string[]) => {
+  // 从发现/扫描面板勾选股票 → 直达深度分析
+  const handlePick = (codesList: string[]) => {
     setCodes(codesList.join(", "));
-    setTab("analyze");
+    changeTab("analyze");
+    // 等待渲染完成后自动开始
+    setTimeout(() => void runAnalysis(), 50);
   };
 
-  const tabs: { key: Tab; label: string }[] = [
-    { key: "analyze", label: "AI 选股" },
-    { key: "market", label: "市场扫描" },
-    { key: "portfolio", label: "我的持仓" },
-    { key: "history", label: "历史记录" },
-  ];
+  // 头部快捷搜索
+  const handleQuickPick = (code: string) => {
+    setCodes(code);
+    setQuickText("");
+    changeTab("analyze");
+    setTimeout(() => void runAnalysis(), 50);
+  };
+
+  // Ctrl/Cmd + Enter 快捷分析
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && tab === "analyze") {
+        e.preventDefault();
+        if (phase !== "running") void runAnalysis();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, phase, codes]);
+
+  const activeTab = TAB_LIST.find((t) => t.key === tab)!;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       {/* 顶部 */}
-      <header className="border-b border-slate-800/80 bg-slate-900/50 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand text-xl font-black text-white">
-              股
-            </div>
-            <div>
-              <h1 className="text-lg font-bold">AI 选股分析</h1>
-              <p className="text-xs text-slate-400">LLM 驱动 · A股 · 基本面/技术面/消息面综合评分</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <a
-              href="http://localhost:8000/api/health"
-              target="_blank"
-              rel="noreferrer"
-              className="hidden rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-400 hover:border-slate-500 hover:text-slate-200 sm:block"
-            >
-              后端状态
-            </a>
-            {user ? (
-              <div className="flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-1.5">
-                <span className="max-w-[160px] truncate text-xs text-slate-300">{user.email}</span>
-                <button onClick={signOut} className="text-xs text-slate-500 hover:text-slate-200">
-                  退出
-                </button>
+      <header className="sticky top-0 z-40 border-b border-slate-800/80 bg-slate-900/80 backdrop-blur">
+        <div className="mx-auto max-w-6xl px-4 py-3 sm:px-6">
+          <div className="flex items-center justify-between gap-3">
+            <button onClick={() => changeTab("discover")} className="flex items-center gap-3 text-left">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand text-lg font-black text-white">
+                股
               </div>
-            ) : (
-              <button
-                onClick={() => setAuthOpen(true)}
-                className="rounded-lg bg-brand px-4 py-1.5 text-xs font-medium text-white hover:bg-brand-dark"
-              >
-                登录 / 注册
-              </button>
-            )}
+              <div className="hidden sm:block">
+                <h1 className="text-base font-bold leading-tight">AI 选股分析</h1>
+                <p className="text-[11px] text-slate-400">发现 · 扫描 · 分析 · 持仓</p>
+              </div>
+            </button>
+
+            {/* 全局快捷搜索 */}
+            <div className="relative flex-1 max-w-md">
+              <StockSearchInput value={quickText} onChange={setQuickText} onPickCode={handleQuickPick} />
+            </div>
+
+            <div className="flex shrink-0 items-center gap-2">
+              {user ? (
+                <div className="flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-1.5">
+                  <span className="hidden max-w-[140px] truncate text-xs text-slate-300 md:inline">{user.email}</span>
+                  <button onClick={signOut} className="text-xs text-slate-500 hover:text-slate-200">
+                    退出
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setAuthOpen(true)}
+                  className="rounded-lg bg-brand px-4 py-1.5 text-xs font-medium text-white hover:bg-brand-dark"
+                >
+                  登录
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </header>
 
       <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} />
 
-      <main className="mx-auto max-w-6xl px-6 py-8">
-        {/* Tab 导航 */}
-        <div className="mb-6 flex gap-1 rounded-xl border border-slate-800 bg-slate-900/60 p-1">
-          {tabs.map((t) => (
+      <main className="mx-auto max-w-6xl px-4 pb-20 pt-4 sm:px-6 sm:pt-6">
+        {/* Tab 导航（桌面横向排列 / 移动横向滚动） */}
+        <nav className="mb-5 flex gap-1 overflow-x-auto rounded-xl border border-slate-800 bg-slate-900/60 p-1 sm:grid sm:grid-cols-4 sm:overflow-visible">
+          {TAB_LIST.map((t) => (
             <button
               key={t.key}
-              onClick={() => setTab(t.key)}
-              className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
-                tab === t.key ? "bg-brand text-white" : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+              onClick={() => changeTab(t.key)}
+              className={`flex min-w-[96px] flex-1 flex-col items-center gap-0.5 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition-colors sm:min-w-0 ${
+                tab === t.key
+                  ? "bg-brand text-white shadow"
+                  : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
               }`}
             >
-              {t.label}
+              <span className="flex items-center gap-1.5">
+                <span className="text-xs">{t.icon}</span>
+                {t.label}
+              </span>
+              <span className={`hidden text-[10px] font-normal lg:block ${tab === t.key ? "text-white/70" : "text-slate-500"}`}>
+                {t.desc}
+              </span>
             </button>
           ))}
+        </nav>
+
+        {/* 当前 Tab 页说明条（移动端显示） */}
+        <div className="mb-4 flex items-center justify-between lg:hidden">
+          <p className="text-xs text-slate-500">
+            <span className="mr-1">{activeTab.icon}</span>
+            {activeTab.desc}
+          </p>
         </div>
 
+        {/* 深度分析 */}
         {tab === "analyze" && (
           <>
             {/* 输入区 */}
-            <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
-              <label className="mb-2 block text-sm font-medium text-slate-300">股票搜索（支持代码或名称）</label>
+            <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 sm:p-5">
+              <label className="mb-2 block text-sm font-medium text-slate-300">
+                股票搜索 <span className="ml-1 text-xs font-normal text-slate-500">（代码/名称 · 支持多只）</span>
+              </label>
               <div className="flex flex-col gap-3 sm:flex-row">
                 <StockSearchInput
                   value={codes}
                   onChange={setCodes}
                   onPickCode={(code) => {
-                    // 选择联想结果后，追加到现有输入
                     setCodes((prev) => {
                       const existing = parseCodesFromText(prev);
                       if (existing.includes(code)) return prev;
-                      const next = [...existing, code];
-                      return next.join(", ");
+                      return [...existing, code].join(", ");
                     });
                   }}
                   disabled={phase === "running"}
@@ -230,12 +294,12 @@ export default function App() {
                   </button>
                 )}
               </div>
-              <p className="mt-2 text-xs text-slate-500">提示：支持 Ctrl + Enter 快捷触发</p>
+              <p className="mt-2 text-xs text-slate-500">提示：支持 Ctrl + Enter 快捷触发；在"发现好股 / 选股扫描"中勾选股票即可一键直达分析</p>
             </div>
 
             {/* 状态 */}
             {(phase === "running" || phase === "done") && status && (
-              <div className="mt-5 flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/60 px-4 py-3 text-sm text-slate-300">
+              <div className="mt-4 flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/60 px-4 py-3 text-sm text-slate-300">
                 {phase === "running" ? (
                   <>
                     <span className="relative flex h-2.5 w-2.5">
@@ -253,7 +317,7 @@ export default function App() {
 
             {/* 错误 */}
             {phase === "error" && errorMsg && (
-              <div className="mt-5 rounded-lg border border-red-800 bg-red-950/40 px-4 py-3 text-sm text-red-300">
+              <div className="mt-4 rounded-lg border border-red-800 bg-red-950/40 px-4 py-3 text-sm text-red-300">
                 {errorMsg}
               </div>
             )}
@@ -296,7 +360,7 @@ export default function App() {
             {/* 空状态 */}
             {phase === "idle" && (
               <div className="mt-12 text-center">
-                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-900 border border-slate-800 text-3xl">
+                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-slate-800 bg-slate-900 text-3xl">
                   📊
                 </div>
                 <p className="mt-4 text-sm text-slate-500">
@@ -307,14 +371,55 @@ export default function App() {
           </>
         )}
 
-        {tab === "market" && <MarketPanel onPick={handleMarketPick} />}
+        {tab === "discover" && <DiscoverPanel onPick={handlePick} />}
 
-        {tab === "portfolio" && <PortfolioPanel />}
+        {tab === "scan" && <ScanPanel onPick={handlePick} />}
 
-        {tab === "history" && <HistoryPanel refreshKey={historyRefresh} />}
+        {tab === "mine" && (
+          <div className="space-y-5">
+            {!user ? (
+              <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-8 text-center">
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-800 bg-slate-900 text-2xl">
+                  👤
+                </div>
+                <h2 className="mt-4 text-base font-semibold text-slate-200">登录后管理你的持仓与历史记录</h2>
+                <p className="mt-1 text-sm text-slate-500">持仓数据、风险等级建议与历史分析将按账号隔离保存</p>
+                <button
+                  onClick={() => setAuthOpen(true)}
+                  className="mt-5 rounded-lg bg-brand px-6 py-2 text-sm font-medium text-white hover:bg-brand-dark"
+                >
+                  登录 / 注册
+                </button>
+              </div>
+            ) : (
+              <>
+                <PortfolioPanel />
+                <HistoryPanel refreshKey={historyRefresh} />
+              </>
+            )}
+          </div>
+        )}
       </main>
 
-      <footer className="mx-auto max-w-6xl px-6 pb-8 text-center text-xs text-slate-600">
+      {/* 移动端底部导航 */}
+      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-800 bg-slate-900/95 backdrop-blur sm:hidden">
+        <div className="grid grid-cols-4">
+          {TAB_LIST.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => changeTab(t.key)}
+              className={`flex flex-col items-center gap-0.5 py-2.5 text-[11px] font-medium transition-colors ${
+                tab === t.key ? "text-brand" : "text-slate-500"
+              }`}
+            >
+              <span className="text-base leading-none">{t.icon}</span>
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </nav>
+
+      <footer className="mx-auto hidden max-w-6xl px-6 pb-8 text-center text-xs text-slate-600 sm:block">
         数据来源：akshare（腾讯/新浪）· 分析模型：DeepSeek · 仅供研究学习，不构成投资建议
       </footer>
     </div>
