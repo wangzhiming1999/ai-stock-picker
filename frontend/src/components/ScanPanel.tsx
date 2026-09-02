@@ -61,13 +61,13 @@ export default function ScanPanel({ onPick }: Props) {
   const [closingLoading, setClosingLoading] = useState(false);
   const [opportunitySelected, setOpportunitySelected] = useState<Set<string>>(new Set());
 
-  const runAuction = async () => {
+  const runAuction = async (force = false) => {
     setAuctionLoading(true);
     setErr("");
-    setAuctionResult(null);
+    if (force) setAuctionResult(null);
     setOpportunitySelected(new Set());
     try {
-      setAuctionResult(await fetchAuctionOpportunity(15));
+      setAuctionResult(await fetchAuctionOpportunity(15, force));
     } catch (e) {
       setErr((e as Error).message);
     } finally {
@@ -75,13 +75,13 @@ export default function ScanPanel({ onPick }: Props) {
     }
   };
 
-  const runClosing = async () => {
+  const runClosing = async (force = false) => {
     setClosingLoading(true);
     setErr("");
-    setClosingResult(null);
+    if (force) setClosingResult(null);
     setOpportunitySelected(new Set());
     try {
-      setClosingResult(await fetchClosingOpportunity(15));
+      setClosingResult(await fetchClosingOpportunity(15, force));
     } catch (e) {
       setErr((e as Error).message);
     } finally {
@@ -202,8 +202,19 @@ export default function ScanPanel({ onPick }: Props) {
           disabled={auctionLoading}
           className="rounded-lg bg-amber-600 px-5 py-2 text-sm font-medium text-white hover:bg-amber-500 disabled:opacity-50"
         >
-          {auctionLoading ? "扫描中..." : "扫描早盘竞价（9:15-9:30）"}
+          {auctionLoading ? "扫描中..." : auctionResult?.cached ? "刷新缓存（强制重跑）" : "扫描早盘竞价（9:15-9:30）"}
         </button>
+        {auctionResult?.cached && auctionResult.trade_date && (
+          <div className="mt-2 text-[11px] text-slate-500">
+            缓存 {auctionResult.trade_date} ·{" "}
+            {auctionResult.generated_at ? new Date(auctionResult.generated_at).toLocaleTimeString() : "-"} 生成
+          </div>
+        )}
+        {!auctionLoading && auctionResult?.needs_scan && (
+          <div className="mt-3 rounded-lg border border-amber-800/60 bg-amber-950/20 p-3 text-xs text-amber-200">
+            今日尚未生成早盘竞价机会。点击上方按钮生成（每交易日仅生成一次并缓存）。
+          </div>
+        )}
         {auctionResult?.items?.length ? (
           <div className="mt-4 max-h-96 overflow-y-auto rounded-lg border border-slate-800">
             <table className="w-full text-sm">
@@ -275,8 +286,19 @@ export default function ScanPanel({ onPick }: Props) {
           disabled={closingLoading}
           className="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
         >
-          {closingLoading ? "扫描中..." : "扫描尾盘机会（14:45-15:00）"}
+          {closingLoading ? "扫描中..." : closingResult?.cached ? "刷新缓存（强制重跑）" : "扫描尾盘机会（14:45-15:00）"}
         </button>
+        {closingResult?.cached && closingResult.trade_date && (
+          <div className="mt-2 text-[11px] text-slate-500">
+            缓存 {closingResult.trade_date} ·{" "}
+            {closingResult.generated_at ? new Date(closingResult.generated_at).toLocaleTimeString() : "-"} 生成
+          </div>
+        )}
+        {!closingLoading && closingResult?.needs_scan && (
+          <div className="mt-3 rounded-lg border border-amber-800/60 bg-amber-950/20 p-3 text-xs text-amber-200">
+            今日尚未生成尾盘机会。点击上方按钮生成（每交易日仅生成一次并缓存）。
+          </div>
+        )}
         {closingResult?.items?.length ? (
           <div className="mt-4 max-h-96 overflow-y-auto rounded-lg border border-slate-800">
             <table className="w-full text-sm">

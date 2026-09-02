@@ -420,26 +420,26 @@ async def scan_market(req: ScanRequest):
 
 
 @router.get("/opportunity/auction")
-async def auction_opportunity_endpoint(limit: int = 15):
+async def auction_opportunity_endpoint(limit: int = 15, force: bool = False):
     """早盘竞价机会（9:15-9:30），博当日大涨。
 
-    基于实时快照：涨幅+量比+成交额筛选，开盘强势股。
+    优先返回 DB 当日缓存（自动 cron / 用户手动写入）。
+    force=true 时绕过缓存，立即扫描并写回缓存。
     """
     try:
-        items = await opportunity_service.get_auction_opportunity(limit)
-        return {"stage": "auction", "items": items, "stage_label": "早盘竞价 9:15-9:30", "goal": "博当日大涨"}
+        return await opportunity_service.get_auction_opportunity_detail(limit, force=force)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"早盘竞价扫描失败: {e}")
 
 
 @router.get("/opportunity/closing")
-async def closing_opportunity_endpoint(limit: int = 15):
+async def closing_opportunity_endpoint(limit: int = 15, force: bool = False):
     """尾盘机会（14:45-15:00），博次日高开/继续上涨。
 
-    基于实时快照：涨幅+5分钟翘尾+量比+换手率筛选。
+    优先返回 DB 当日缓存（自动 cron / 用户手动写入）。
+    force=true 时绕过缓存，立即扫描并写回缓存。
     """
     try:
-        items = await opportunity_service.get_closing_opportunity(limit)
-        return {"stage": "closing", "items": items, "stage_label": "尾盘 14:45-15:00", "goal": "博次日高开"}
+        return await opportunity_service.get_closing_opportunity_detail(limit, force=force)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"尾盘扫描失败: {e}")

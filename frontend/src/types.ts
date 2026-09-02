@@ -147,6 +147,12 @@ export interface OpportunityResult {
   stage_label: string;
   goal: string;
   items: OpportunityStock[];
+  cached?: boolean;
+  needs_scan?: boolean;
+  source?: "cache" | "live" | "auto" | "manual";
+  trade_date?: string;
+  generated_at?: string | null;
+  count?: number;
 }
 
 export interface StrategyDef {
