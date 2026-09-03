@@ -10,6 +10,7 @@ import {
 } from "../api/client";
 import StockSearchInput from "./StockSearchInput";
 import ImportHoldingsModal from "./ImportHoldingsModal";
+import AlertRulesPanel from "./AlertRulesPanel";
 import type { HoldingsData, PortfolioAdvice, UserProfile } from "../types";
 import { useAuth } from "../auth/AuthContext";
 import { fmtPct, safeNumber } from "../lib/safe";
@@ -338,6 +339,8 @@ export default function PortfolioPanel() {
       )}
 
       <ImportHoldingsModal open={showImport} onClose={() => setShowImport(false)} onImported={() => void load()} />
+
+      <AlertRulesPanel />
     </div>
   );
 }

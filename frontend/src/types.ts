@@ -275,6 +275,36 @@ export interface ParsedImportResult {
   warnings: string[];
 }
 
+/** 价格预警规则 */
+export type AlertType = "stop_loss" | "breakdown" | "price_target";
+
+export interface AlertRule {
+  id: number;
+  user_id: string;
+  code: string;
+  name: string;
+  type: AlertType;
+  threshold: number;
+  enabled: boolean;
+  note: string;
+  created_at: string;
+}
+
+/** 价格预警事件 */
+export interface AlertEvent {
+  id: number;
+  user_id: string;
+  rule_id: number | null;
+  code: string;
+  name: string;
+  title: string;
+  message: string;
+  price: number | null;
+  severity: "info" | "warn" | "danger";
+  is_read: boolean;
+  created_at: string;
+}
+
 export interface BacktestResult {
   strategy: string;
   start: string;

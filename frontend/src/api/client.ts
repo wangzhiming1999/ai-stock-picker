@@ -1,6 +1,9 @@
 import type {
   AnalysisBatch,
   AnalysisBatchDetail,
+  AlertEvent,
+  AlertRule,
+  AlertType,
   Briefing,
   BacktestResult,
   DailyRecommendResult,
@@ -287,6 +290,57 @@ export async function importHoldingsBatch(
     throw new Error(d.detail || `批量导入失败: ${res.status}`);
   }
   return res.json();
+}
+
+/* ---------- 价格预警中心 ---------- */
+
+export async function fetchAlertRules(): Promise<AlertRule[]> {
+  const res = await authFetch(`${API}/alerts/rules`);
+  if (!res.ok) throw new Error(`获取预警规则失败: ${res.status}`);
+  return res.json();
+}
+
+export async function addAlertRule(payload: { code: string; type: AlertType; threshold: number; name?: string; note?: string }): Promise<AlertRule> {
+  const res = await authFetch(`${API}/alerts/rules`, { method: "POST", body: JSON.stringify(payload) });
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(d.detail || `添加规则失败: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function deleteAlertRule(id: number): Promise<void> {
+  const res = await authFetch(`${API}/alerts/rules/${id}`, { method: "DELETE" });
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(d.detail || `删除规则失败: ${res.status}`);
+  }
+}
+
+export async function fetchAlertEvents(unreadOnly = false, limit = 50): Promise<AlertEvent[]> {
+  const res = await authFetch(`${API}/alerts/events?unread_only=${unreadOnly}&limit=${limit}`);
+  if (!res.ok) throw new Error(`获取预警事件失败: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchAlertUnread(): Promise<number> {
+  const res = await authFetch(`${API}/alerts/unread`);
+  if (!res.ok) return 0;
+  return (await res.json()).count ?? 0;
+}
+
+export async function markAlertRead(): Promise<void> {
+  await authFetch(`${API}/alerts/read`, { method: "POST" });
+}
+
+export async function evaluateAlerts(): Promise<number> {
+  try {
+    const res = await authFetch(`${API}/alerts/evaluate`, { method: "POST" });
+    if (!res.ok) return 0;
+    return (await res.json()).new_events ?? 0;
+  } catch {
+    return 0;
+  }
 }
 
 export async function fetchBriefing(): Promise<Briefing> {

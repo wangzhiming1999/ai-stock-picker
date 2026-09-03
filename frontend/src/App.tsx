@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ComponentType, SVGProps } from "react";
 import { BarChart3, Lightbulb, LogIn, ScanSearch, UserRound } from "lucide-react";
+import AlertBell from "./components/AlertBell";
 import { motion } from "framer-motion";
 import { Toaster, toast } from "sonner";
 import { useAuth } from "./auth/AuthContext";
@@ -230,6 +231,7 @@ export default function App() {
             </div>
 
             <div className="flex shrink-0 items-center gap-2">
+              {user && <AlertBell />}
               {user ? (
                 <motion.div
                   initial={{ opacity: 0, scale: 0.95 }}

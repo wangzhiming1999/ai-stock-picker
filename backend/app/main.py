@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 
 from app import store
 from app.config import get_settings
-from app.routes import analysis, auth, backtest, briefing, cron, history, market, monitor, portfolio, quad, stock, watchlist
+from app.routes import analysis, alerts, auth, backtest, briefing, cron, history, market, monitor, portfolio, quad, stock, watchlist
 
 settings = get_settings()
 
@@ -82,6 +82,7 @@ app.include_router(market.router)
 app.include_router(history.router)
 app.include_router(auth.router)
 app.include_router(cron.router)
+app.include_router(alerts.router)
 app.include_router(backtest.router)
 app.include_router(portfolio.router)
 app.include_router(watchlist.router)

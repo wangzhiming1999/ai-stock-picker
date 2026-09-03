@@ -3,7 +3,7 @@ import os
 
 from fastapi import APIRouter, HTTPException, Request
 
-from app.services import quad_service, winrate_service
+from app.services import alert_service, quad_service, winrate_service
 
 router = APIRouter(prefix="/api/cron", tags=["cron"])
 
@@ -44,3 +44,16 @@ async def quad_cron(request: Request):
         return {"ok": True, "date": result["date"], "items": len(result["items"]), "pool": result["pool_size"]}
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"四维牛股榜预热失败: {e}")
+
+
+@router.post("/alert")
+async def alert_cron(request: Request):
+    """兜底评估全部用户预警规则（用户关机时也能记事件历史）。
+
+    频率受 Vercel Cron 套餐限制，高频实时性由前端盯盘轮询的 /api/alerts/evaluate 保证。
+    """
+    _authorize(request)
+    try:
+        return await alert_service.evaluate_all()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"预警评估失败: {e}")
