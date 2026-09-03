@@ -5,6 +5,7 @@ import { requestAuth } from "./WatchStar";
 import { useAuth } from "../auth/AuthContext";
 import CollapsiblePanel from "./CollapsiblePanel";
 import BacktestPanel from "./BacktestPanel";
+import MonitorPanel from "./MonitorPanel";
 import WinratePanel from "./WinratePanel";
 import type { OpportunityResult, ScanStock, StrategyDef, StrategyName, StrategyStock } from "../types";
 
@@ -172,6 +173,9 @@ export default function ScanPanel({ onPick }: Props) {
 
   return (
     <div className="space-y-5">
+      {/* 盯盘监控（自定义名单 5 分钟轮询） */}
+      <MonitorPanel />
+
       {/* 早盘竞价机会（9:15-9:30） */}
       <CollapsiblePanel
         id="scan_auction"

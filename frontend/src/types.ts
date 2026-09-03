@@ -221,6 +221,46 @@ export interface QuadRankResult {
   items: QuadStock[];
 }
 
+/** 盯盘监控：实时行情 + 技术信号 → 操作指令 */
+export interface MonitorSignal {
+  support: number;
+  resistance: number;
+  buy_point: number;
+  sell_point: number;
+  stop_loss: number;
+  rr_ratio: number;
+  strength: number;
+  ma20: number;
+  ma60: number;
+  high60: number;
+  low60: number;
+}
+
+export interface MonitorAdvice {
+  action: "stop" | "sell" | "buy" | "hold";
+  label: string;
+  tone: "danger" | "warn" | "good" | "neutral";
+  hint: string;
+  dist: { to_stop: number; to_support: number; to_resistance: number };
+}
+
+export interface MonitorStock {
+  code: string;
+  name: string;
+  price: number;
+  change_pct: number;
+  turnover: number | null;
+  signal: MonitorSignal;
+  advice: MonitorAdvice;
+}
+
+export interface MonitorResult {
+  updated_at: string;
+  count: number;
+  missed: string[];
+  items: MonitorStock[];
+}
+
 export interface BacktestResult {
   strategy: string;
   start: string;

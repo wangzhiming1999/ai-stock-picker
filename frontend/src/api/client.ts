@@ -8,6 +8,7 @@ import type {
   HoldingsData,
   IndexHistory,
   Industry,
+  MonitorResult,
   MarketPrediction,
   NewsItem,
   OpportunityResult,
@@ -254,6 +255,16 @@ export async function fetchIndexHistory(days = 120): Promise<IndexHistory> {
 export async function fetchQuadRanking(refresh = false): Promise<QuadRankResult> {
   const res = await fetch(`${API}/market/quad${refresh ? "?refresh=true" : ""}`);
   if (!res.ok) throw new Error(`获取四维牛股榜失败: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchMonitor(codes: string[]): Promise<MonitorResult> {
+  const res = await fetch(`${API}/market/monitor`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ codes }),
+  });
+  if (!res.ok) throw new Error(`监控刷新失败: ${res.status}`);
   return res.json();
 }
 
