@@ -130,7 +130,8 @@ async def parse_import(req: ImportParseRequest, user_id: str = Depends(_require_
         if req.image_base64:
             items, warnings = await import_service.parse_holdings_image(req.image_base64)
         elif req.text and req.text.strip():
-            items, warnings = await import_service.parse_holdings_text(req.text)
+            # parse_holdings_text 为同步纯函数，不能 await
+            items, warnings = import_service.parse_holdings_text(req.text)
         else:
             raise HTTPException(status_code=400, detail="请提供截图或粘贴持仓文本")
         items = await import_service.enrich_names(items)
