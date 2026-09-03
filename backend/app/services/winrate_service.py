@@ -1,6 +1,7 @@
 """胜率统计服务：预测命中率 + 推荐胜率统计与结算。"""
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 
 from app.services import data_service, market_prediction, supabase_store, trade_calendar_service
@@ -25,12 +26,13 @@ async def settle_daily_recommendations() -> int:
     if not rows:
         return 0
 
-    # 批量获取当前行情（腾讯接口，一次多只）
+    # 批量获取当前行情（腾讯接口为同步 requests，须丢线程池，不能直接 await）
     codes = list({r["code"] for r in rows})
-    quotes = await data_service.get_spot_quote(codes)
+    quotes = await asyncio.to_thread(data_service.get_spot_quote, codes)
     quote_map = {q.code: q for q in quotes}
 
     settled = 0
+    settled_at = dt.datetime.now(dt.timezone.utc).isoformat()
     for row in rows:
         q = quote_map.get(row["code"])
         if not q or not q.price or not row.get("recommend_price"):
@@ -46,7 +48,7 @@ async def settle_daily_recommendations() -> int:
                     "next_close": round(next_close, 2),
                     "next_return": round(next_return, 2),
                     "hit": hit,
-                    "settled_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+                    "settled_at": settled_at,
                 }
             )
             .eq("id", row["id"])

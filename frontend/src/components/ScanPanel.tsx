@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { fetchAuctionOpportunity, fetchClosingOpportunity, importToWatchlist, scanMarket, strategyScan } from "../api/client";
 import { requestAuth } from "./WatchStar";
 import { useAuth } from "../auth/AuthContext";
+import { fmtNum } from "../lib/safe";
 import CollapsiblePanel from "./CollapsiblePanel";
 import BacktestPanel from "./BacktestPanel";
 import MonitorPanel from "./MonitorPanel";
@@ -70,7 +71,7 @@ export default function ScanPanel({ onPick }: Props) {
     try {
       setAuctionResult(await fetchAuctionOpportunity(15, force));
     } catch (e) {
-      setErr((e as Error).message);
+      toast.error("早盘竞价机会获取失败", { description: (e as Error).message });
     } finally {
       setAuctionLoading(false);
     }
@@ -84,7 +85,7 @@ export default function ScanPanel({ onPick }: Props) {
     try {
       setClosingResult(await fetchClosingOpportunity(15, force));
     } catch (e) {
-      setErr((e as Error).message);
+      toast.error("尾盘机会获取失败", { description: (e as Error).message });
     } finally {
       setClosingLoading(false);
     }
@@ -113,7 +114,7 @@ export default function ScanPanel({ onPick }: Props) {
     try {
       setStrategyResult(await strategyScan(s, 20, 3));
     } catch (e) {
-      setErr((e as Error).message);
+      toast.error("策略选股失败", { description: (e as Error).message });
     } finally {
       setStrategyRunning(false);
     }
@@ -247,11 +248,11 @@ export default function ScanPanel({ onPick }: Props) {
                     <td className="px-3 py-1.5 text-slate-500">{s.code}</td>
                     <td className={`px-3 py-1.5 text-right ${s.change_pct >= 0 ? "text-green-400" : "text-red-400"}`}>
                       {s.change_pct >= 0 ? "+" : ""}
-                      {s.change_pct.toFixed(2)}%
+                      {fmtNum(s.change_pct)}%
                     </td>
-                    <td className="px-3 py-1.5 text-right text-amber-400 font-semibold">{s.volume_ratio.toFixed(2)}</td>
-                    <td className="px-3 py-1.5 text-right text-slate-400">{s.amount_yi.toFixed(2)}</td>
-                    <td className="px-3 py-1.5 text-right font-semibold text-brand">{s.score.toFixed(2)}</td>
+                    <td className="px-3 py-1.5 text-right text-amber-400 font-semibold">{fmtNum(s.volume_ratio)}</td>
+                    <td className="px-3 py-1.5 text-right text-slate-400">{fmtNum(s.amount_yi)}</td>
+                    <td className="px-3 py-1.5 text-right font-semibold text-brand">{fmtNum(s.score)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -332,15 +333,15 @@ export default function ScanPanel({ onPick }: Props) {
                     <td className="px-3 py-1.5 text-slate-500">{s.code}</td>
                     <td className={`px-3 py-1.5 text-right ${s.change_pct >= 0 ? "text-green-400" : "text-red-400"}`}>
                       {s.change_pct >= 0 ? "+" : ""}
-                      {s.change_pct.toFixed(2)}%
+                      {fmtNum(s.change_pct)}%
                     </td>
                     <td className="px-3 py-1.5 text-right text-emerald-400 font-semibold">
                       {s.change_5min >= 0 ? "+" : ""}
-                      {s.change_5min.toFixed(2)}%
+                      {fmtNum(s.change_5min)}%
                     </td>
-                    <td className="px-3 py-1.5 text-right text-amber-400">{s.volume_ratio.toFixed(2)}</td>
-                    <td className="px-3 py-1.5 text-right text-slate-400">{s.turnover.toFixed(2)}</td>
-                    <td className="px-3 py-1.5 text-right font-semibold text-brand">{s.score.toFixed(2)}</td>
+                    <td className="px-3 py-1.5 text-right text-amber-400">{fmtNum(s.volume_ratio)}</td>
+                    <td className="px-3 py-1.5 text-right text-slate-400">{fmtNum(s.turnover)}</td>
+                    <td className="px-3 py-1.5 text-right font-semibold text-brand">{fmtNum(s.score)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -419,12 +420,12 @@ export default function ScanPanel({ onPick }: Props) {
                     </td>
                     <td className="px-3 py-1.5 text-slate-200">{s.name}</td>
                     <td className="px-3 py-1.5 text-slate-500">{s.code}</td>
-                    <td className="px-3 py-1.5 text-right text-slate-300">{s.price.toFixed(2)}</td>
+                    <td className="px-3 py-1.5 text-right text-slate-300">{fmtNum(s.price)}</td>
                     <td className={`px-3 py-1.5 text-right ${s.change_pct >= 0 ? "text-green-400" : "text-red-400"}`}>
                       {s.change_pct >= 0 ? "+" : ""}
-                      {s.change_pct.toFixed(2)}%
+                      {fmtNum(s.change_pct)}%
                     </td>
-                    <td className="px-3 py-1.5 text-right font-semibold text-brand">{s.strategy_score.toFixed(1)}</td>
+                    <td className="px-3 py-1.5 text-right font-semibold text-brand">{fmtNum(s.strategy_score, 1)}</td>
                     <td className="px-3 py-1.5">
                       <div className="flex flex-wrap gap-1">
                         {s.tags.map((t, i) => (
@@ -523,12 +524,12 @@ export default function ScanPanel({ onPick }: Props) {
                       </td>
                       <td className="px-3 py-1.5 text-slate-200">{s.name}</td>
                       <td className="px-3 py-1.5 text-slate-500">{s.code}</td>
-                      <td className="px-3 py-1.5 text-right text-slate-300">{s.price.toFixed(2)}</td>
+                      <td className="px-3 py-1.5 text-right text-slate-300">{fmtNum(s.price)}</td>
                       <td className={`px-3 py-1.5 text-right ${s.change_pct >= 0 ? "text-green-400" : "text-red-400"}`}>
                         {s.change_pct >= 0 ? "+" : ""}
-                        {s.change_pct.toFixed(2)}%
+                        {fmtNum(s.change_pct)}%
                       </td>
-                      <td className="px-3 py-1.5 text-right text-slate-400">{s.amount_yi.toFixed(2)}</td>
+                      <td className="px-3 py-1.5 text-right text-slate-400">{fmtNum(s.amount_yi)}</td>
                     </tr>
                   ))}
                 </tbody>

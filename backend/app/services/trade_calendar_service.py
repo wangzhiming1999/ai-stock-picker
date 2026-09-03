@@ -121,7 +121,7 @@ async def _get_calendar() -> dict[str, bool]:
     覆盖范围：当前年份 ±2 年。DB 有则读；没有则 akshare 拉取全量交易日写入。
     """
     global _calendar_cache
-    if _calendar_cache:
+    if _calendar_cache is not None and _calendar_cache:
         return _calendar_cache
 
     cal: dict[str, bool] = {}
@@ -165,11 +165,12 @@ async def _get_calendar() -> dict[str, bool]:
         logger.info("交易日历已拉取并写入: %d 天", len(cal))
     except Exception as e:
         logger.warning("akshare 拉取交易日历失败，用周末推断兜底: %s", e)
-        # 纯周末推断兜底（无法排除节假日但保证周末正确）
+        # 纯周末推断兜底（无法排除节假日但保证周末正确）；同样写缓存避免每次请求重试
         d = dt.date(now_cn().year - 2, 1, 1)
         while d <= dt.date(now_cn().year + 2, 12, 31):
             cal[d.isoformat()] = d.weekday() < 5
             d += dt.timedelta(days=1)
+        _calendar_cache = cal
     return cal
 
 

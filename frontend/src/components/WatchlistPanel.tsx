@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 import { CalendarDays } from "lucide-react";
 import { fetchDailyRecommend, fetchWatchlist, importToWatchlist, removeFromWatchlist } from "../api/client";
 import { fmtDayLabel, isTodayCN } from "../lib/dates";
@@ -76,12 +77,15 @@ export default function WatchlistPanel({ onAnalyze }: Props) {
     }
   };
 
-  const remove = async (id: number) => {
+  const remove = async (id: number, name: string) => {
+    if (!window.confirm(`确认将「${name || id}」移出自选？`)) return;
     try {
       await removeFromWatchlist(id);
+      toast.success(`已移出自选 ${name || id}`);
       await load();
     } catch (e) {
       setErr((e as Error).message);
+      toast.error("移除失败", { description: (e as Error).message });
     }
   };
 
@@ -198,7 +202,7 @@ export default function WatchlistPanel({ onAnalyze }: Props) {
                     )}
                   </td>
                   <td className="px-2 py-2">
-                    <button onClick={() => void remove(w.id)} className="text-xs text-slate-500 hover:text-red-400" title="删除">
+                    <button onClick={() => void remove(w.id, w.name)} className="text-xs text-slate-500 hover:text-red-400" title="删除">
                       移除
                     </button>
                   </td>

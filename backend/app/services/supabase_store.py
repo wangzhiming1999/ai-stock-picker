@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -14,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 _client: Any | None = None
 _service_client: Any | None = None
+_init_lock = asyncio.Lock()
 
 
 def is_configured() -> bool:
@@ -22,13 +24,15 @@ def is_configured() -> bool:
 
 
 async def get_service_client():
-    """后端管理客户端（service_role key，绕过 RLS）。"""
+    """后端管理客户端（service_role key，绕过 RLS）。加锁避免冷实例并发重复创建。"""
     global _service_client
     if _service_client is None:
-        from supabase import create_async_client
+        async with _init_lock:
+            if _service_client is None:
+                from supabase import create_async_client
 
-        s = get_settings()
-        _service_client = await create_async_client(s.supabase_url, s.supabase_service_key)
+                s = get_settings()
+                _service_client = await create_async_client(s.supabase_url, s.supabase_service_key)
     return _service_client
 
 
@@ -36,10 +40,12 @@ async def get_public_client():
     """公共客户端（anon key，用于 Auth 操作，遵循 RLS）。"""
     global _client
     if _client is None:
-        from supabase import create_async_client
+        async with _init_lock:
+            if _client is None:
+                from supabase import create_async_client
 
-        s = get_settings()
-        _client = await create_async_client(s.supabase_url, s.supabase_anon_key)
+                s = get_settings()
+                _client = await create_async_client(s.supabase_url, s.supabase_anon_key)
     return _client
 
 

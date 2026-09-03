@@ -100,8 +100,9 @@ export default function App() {
     setTab(t);
   };
 
-  const runAnalysis = async () => {
-    const list = parseCodesFromText(codes);
+  const runAnalysis = async (raw?: string) => {
+    // raw 显式传入优先（勾选跳转场景），避免闭包读到 setState 前的旧 codes
+    const list = parseCodesFromText(raw ?? codes);
     if (list.length === 0) {
       setErrorMsg("请输入有效的 6 位股票代码，多个用逗号分隔，例如：600519, 000858, 300750");
       return;
@@ -166,6 +167,8 @@ export default function App() {
 
     try {
       await Promise.all([infoTask, streamAnalysis(list, handleEvent, signal)]);
+      // 兜底：服务端连接关闭但未发 done 事件时结束 running 态，避免永远"运行中"
+      setPhase((p) => (p === "running" ? "done" : p));
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
         const msg = (err as Error).message || "分析失败，请检查后端服务是否启动、API Key 是否配置";
@@ -184,10 +187,11 @@ export default function App() {
 
   // 从发现/扫描面板勾选股票 → 直达深度分析
   const handlePick = (codesList: string[]) => {
-    setCodes(codesList.join(", "));
+    const joined = codesList.join(", ");
+    setCodes(joined);
     changeTab("analyze");
-    // 等待渲染完成后自动开始
-    setTimeout(() => void runAnalysis(), 50);
+    // 显式传参启动，避免闭包读到旧 codes
+    void runAnalysis(joined);
   };
 
   // 头部快捷搜索
@@ -195,7 +199,7 @@ export default function App() {
     setCodes(code);
     setQuickText("");
     changeTab("analyze");
-    setTimeout(() => void runAnalysis(), 50);
+    void runAnalysis(code);
   };
 
   // Ctrl/Cmd + Enter 快捷分析

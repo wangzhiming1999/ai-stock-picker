@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 
 from app.services import data_service, supabase_store
@@ -24,7 +25,7 @@ async def add_watch(user_id: str, code: str) -> dict:
 
     name = ""
     try:
-        quotes = data_service.get_spot_quote([code])
+        quotes = await asyncio.to_thread(data_service.get_spot_quote, [code])
         if quotes:
             name = quotes[0].name or ""
     except Exception:
@@ -87,7 +88,7 @@ async def list_watch(user_id: str) -> dict:
         return {"watchlist": [], "summary": None}
 
     codes = [r["code"] for r in rows]
-    quotes = data_service.get_spot_quote(codes)
+    quotes = await asyncio.to_thread(data_service.get_spot_quote, codes)
     quote_map = {q.code: q for q in quotes}
 
     items = []

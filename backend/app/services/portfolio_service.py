@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 
 from app.services import data_service, signal_service, supabase_store
@@ -74,7 +75,7 @@ async def add_holding(user_id: str, code: str, cost_price: float, shares: int, b
     # 尝试获取股票名称
     name = ""
     try:
-        quotes = data_service.get_spot_quote([code])
+        quotes = await asyncio.to_thread(data_service.get_spot_quote, [code])
         if quotes:
             name = quotes[0].name or ""
     except Exception:
@@ -129,15 +130,20 @@ async def list_holdings(user_id: str) -> list[dict]:
             "total_pnl_pct": 0.0,
         }
 
-    # 批量获取行情
+    # 批量获取行情（同步 requests 丢线程池，避免阻塞事件循环）
     codes = [h["code"] for h in holdings]
-    quotes = data_service.get_spot_quote(codes)
+    quotes = await asyncio.to_thread(data_service.get_spot_quote, codes)
     quote_map = {q.code: q for q in quotes}
+    # K 线并发预取（原为循环内逐只同步请求，N+1 且阻塞）
+    hists = await asyncio.gather(
+        *(asyncio.to_thread(data_service.get_history, h["code"]) for h in holdings),
+        return_exceptions=True,
+    )
 
     enriched = []
     total_value = 0.0
     total_cost = 0.0
-    for h in holdings:
+    for h, hist in zip(holdings, hists):
         q = quote_map.get(h["code"])
         price = q.price if q else None
         cost_price = h.get("cost_price") or 0
@@ -148,10 +154,10 @@ async def list_holdings(user_id: str) -> list[dict]:
         total_value += market_value
         total_cost += cost_price * shares
 
-        # 技术信号
+        # 技术信号（K 线已并发预取）
         signal = None
         try:
-            history = data_service.get_history(h["code"])
+            history = None if isinstance(hist, BaseException) else hist
             if history and history.closes and price:
                 signal = signal_service.compute_signals(history.closes, price)
         except Exception:

@@ -193,7 +193,11 @@ async def analyze_stocks(req: AnalysisRequest, request: Request):
             except Exception as e:
                 yield _sse("status", f"历史保存失败（不影响结果）：{e}")
 
-        yield _sse("done", "全部分析完成", {"results": [r.model_dump() for r in results]})
+        yield _sse(
+            "done",
+            "全部分析完成",
+            {"results": [r if isinstance(r, dict) else r.model_dump() for r in results]},
+        )
 
     return StreamingResponse(
         event_generator(),

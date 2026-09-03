@@ -111,10 +111,10 @@ class StrategyScanRequest(BaseModel):
 
 
 def _is_tradable(row: dict) -> bool:
-    """过滤 ST、退市、停牌、次新股等不可交易标的。"""
-    name = row.get("name", "")
+    """过滤 ST、退市、停牌、次新股等不可交易标的（仅匹配前缀，避免误杀 TCL 等含字母名称）。"""
+    name = (row.get("name") or "").strip().upper()
     price = row.get("price", 0)
-    if any(x in name for x in ("ST", "退", "N", "C")):
+    if name.startswith(("ST", "*ST", "N", "C")) or "退" in name:
         return False
     if price <= 1 or price > 500:
         return False

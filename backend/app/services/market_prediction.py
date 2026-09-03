@@ -305,12 +305,14 @@ def normalize_direction(raw: str) -> str:
 
 
 async def settle_predictions() -> int:
-    """结算待结算的预测：对比最近已结束交易日的实际走势。
+    """结算待结算的预测：按每条记录各自的 target_date 对应实际走势判定。
 
     交易日对齐：
     - 用最近收盘的交易日（data_day）作为结算基准
     - 结算所有 target_date <= data_day 的未结算预测
-    - 周五收盘后结算 target=周一 的记录；节假日自动顺延
+    - 每条记录用其 target_date 当日（及其前一交易日）的上证收盘涨跌判定，
+      避免漏跑 cron 后所有逾期记录共用"最新一天"行情导致准确率失真
+    - 行情数据缺失的记录留待下次结算
 
     返回本次结算的记录数。
     """
@@ -319,26 +321,35 @@ async def settle_predictions() -> int:
     sb = await supabase_store.get_service_client()
     # 最近已收盘交易日
     data_day = await trade_calendar_service.last_trading_day()
-    # 拉最近一个交易日的实际涨跌
     hist = await asyncio_hist()
-    if len(hist) < 2:
-        return 0
-    last = hist[-1]
-    prev = hist[-2]
-    actual_change = (last["close"] / prev["close"] - 1) * 100
-    actual_dir = "上涨" if actual_change >= 0.2 else ("下跌" if actual_change <= -0.2 else "震荡")
 
     # 找未结算的记录（target_date <= 最近交易日，即今天已经"到点"的预测）
     res = await (
         sb.table("prediction_records")
-        .select("id", "direction")
+        .select("id", "direction", "target_date")
         .is_("settled_at", "null")
         .lte("target_date", data_day.isoformat())
         .execute()
     )
     rows = res.data
+    if not rows:
+        return 0
+
+    # date -> (当日收盘, 前一交易日收盘)
+    by_date: dict[str, tuple[float, float]] = {}
+    for i in range(1, len(hist)):
+        by_date[str(hist[i]["date"])[:10]] = (hist[i]["close"], hist[i - 1]["close"])
+
     settled = 0
+    settled_at = dt.datetime.now(dt.timezone.utc).isoformat()
     for row in rows:
+        tgt = str(row.get("target_date", ""))[:10]
+        pair = by_date.get(tgt)
+        if not pair or not pair[1]:
+            continue  # 该日行情缺失，留待下次
+        close, prev_close = pair
+        actual_change = (close / prev_close - 1) * 100
+        actual_dir = "上涨" if actual_change >= 0.2 else ("下跌" if actual_change <= -0.2 else "震荡")
         hit = row["direction"] == actual_dir
         await (
             sb.table("prediction_records")
@@ -347,7 +358,7 @@ async def settle_predictions() -> int:
                     "actual_change": round(actual_change, 2),
                     "actual_direction": actual_dir,
                     "hit": hit,
-                    "settled_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+                    "settled_at": settled_at,
                 }
             )
             .eq("id", row["id"])

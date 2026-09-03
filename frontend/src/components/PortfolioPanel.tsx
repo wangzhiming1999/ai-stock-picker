@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 import {
   addHolding,
   fetchHoldings,
@@ -102,12 +103,15 @@ export default function PortfolioPanel() {
     }
   };
 
-  const del = async (id: number) => {
+  const del = async (id: number, name: string) => {
+    if (!window.confirm(`确认删除持仓「${name || id}」？此操作不可恢复。`)) return;
     try {
       await removeHolding(id);
+      toast.success(`已删除持仓 ${name || id}`);
       await load();
     } catch (e) {
       setErr((e as Error).message);
+      toast.error("删除失败", { description: (e as Error).message });
     }
   };
 
@@ -141,7 +145,13 @@ export default function PortfolioPanel() {
                 defaultValue={profile.total_capital}
                 onBlur={(e) => {
                   const v = parseFloat(e.target.value);
-                  if (v > 0) void updatePortfolioProfile({ risk_level: profile.risk_level, total_capital: v }).then(setProfile);
+                  if (!(v > 0)) return;
+                  void updatePortfolioProfile({ risk_level: profile.risk_level, total_capital: v })
+                    .then((p) => {
+                      setProfile(p);
+                      toast.success("总资金已更新");
+                    })
+                    .catch((err) => toast.error("总资金保存失败", { description: (err as Error).message }));
                 }}
                 className="w-24 rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200"
               />
@@ -262,7 +272,7 @@ export default function PortfolioPanel() {
                     )}
                   </td>
                   <td className="px-2 py-2">
-                    <button onClick={() => void del(h.id)} className="text-xs text-slate-500 hover:text-red-400" title="删除">
+                    <button onClick={() => void del(h.id, h.name)} className="text-xs text-slate-500 hover:text-red-400" title="删除">
                       删除
                     </button>
                   </td>

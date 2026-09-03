@@ -140,7 +140,9 @@ def _full_spot() -> list[dict]:
 
 
 def _is_clean(name: str) -> bool:
-    return not any(x in name for x in ("ST", "退", "N", "C"))
+    """仅按前缀匹配风险标识，避免误杀 TCL 等含字母的正常股票名。"""
+    n = (name or "").strip().upper()
+    return not (n.startswith(("ST", "*ST", "N", "C")) or "退" in n)
 
 
 def _preselect(rows: list[dict], top_n: int = 40) -> list[dict]:

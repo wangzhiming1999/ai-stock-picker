@@ -36,7 +36,12 @@ async def backtest_run(req: BacktestRequest):
         rebalance_days=req.rebalance_days,
         initial_capital=req.initial_capital,
     )
-    cache_key = f"{req.strategy}|{req.start_date}|{req.end_date}|{req.top_n}|{req.rebalance_days}"
+    # 缓存键必须包含完整参数（codes/initial_capital 不同结果不同），避免串结果
+    codes_sig = ",".join(sorted(req.codes)) if req.codes else "default"
+    cache_key = (
+        f"{req.strategy}|{req.start_date}|{req.end_date}|{req.top_n}"
+        f"|{req.rebalance_days}|{req.initial_capital}|{codes_sig}"
+    )
 
     # 1. 数据库缓存
     cached = await _load_backtest(cache_key)
