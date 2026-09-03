@@ -3,9 +3,20 @@ import os
 
 from fastapi import APIRouter, HTTPException, Request
 
-from app.services import winrate_service
+from app.services import quad_service, winrate_service
 
 router = APIRouter(prefix="/api/cron", tags=["cron"])
+
+
+def _authorize(request: Request) -> None:
+    """校验 CRON_SECRET，未配置或失败抛异常。"""
+    expected = os.getenv("CRON_SECRET", "")
+    if not expected:
+        raise HTTPException(status_code=503, detail="CRON_SECRET 未配置")
+    auth = request.headers.get("authorization", "")
+    provided = auth.removeprefix("Bearer ").strip() if auth.startswith("Bearer ") else ""
+    if provided != expected:
+        raise HTTPException(status_code=401, detail="未授权")
 
 
 @router.post("/daily")
@@ -14,14 +25,22 @@ async def daily_cron(request: Request):
 
     Vercel Cron 触发，校验 Authorization Bearer 与 CRON_SECRET 一致。
     """
-    expected = os.getenv("CRON_SECRET", "")
-    if not expected:
-        raise HTTPException(status_code=503, detail="CRON_SECRET 未配置")
-    auth = request.headers.get("authorization", "")
-    provided = auth.removeprefix("Bearer ").strip() if auth.startswith("Bearer ") else ""
-    if provided != expected:
-        raise HTTPException(status_code=401, detail="未授权")
+    _authorize(request)
     try:
         return await winrate_service.run_daily_cron()
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"定时任务失败: {e}")
+
+
+@router.post("/quad")
+async def quad_cron(request: Request):
+    """收盘后预生成当日四维牛股榜，让用户白天访问秒回。
+
+    在每日收盘（北京 16:05）由 Vercel Cron 触发。
+    """
+    _authorize(request)
+    try:
+        result = await quad_service.generate_quad_rankings(force_refresh=True)
+        return {"ok": True, "date": result["date"], "items": len(result["items"]), "pool": result["pool_size"]}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"四维牛股榜预热失败: {e}")

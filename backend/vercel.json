@@ -10,6 +10,10 @@
     {
       "path": "/api/cron/daily",
       "schedule": "30 7 * * *"
+    },
+    {
+      "path": "/api/cron/quad",
+      "schedule": "5 8 * * 1-5"
     }
   ]
 }

@@ -101,7 +101,9 @@ export default function QuadRankTable({ onPick }: Props) {
       }
     >
       {err && <div className="rounded-lg border border-red-800 bg-red-950/40 px-3 py-2 text-sm text-red-300">{err}</div>}
-      {!data && !err && <div className="p-3 text-sm text-slate-500">正在计算四维评分，首次生成约需 30~60 秒...</div>}
+      {!data && !err && (
+        <div className="p-3 text-sm text-slate-500">正在计算四维评分，首次生成约 1~2 分钟，之后整日秒回...</div>
+      )}
       {data && items.length === 0 && !err && <div className="p-3 text-sm text-slate-500">今日暂无符合四维条件的标的</div>}
 
       {data && items.length > 0 && (

@@ -43,6 +43,28 @@ def _clamp(v: float, lo: float = 0.0, hi: float = 10.0) -> float:
     return max(lo, min(hi, v))
 
 
+def _get_news_fast(code: str, limit: int = 6) -> list[dict]:
+    """快速个股新闻：只调东财个股新闻，失败即空（跳过慢的全球快讯兜底）。
+
+    供批量打分场景使用，避免 40 只逐一触发慢兜底拖垮整体生成。
+    """
+    try:
+        df = ak.stock_news_em(symbol=code.strip())
+        if df is None or df.empty:
+            return []
+        items = []
+        for _, row in df.head(limit).iterrows():
+            items.append(
+                {
+                    "title": str(row.get("新闻标题", "")).strip(),
+                    "date": str(row.get("发布时间", "")).strip() or None,
+                }
+            )
+        return items
+    except Exception:
+        return []
+
+
 def _full_spot() -> list[dict]:
     """全市场实时快照（东财富字段，60s 缓存），失败降级腾讯。"""
     global _full_spot_cache
@@ -405,7 +427,7 @@ def _score_news(news: list) -> tuple[float, str]:
     if not news:
         return 5.0, "近期无针对性新闻，中性"
     base = 5.0
-    titles = [n.title for n in news]
+    titles = [(n.get("title", "") if isinstance(n, dict) else getattr(n, "title", "")) for n in news]
     pos = sum(1 for t in titles if any(k in t for k in _POS_KW))
     neg = sum(1 for t in titles if any(k in t for k in _NEG_KW))
     if pos:
@@ -449,7 +471,7 @@ async def _score_one(code: str, name: str, rich: dict, sem: asyncio.Semaphore) -
     except Exception:
         hist = None
     try:
-        news = await _bounded(data_service.get_news, code, name, 6)
+        news = await _bounded(_get_news_fast, code, 6)
     except Exception:
         news = []
 
@@ -518,7 +540,7 @@ async def generate_quad_rankings(force_refresh: bool = False) -> dict:
     if not pool:
         raise RuntimeError("四维牛股候选池为空（今日全市场无符合条件标的）")
 
-    sem = asyncio.Semaphore(8)
+    sem = asyncio.Semaphore(12)
     scored = await asyncio.gather(
         *(_score_one(r["code"], r["name"], r, sem) for r in pool)
     )
