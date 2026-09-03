@@ -19,14 +19,15 @@ _SHORT_CACHE: dict[str, tuple[float, list[dict]]] = {}
 _TTL = 60
 
 
-async def _get_rich_spot() -> list[dict]:
+async def _get_rich_spot(force: bool = False) -> list[dict]:
     """全市场实时快照（含量比/换手/委比/5分钟涨跌）。短缓存 60s。
 
     优先东财（em）含丰富字段；若网络/超时失败则 fallback 腾讯（基础字段）。
+    force=True 时忽略缓存重新拉取（供「强制重跑」穿透底层快照缓存）。
     """
     key = "rich_spot"
     now = time.monotonic()
-    if key in _SHORT_CACHE and now - _SHORT_CACHE[key][0] < _TTL:
+    if not force and key in _SHORT_CACHE and now - _SHORT_CACHE[key][0] < _TTL:
         return _SHORT_CACHE[key][1]
 
     rows: list[dict] = []
@@ -110,7 +111,7 @@ async def _get_or_scan_opportunity(stage: str, limit: int, force: bool) -> tuple
         cached = await _load_cache(stage)
         if cached is not None:
             return cached[:limit], True
-    items = await _scan_opportunity(stage, limit)
+    items = await _scan_opportunity(stage, limit, force=force)
     if items:
         await _save_cache(stage, items, source="manual" if force else "auto")
     return items, False
@@ -183,10 +184,10 @@ def _closing_filter(rows: list[dict], limit: int) -> list[dict]:
     return out[:limit]
 
 
-async def _scan_opportunity(stage: str, limit: int) -> list[dict]:
-    """实际扫描：拉全市场快照并按 stage 筛选。"""
+async def _scan_opportunity(stage: str, limit: int, force: bool = False) -> list[dict]:
+    """实际扫描：拉全市场快照并按 stage 筛选。force 时穿透快照短缓存。"""
     try:
-        rows = await _get_rich_spot()
+        rows = await _get_rich_spot(force=force)
     except Exception as e:
         raise RuntimeError(f"获取全市场快照失败: {e}")
     if stage == "auction":

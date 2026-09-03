@@ -112,7 +112,8 @@ export default function ScanPanel({ onPick }: Props) {
     setStrategyResult([]);
     setStrategySelected(new Set());
     try {
-      setStrategyResult(await strategyScan(s, 20, 3));
+      // 用户手动点击 → 强制拉取最新行情，不走 5 分钟快照缓存
+      setStrategyResult(await strategyScan(s, 20, 3, true));
     } catch (e) {
       toast.error("策略选股失败", { description: (e as Error).message });
     } finally {
@@ -140,16 +141,20 @@ export default function ScanPanel({ onPick }: Props) {
     setScanResult([]);
     setSelected(new Set());
     try {
+      // 用户手动点击 → 强制拉取最新行情，不走 5 分钟快照缓存
       setScanResult(
-        await scanMarket({
-          min_price: parseFloat(minPrice) || 0,
-          max_price: parseFloat(maxPrice) || 10000,
-          min_change: parseFloat(minChange) || -100,
-          max_change: 100,
-          min_amount_yi: parseFloat(minAmount) || 0,
-          max_pe: 1000,
-          limit: parseInt(limit) || 50,
-        })
+        await scanMarket(
+          {
+            min_price: parseFloat(minPrice) || 0,
+            max_price: parseFloat(maxPrice) || 10000,
+            min_change: parseFloat(minChange) || -100,
+            max_change: 100,
+            min_amount_yi: parseFloat(minAmount) || 0,
+            max_pe: 1000,
+            limit: parseInt(limit) || 50,
+          },
+          true
+        )
       );
     } catch (e) {
       setErr((e as Error).message);
@@ -203,7 +208,7 @@ export default function ScanPanel({ onPick }: Props) {
         }
       >
         <button
-          onClick={() => void runAuction()}
+          onClick={() => void runAuction(true)}
           disabled={auctionLoading}
           className="rounded-lg bg-amber-600 px-5 py-2 text-sm font-medium text-white hover:bg-amber-500 disabled:opacity-50"
         >
@@ -287,7 +292,7 @@ export default function ScanPanel({ onPick }: Props) {
         }
       >
         <button
-          onClick={() => void runClosing()}
+          onClick={() => void runClosing(true)}
           disabled={closingLoading}
           className="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
         >

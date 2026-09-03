@@ -65,7 +65,7 @@ export default function PredictionCard() {
       subtitle="上证指数技术信号 + AI 预测 · 附准确率追踪"
       action={
         <button onClick={() => void load(true)} disabled={loading} className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-slate-400 hover:text-slate-200 disabled:opacity-50">
-          {loading ? "分析中..." : "刷新"}
+          {loading ? "分析中..." : "强制刷新"}
         </button>
       }
     >

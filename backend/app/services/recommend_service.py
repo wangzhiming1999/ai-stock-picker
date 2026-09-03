@@ -83,7 +83,7 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
     # 1. 跑四个策略收集候选
     for strategy in ("momentum", "trend", "value", "volume"):
         try:
-            results = await _scan_strategy(strategy)
+            results = await _scan_strategy(strategy, force=force_refresh)
             for item in results:
                 code = item["code"]
                 # 合并：保留更高策略分
@@ -259,11 +259,11 @@ async def save_recommendations(rec_date: str, recs: list[dict]) -> None:
     await sb.table("daily_recommendations").insert(rows).execute()
 
 
-async def _scan_strategy(strategy: str) -> list[dict]:
-    """对指定策略跑一次扫描（复用市场路由的逻辑）。"""
+async def _scan_strategy(strategy: str, force: bool = False) -> list[dict]:
+    """对指定策略跑一次扫描（复用市场路由的逻辑）。force 时穿透行情快照缓存。"""
     from app.services import data_service
 
-    spot = await market_routes._get_spot()
+    spot = await market_routes._get_spot(force=force)
     candidates = []
     for row in spot:
         name = row.get("name", "")

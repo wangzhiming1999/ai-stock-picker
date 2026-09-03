@@ -68,11 +68,14 @@ def _match_hot_news(name: str, code: str, hot_titles: list[str], limit: int = 4)
     return hits
 
 
-def _full_spot() -> list[dict]:
-    """全市场实时快照（东财富字段，60s 缓存），失败降级腾讯。"""
+def _full_spot(force: bool = False) -> list[dict]:
+    """全市场实时快照（东财富字段，60s 缓存），失败降级腾讯。
+
+    force=True 时忽略缓存重新拉取（供「刷新」穿透底层快照缓存）。
+    """
     global _full_spot_cache
     now = time.monotonic()
-    if _full_spot_cache and now - _full_spot_cache[0] < _FULL_SPOT_TTL:
+    if not force and _full_spot_cache and now - _full_spot_cache[0] < _FULL_SPOT_TTL:
         return _full_spot_cache[1]
 
     def _num(row: Any, *keys: str) -> float | None:
@@ -557,7 +560,7 @@ async def generate_quad_rankings(force_refresh: bool = False) -> dict:
         if hit:
             return hit
 
-    spot = await asyncio.to_thread(_full_spot)
+    spot = await asyncio.to_thread(_full_spot, force_refresh)
     if not spot:
         raise RuntimeError("获取全市场行情失败")
 
@@ -567,8 +570,8 @@ async def generate_quad_rankings(force_refresh: bool = False) -> dict:
 
     # 预拉当日公告 + 全市场快讯（各一次请求，覆盖全部候选），失败自动降级为空
     notices, global_news = await asyncio.gather(
-        asyncio.to_thread(data_service.get_notices_today),
-        asyncio.to_thread(data_service.get_global_news, 400),
+        asyncio.to_thread(data_service.get_notices_today, force_refresh),
+        asyncio.to_thread(data_service.get_global_news, 400, force_refresh),
         return_exceptions=True,
     )
     if isinstance(notices, BaseException) or not isinstance(notices, dict):

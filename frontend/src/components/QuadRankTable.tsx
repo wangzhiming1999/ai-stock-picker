@@ -95,7 +95,7 @@ export default function QuadRankTable({ onPick }: Props) {
             disabled={loading}
             className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-slate-400 hover:text-slate-200 disabled:opacity-50"
           >
-            {loading ? "分析中..." : "刷新"}
+            {loading ? "重算中..." : "强制刷新"}
           </button>
         </div>
       }

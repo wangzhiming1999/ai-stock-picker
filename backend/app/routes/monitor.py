@@ -21,14 +21,16 @@ _kline_cache: dict[str, tuple[float, list[float] | None]] = {}
 
 class MonitorRequest(BaseModel):
     codes: list[str] = Field(..., min_length=1, max_length=20, description="股票代码列表（6位纯数字）")
+    force: bool = Field(False, description="强制刷新：忽略 K 线内存缓存，重新拉取")
 
 
-def _get_closes_cached(code: str, days: int = 120) -> list[float] | None:
-    """取日 K（带内存缓存）。"""
+def _get_closes_cached(code: str, days: int = 120, force: bool = False) -> list[float] | None:
+    """取日 K（默认带内存缓存；force=True 时强制重新拉取）。"""
     now = time.monotonic()
-    hit = _kline_cache.get(code)
-    if hit and now - hit[0] < _KLINE_TTL:
-        return hit[1]
+    if not force:
+        hit = _kline_cache.get(code)
+        if hit and now - hit[0] < _KLINE_TTL:
+            return hit[1]
     try:
         hist = data_service.get_history(code, days)
         closes = hist.closes if hist and hist.closes else None
@@ -82,7 +84,10 @@ def _advice(price: float, sig: dict) -> dict:
 
 @router.post("/monitor")
 async def monitor(req: MonitorRequest):
-    """批量监控：实时行情 + 日 K 信号 → 每只给操作指令。"""
+    """批量监控：实时行情 + 日 K 信号 → 每只给操作指令。
+
+    force=true 时忽略 30 分钟 K 线内存缓存，重新拉取（供「立即刷新」使用）。
+    """
     seen: list[str] = []
     for c in req.codes:
         c = (c or "").strip().replace("sh", "").replace("sz", "").replace("bj", "").replace(".", "")
@@ -101,7 +106,7 @@ async def monitor(req: MonitorRequest):
 
     async def _k(code: str):
         async with sem:
-            return await asyncio.to_thread(_get_closes_cached, code, 120)
+            return await asyncio.to_thread(_get_closes_cached, code, 120, req.force)
 
     closes_list = await asyncio.gather(*(_k(c) for c in seen))
     closes_map = dict(zip(seen, closes_list))

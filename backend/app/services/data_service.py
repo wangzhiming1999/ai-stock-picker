@@ -160,11 +160,14 @@ def get_news(code: str, name: str, limit: int = 8) -> list[NewsItem]:
 _notice_cache: tuple[float, dict[str, list[str]]] | None = None
 
 
-def get_notices_today() -> dict[str, list[str]]:
-    """东财当日全市场公告 -> {code: [公告标题, ...]}。60 分钟缓存，失败返回 {}。"""
+def get_notices_today(force: bool = False) -> dict[str, list[str]]:
+    """东财当日全市场公告 -> {code: [公告标题, ...]}。60 分钟缓存，失败返回 {}。
+
+    force=True 时忽略缓存重新拉取（供「强制刷新」穿透）。
+    """
     global _notice_cache
     now = time.time()
-    if _notice_cache and now - _notice_cache[0] < 3600:
+    if not force and _notice_cache and now - _notice_cache[0] < 3600:
         return _notice_cache[1]
     out: dict[str, list[str]] = {}
     try:
@@ -186,11 +189,14 @@ def get_notices_today() -> dict[str, list[str]]:
 _global_news_cache: tuple[float, list[dict]] | None = None
 
 
-def get_global_news(limit: int = 300) -> list[dict]:
-    """全市场财经快讯（东财，一条请求覆盖所有个股），5 分钟缓存。"""
+def get_global_news(limit: int = 300, force: bool = False) -> list[dict]:
+    """全市场财经快讯（东财，一条请求覆盖所有个股），5 分钟缓存。
+
+    force=True 时忽略缓存重新拉取（供「强制刷新」穿透）。
+    """
     global _global_news_cache
     now = time.time()
-    if _global_news_cache and now - _global_news_cache[0] < 300:
+    if not force and _global_news_cache and now - _global_news_cache[0] < 300:
         return _global_news_cache[1]
     rows: list[dict] = []
     try:

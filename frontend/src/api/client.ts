@@ -104,21 +104,26 @@ export async function fetchIndustryStocks(label: string): Promise<StockInfo[]> {
   return res.json();
 }
 
-export async function scanMarket(params: Record<string, number>): Promise<ScanStock[]> {
+export async function scanMarket(params: Record<string, number>, force = false): Promise<ScanStock[]> {
   const res = await fetch(`${API}/market/scan`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(params),
+    body: JSON.stringify({ ...params, force }),
   });
   if (!res.ok) throw new Error(`扫描失败: ${res.status}`);
   return res.json();
 }
 
-export async function strategyScan(strategy: StrategyName, limit = 20, minAmountYi = 3): Promise<StrategyStock[]> {
+export async function strategyScan(
+  strategy: StrategyName,
+  limit = 20,
+  minAmountYi = 3,
+  force = false
+): Promise<StrategyStock[]> {
   const res = await fetch(`${API}/market/strategy-scan`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ strategy, limit, min_amount_yi: minAmountYi }),
+    body: JSON.stringify({ strategy, limit, min_amount_yi: minAmountYi, force }),
   });
   if (!res.ok) throw new Error(`策略扫描失败: ${res.status}`);
   return res.json();
@@ -262,11 +267,11 @@ export async function fetchQuadRanking(refresh = false): Promise<QuadRankResult>
   return res.json();
 }
 
-export async function fetchMonitor(codes: string[]): Promise<MonitorResult> {
+export async function fetchMonitor(codes: string[], force = false): Promise<MonitorResult> {
   const res = await fetch(`${API}/market/monitor`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ codes }),
+    body: JSON.stringify({ codes, force }),
   });
   if (!res.ok) throw new Error(`监控刷新失败: ${res.status}`);
   return res.json();
@@ -429,12 +434,13 @@ export async function fetchBatchDetail(batchId: number): Promise<AnalysisBatchDe
 export async function streamAnalysis(
   codes: string[],
   onEvent: (event: SSEEvent) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  force = false
 ): Promise<void> {
   const res = await fetch(`${API}/analysis/stocks`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify({ codes }),
+    body: JSON.stringify({ codes, force }),
     signal,
   });
 

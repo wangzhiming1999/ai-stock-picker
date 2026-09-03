@@ -167,7 +167,8 @@ export default function App() {
     };
 
     try {
-      await Promise.all([infoTask, streamAnalysis(list, handleEvent, signal)]);
+      // 用户主动触发的分析：忽略当日分析缓存，重新跑一遍
+      await Promise.all([infoTask, streamAnalysis(list, handleEvent, signal, true)]);
       // 兜底：服务端连接关闭但未发 done 事件时结束 running 态，避免永远"运行中"
       setPhase((p) => (p === "running" ? "done" : p));
     } catch (err) {

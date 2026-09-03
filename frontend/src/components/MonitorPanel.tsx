@@ -162,14 +162,15 @@ export default function MonitorPanel() {
   );
 
   const refresh = useCallback(
-    async (silent = false) => {
+    /** silent: 静默（轮询）不显示 loading；force: 忽略后端 K 线缓存重新拉取 */
+    async (silent = false, force = false) => {
       if (codes.length === 0) return;
       if (busyRef.current) return;
       busyRef.current = true;
       if (!silent) setLoading(true);
       setErr("");
       try {
-        const result = await fetchMonitor(codes);
+        const result = await fetchMonitor(codes, force);
         setData(result);
         checkAlerts(result.items);
       } catch (e) {
@@ -296,7 +297,7 @@ export default function MonitorPanel() {
             {notifyOn ? "提醒已开" : "开启提醒"}
           </button>
           <button
-            onClick={() => void refresh()}
+            onClick={() => void refresh(false, true)}
             disabled={loading || codes.length === 0}
             className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1 text-xs text-slate-400 hover:text-slate-200 disabled:opacity-50"
           >

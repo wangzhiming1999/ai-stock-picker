@@ -15,11 +15,14 @@ _spot_cache: tuple[float, list] | None = None
 _SPOT_TTL = 300  # 5 分钟
 
 
-async def _get_spot() -> list:
-    """获取全市场快照，带 5 分钟缓存。"""
+async def _get_spot(force: bool = False) -> list:
+    """获取全市场快照，默认带 5 分钟缓存；force=True 时忽略缓存重新拉取。
+
+    force 必须由用户显式「强制刷新」触发，避免轮询/自动加载打爆行情源。
+    """
     global _spot_cache
     now = time.monotonic()
-    if _spot_cache and now - _spot_cache[0] < _SPOT_TTL:
+    if not force and _spot_cache and now - _spot_cache[0] < _SPOT_TTL:
         return _spot_cache[1]
     df = await asyncio.to_thread(ak.stock_zh_a_spot)
     rows = []
@@ -49,6 +52,7 @@ class ScanRequest(BaseModel):
     min_amount_yi: float = Field(0, ge=0, description="最低成交额（亿元）")
     max_pe: float = Field(1000, gt=0, description="最高市盈率（0表示不限）")
     limit: int = Field(50, ge=1, le=200, description="返回数量上限")
+    force: bool = Field(False, description="强制刷新：忽略行情快照缓存，重新拉取全市场行情")
 
 
 @router.get("/industries")
@@ -108,6 +112,7 @@ class StrategyScanRequest(BaseModel):
     strategy: str = Field("momentum", description="策略: momentum/trend/value/volume")
     limit: int = Field(20, ge=5, le=50, description="返回数量")
     min_amount_yi: float = Field(3, ge=0, description="最低成交额（亿元），过滤冷门股")
+    force: bool = Field(False, description="强制刷新：忽略行情快照与K线缓存，重新计算")
 
 
 def _is_tradable(row: dict) -> bool:
@@ -281,7 +286,7 @@ async def strategy_scan(req: StrategyScanRequest):
         raise HTTPException(status_code=400, detail=f"未知策略 {req.strategy}，可选: {strategies}")
 
     try:
-        spot = await _get_spot()
+        spot = await _get_spot(force=req.force)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"获取全市场行情失败: {e}")
 
@@ -416,9 +421,11 @@ async def scan_market(req: ScanRequest):
     """全市场扫描选股：基于实时快照按条件过滤。
 
     返回符合条件且成交额靠前的股票列表，可直接作为分析候选。
+
+    force=true 时忽略 5 分钟行情快照缓存，重新拉取全市场行情。
     """
     try:
-        spot = await _get_spot()
+        spot = await _get_spot(force=req.force)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"获取全市场行情失败: {e}")
 
