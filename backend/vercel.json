@@ -14,10 +14,6 @@
     {
       "path": "/api/cron/quad",
       "schedule": "5 8 * * 1-5"
-    },
-    {
-      "path": "/api/cron/alert",
-      "schedule": "*/15 * * * *"
     }
   ]
 }

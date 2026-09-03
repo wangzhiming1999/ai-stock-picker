@@ -21,13 +21,21 @@ def _authorize(request: Request) -> None:
 
 @router.post("/daily")
 async def daily_cron(request: Request):
-    """每日收盘定时任务：结算预测 + 结算推荐 + 刷新胜率快照。
+    """每日收盘定时任务：结算预测 + 结算推荐 + 刷新胜率快照 + 预警兜底评估。
 
     Vercel Cron 触发，校验 Authorization Bearer 与 CRON_SECRET 一致。
+    V6 预警兜底评估合并进每日任务（Hobby 计划 cron 数量受限，高频实时性由前端盯盘轮询保证）。
     """
     _authorize(request)
     try:
-        return await winrate_service.run_daily_cron()
+        result = await winrate_service.run_daily_cron()
+        # V6 预警兜底：合并进每日结算，避免超出 Vercel Hobby cron 数量限制
+        try:
+            result["alert_events"] = await alert_service.evaluate_all()
+        except Exception as ae:  # 预警评估失败不影响胜率结算结果
+            print(f"[cron] alert evaluate_all failed: {ae}")
+            result["alert_events"] = None
+        return result
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"定时任务失败: {e}")
 
@@ -44,16 +52,3 @@ async def quad_cron(request: Request):
         return {"ok": True, "date": result["date"], "items": len(result["items"]), "pool": result["pool_size"]}
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"四维牛股榜预热失败: {e}")
-
-
-@router.post("/alert")
-async def alert_cron(request: Request):
-    """兜底评估全部用户预警规则（用户关机时也能记事件历史）。
-
-    频率受 Vercel Cron 套餐限制，高频实时性由前端盯盘轮询的 /api/alerts/evaluate 保证。
-    """
-    _authorize(request)
-    try:
-        return await alert_service.evaluate_all()
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"预警评估失败: {e}")

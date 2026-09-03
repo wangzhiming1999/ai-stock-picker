@@ -83,7 +83,7 @@ async def _get_rich_spot(force: bool = False) -> list[dict]:
     return rows
 
 
-_ST_NAME = re.compile("ST|\*ST")
+_ST_NAME = re.compile(r"ST|\*ST")
 
 
 def _is_valid_name(name: str) -> bool:
