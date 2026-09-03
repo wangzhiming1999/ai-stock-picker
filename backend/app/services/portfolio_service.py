@@ -108,6 +108,60 @@ async def add_holding(user_id: str, code: str, cost_price: float, shares: int, b
     return {"id": hid, "code": code, "name": name}
 
 
+async def add_holdings_batch(user_id: str, items: list[dict]) -> dict:
+    """批量导入持仓：一次批量补名称，逐只 upsert（同代码更新）。"""
+    _require_configured()
+    if not items:
+        return {"added": 0, "skipped": 0}
+
+    codes = [it["code"] for it in items]
+    name_map: dict[str, str] = {}
+    try:
+        quotes = await asyncio.to_thread(data_service.get_spot_quote, codes)
+        name_map = {q.code: q.name for q in quotes if q.name}
+    except Exception:
+        name_map = {}
+
+    sb = await supabase_store.get_service_client()
+    now = dt.datetime.now(dt.timezone.utc).isoformat()
+    # 查已存在的 code -> id（同代码视为更新）
+    existing_map: dict[str, int] = {}
+    try:
+        res = await sb.table("user_holdings").select("id", "code").eq("user_id", user_id).in_("code", codes).execute()
+        existing_map = {r["code"]: r["id"] for r in (res.data or [])}
+    except Exception:
+        existing_map = {}
+
+    added = skipped = 0
+    for it in items:
+        code = it["code"]
+        cost = float(it["cost_price"])
+        shares = int(it["shares"])
+        if cost <= 0 or shares <= 0:
+            skipped += 1
+            continue
+        payload = {
+            "name": it.get("name") or name_map.get(code, ""),
+            "cost_price": cost,
+            "shares": shares,
+            "buy_date": it.get("buy_date"),
+            "note": it.get("note") or "",
+            "updated_at": now,
+        }
+        try:
+            if code in existing_map:
+                await sb.table("user_holdings").update(payload).eq("id", existing_map[code]).execute()
+            else:
+                payload.update({"user_id": user_id, "code": code})
+                ins = await sb.table("user_holdings").insert(payload).execute()
+                if ins.data:
+                    existing_map[code] = ins.data[0]["id"]
+            added += 1
+        except Exception:
+            skipped += 1
+    return {"added": added, "skipped": skipped}
+
+
 async def list_holdings(user_id: str) -> list[dict]:
     """列出用户全部持仓（含最新行情、技术信号、盈亏）。"""
     _require_configured()

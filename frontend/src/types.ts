@@ -261,6 +261,20 @@ export interface MonitorResult {
   items: MonitorStock[];
 }
 
+/** 持仓导入：解析候选（预览用，字段可能缺失） */
+export interface ParsedHolding {
+  code: string;
+  name: string;
+  cost_price: number | null;
+  shares: number | null;
+  valid?: boolean;
+}
+
+export interface ParsedImportResult {
+  items: ParsedHolding[];
+  warnings: string[];
+}
+
 export interface BacktestResult {
   strategy: string;
   start: string;

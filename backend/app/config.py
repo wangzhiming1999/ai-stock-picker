@@ -22,6 +22,12 @@ class Settings(BaseSettings):
     deepseek_base_url: str = "https://api.deepseek.com"
     deepseek_model: str = "deepseek-chat"
 
+    # 视觉模型（OpenAI 兼容接口，用于持仓截图识别）。
+    # 默认智谱 GLM-4V-Flash（免费）；也可换 Qwen-VL / GPT-4o 等兼容服务
+    vl_api_key: str = ""
+    vl_base_url: str = "https://open.bigmodel.cn/api/paas/v4"
+    vl_model: str = "glm-4v-flash"
+
     # auto: 有 API Key 用真实 LLM，否则用本地规则评分；也可显式设 mock / real
     llm_mode: str = "auto"
 

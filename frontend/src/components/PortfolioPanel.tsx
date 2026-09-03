@@ -9,6 +9,7 @@ import {
   updatePortfolioProfile,
 } from "../api/client";
 import StockSearchInput from "./StockSearchInput";
+import ImportHoldingsModal from "./ImportHoldingsModal";
 import type { HoldingsData, PortfolioAdvice, UserProfile } from "../types";
 import { useAuth } from "../auth/AuthContext";
 import { fmtPct, safeNumber } from "../lib/safe";
@@ -28,6 +29,7 @@ export default function PortfolioPanel() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
   const [showAdd, setShowAdd] = useState(false);
+  const [showImport, setShowImport] = useState(false);
 
   // 添加表单
   const [searchText, setSearchText] = useState("");
@@ -125,9 +127,18 @@ export default function PortfolioPanel() {
           <h3 className="text-sm font-semibold text-slate-200">我的持仓</h3>
           <p className="mt-0.5 text-[11px] text-slate-500">按用户存储，建议根据你的风险等级生成</p>
         </div>
-        <button onClick={() => setShowAdd(true)} className="rounded-lg bg-brand px-4 py-1.5 text-xs font-medium text-white hover:bg-brand-dark">
-          + 添加持仓
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowImport(true)}
+            className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs font-medium text-slate-300 hover:border-slate-400 hover:text-white"
+            title="从券商 App 截图或文本批量导入"
+          >
+            截图导入
+          </button>
+          <button onClick={() => setShowAdd(true)} className="rounded-lg bg-brand px-4 py-1.5 text-xs font-medium text-white hover:bg-brand-dark">
+            + 添加持仓
+          </button>
+        </div>
       </div>
 
       {err && <div className="mb-3 rounded-lg border border-red-800 bg-red-950/40 px-3 py-2 text-sm text-red-300">{err}</div>}
@@ -325,6 +336,8 @@ export default function PortfolioPanel() {
           </div>
         </div>
       )}
+
+      <ImportHoldingsModal open={showImport} onClose={() => setShowImport(false)} onImported={() => void load()} />
     </div>
   );
 }

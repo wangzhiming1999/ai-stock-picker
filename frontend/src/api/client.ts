@@ -13,6 +13,7 @@ import type {
   NewsItem,
   OpportunityResult,
   PortfolioAdvice,
+  ParsedImportResult,
   PredictionRecord,
   PredictionStats,
   QuadRankResult,
@@ -265,6 +266,26 @@ export async function fetchMonitor(codes: string[]): Promise<MonitorResult> {
     body: JSON.stringify({ codes }),
   });
   if (!res.ok) throw new Error(`监控刷新失败: ${res.status}`);
+  return res.json();
+}
+
+export async function parseHoldingImport(payload: { text?: string; image_base64?: string }): Promise<ParsedImportResult> {
+  const res = await authFetch(`${API}/portfolio/import/parse`, { method: "POST", body: JSON.stringify(payload) });
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(d.detail || `解析失败: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function importHoldingsBatch(
+  items: { code: string; name?: string; cost_price: number; shares: number; note?: string }[]
+): Promise<{ added: number; skipped: number }> {
+  const res = await authFetch(`${API}/portfolio/holdings/batch`, { method: "POST", body: JSON.stringify({ items }) });
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(d.detail || `批量导入失败: ${res.status}`);
+  }
   return res.json();
 }
 
