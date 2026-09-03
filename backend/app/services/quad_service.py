@@ -26,7 +26,7 @@ _full_spot_cache: tuple[float, list[dict]] | None = None
 DIM_KEYS = ["fundamental", "technical", "capital", "news"]
 DIM_NAMES = {"fundamental": "基本面", "technical": "技术面", "capital": "资金面", "news": "消息面"}
 
-# 消息面情绪关键词
+# 消息面情绪关键词：新闻（财经快讯标题）
 _POS_KW = [
     "中标", "业绩预增", "业绩增长", "净利润增长", "签约", "回购", "增持", "获批", "突破",
     "涨价", "提价", "订单", "创新高", "涨停", "利好", "扩产", "上调", "超预期", "扭亏",
@@ -35,7 +35,18 @@ _POS_KW = [
 _NEG_KW = [
     "减持", "处罚", "亏损", "诉讼", "质押", "退市", "问询", "立案", "跌停", "风险提示",
     "商誉减值", "预亏", "下调", "违规", "警示", "炸板", "跳水", "违约", "冻结", "监管",
-    "收监管", "公告解读", "利空",
+    "利空",
+]
+# 公告情绪关键词（东财当日公告标题，权重更高——确定性事件）
+_NOTICE_POS = [
+    "业绩预增", "中标", "重大合同", "签订合同", "签署", "回购", "增持", "净利润增长",
+    "扭亏", "获准", "获批", "重组", "资产注入", "分红", "订单", "预增", "超预期",
+    "上调", "取得", "战略合作", "股权激励", "投资", "扩产", "签约", "涨停",
+]
+_NOTICE_NEG = [
+    "减持", "质押", "补充质押", "亏损", "预亏", "诉讼", "仲裁", "处罚", "退市风险",
+    "终止", "立案", "商誉减值", "违规", "警示", "监管", "问询", "冻结", "违约",
+    "立案调查", "风险提示", "补偿", "平仓",
 ]
 
 
@@ -43,26 +54,18 @@ def _clamp(v: float, lo: float = 0.0, hi: float = 10.0) -> float:
     return max(lo, min(hi, v))
 
 
-def _get_news_fast(code: str, limit: int = 6) -> list[dict]:
-    """快速个股新闻：只调东财个股新闻，失败即空（跳过慢的全球快讯兜底）。
-
-    供批量打分场景使用，避免 40 只逐一触发慢兜底拖垮整体生成。
-    """
-    try:
-        df = ak.stock_news_em(symbol=code.strip())
-        if df is None or df.empty:
-            return []
-        items = []
-        for _, row in df.head(limit).iterrows():
-            items.append(
-                {
-                    "title": str(row.get("新闻标题", "")).strip(),
-                    "date": str(row.get("发布时间", "")).strip() or None,
-                }
-            )
-        return items
-    except Exception:
-        return []
+def _match_hot_news(name: str, code: str, hot_titles: list[str], limit: int = 4) -> list[str]:
+    """从全市场快讯标题中按股票名称/代码匹配该股的新闻（避免逐只请求）。"""
+    kw = name.replace(" ", "") if name else ""
+    hits: list[str] = []
+    for t in hot_titles:
+        if not t:
+            continue
+        if (kw and kw in t) or (code and code in t):
+            hits.append(t)
+            if len(hits) >= limit:
+                break
+    return hits
 
 
 def _full_spot() -> list[dict]:
@@ -422,42 +425,65 @@ def _score_capital(rich: dict, quote) -> tuple[float, str]:
     return round(_clamp(base), 1), "；".join(parts) or "交投数据有限"
 
 
-def _score_news(news: list) -> tuple[float, str]:
-    """消息面：新闻数量 + 利好/利空关键词情绪。无新闻记中性分。"""
-    if not news:
-        return 5.0, "近期无针对性新闻，中性"
+def _score_news(news_titles: list[str], notice_titles: list[str]) -> tuple[float, str]:
+    """消息面：当日公告（确定性事件，权重高）+ 财经快讯关键词情绪。
+
+    公告利好利空是强信号：利好公告大幅加分，利空公告显著减分。
+    """
+    if not news_titles and not notice_titles:
+        return 5.0, "今日无公告与重点新闻，中性"
     base = 5.0
-    titles = [(n.get("title", "") if isinstance(n, dict) else getattr(n, "title", "")) for n in news]
-    pos = sum(1 for t in titles if any(k in t for k in _POS_KW))
-    neg = sum(1 for t in titles if any(k in t for k in _NEG_KW))
-    if pos:
-        base += min(2.5, 0.6 * pos)
-    if neg:
-        base -= min(3.0, 0.8 * neg)
-    if pos > 0 and neg == 0:
-        base += 0.5
-    if pos == 0 and neg == 0 and len(titles) >= 3:
-        base += 0.2
-    hot = "近期消息活跃" if len(titles) >= 4 else f"近期 {len(titles)} 条相关新闻"
-    senti = ""
-    if neg and not pos:
-        senti = "，偏利空需留意"
-    elif pos and not neg:
-        senti = "，情绪偏暖"
-    return round(_clamp(base), 1), hot + senti
+    cm: list[str] = []
+
+    nb_pos = sum(1 for t in notice_titles if any(k in t for k in _NOTICE_POS))
+    nb_neg = sum(1 for t in notice_titles if any(k in t for k in _NOTICE_NEG))
+    n_pos = sum(1 for t in news_titles if any(k in t for k in _POS_KW))
+    n_neg = sum(1 for t in news_titles if any(k in t for k in _NEG_KW))
+
+    if nb_pos:
+        base += min(2.8, nb_pos * 1.4)
+        cm.append(f"利好公告×{nb_pos}")
+    if nb_neg:
+        base -= min(3.8, nb_neg * 1.6)
+        cm.append(f"利空公告×{nb_neg}")
+    if n_pos:
+        base += min(1.2, n_pos * 0.5)
+        if nb_pos == 0:
+            cm.append("消息偏暖")
+    if n_neg:
+        base -= min(2.4, n_neg * 0.7)
+        if nb_neg == 0:
+            cm.append("消息偏空")
+
+    total = len(news_titles) + len(notice_titles)
+    if nb_pos == 0 and nb_neg == 0 and n_pos == 0 and n_neg == 0:
+        # 有公告/新闻但无明确利好利空 → 仅给低关注加分，保持中性
+        base += min(0.3, total * 0.05)
+
+    reason = "；".join(cm) if cm else "公告/新闻无明确利好利空"
+    detail = []
+    if notice_titles:
+        detail.append(f"公告{len(notice_titles)}")
+    if news_titles:
+        detail.append(f"新闻{len(news_titles)}")
+    return round(_clamp(base), 1), reason + f"（{('，'.join(detail)) if detail else '无'}）"
 
 
 # ---------------- 榜单生成 ----------------
 
-async def _score_one(code: str, name: str, rich: dict, sem: asyncio.Semaphore) -> dict | None:
-    """对单只股票做四维深度评分。"""
+async def _score_one(
+    code: str,
+    name: str,
+    rich: dict,
+    sem: asyncio.Semaphore,
+    notice_titles: list[str],
+    hot_news_titles: list[str],
+) -> dict | None:
+    """对单只股票做四维深度评分。消息面由外部预拉（当日公告 + 全市场快讯）提供。"""
     async def _bounded(fn, *args):
         async with sem:
             return await asyncio.to_thread(fn, *args)
 
-    quote = None
-    hist = None
-    news = []
     # 腾讯行情（补全 PE/PB/市值/换手）
     try:
         quotes = await _bounded(data_service.get_spot_quote, [code])
@@ -470,10 +496,6 @@ async def _score_one(code: str, name: str, rich: dict, sem: asyncio.Semaphore) -
         hist = await _bounded(data_service.get_history, code, 120)
     except Exception:
         hist = None
-    try:
-        news = await _bounded(_get_news_fast, code, 6)
-    except Exception:
-        news = []
 
     closes = hist.closes if hist and hist.closes else None
     price = quote.price or 0
@@ -481,7 +503,8 @@ async def _score_one(code: str, name: str, rich: dict, sem: asyncio.Semaphore) -
     f_score, f_comment = _score_fundamental(quote)
     t_score, t_comment = _score_technical(closes, price)
     c_score, c_comment = _score_capital(rich, quote)
-    n_score, n_comment = _score_news(news)
+    news_titles = _match_hot_news(name, code, hot_news_titles)
+    n_score, n_comment = _score_news(news_titles, notice_titles)
 
     scores = {
         "fundamental": round(f_score, 1),
@@ -540,9 +563,31 @@ async def generate_quad_rankings(force_refresh: bool = False) -> dict:
     if not pool:
         raise RuntimeError("四维牛股候选池为空（今日全市场无符合条件标的）")
 
+    # 预拉当日公告 + 全市场快讯（各一次请求，覆盖全部候选），失败自动降级为空
+    notices, global_news = await asyncio.gather(
+        asyncio.to_thread(data_service.get_notices_today),
+        asyncio.to_thread(data_service.get_global_news, 400),
+        return_exceptions=True,
+    )
+    if isinstance(notices, BaseException) or not isinstance(notices, dict):
+        notices = {}
+    if isinstance(global_news, BaseException) or not isinstance(global_news, list):
+        global_news = []
+    hot_titles = [h.get("title", "") for h in global_news if isinstance(h, dict) and h.get("title")]
+
     sem = asyncio.Semaphore(12)
     scored = await asyncio.gather(
-        *(_score_one(r["code"], r["name"], r, sem) for r in pool)
+        *(
+            _score_one(
+                r["code"],
+                r["name"],
+                r,
+                sem,
+                notices.get(r["code"], []),
+                hot_titles,
+            )
+            for r in pool
+        )
     )
     items = [x for x in scored if x]
     if not items:

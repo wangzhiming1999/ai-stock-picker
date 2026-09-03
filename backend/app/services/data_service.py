@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import time
 from typing import Any
 
 import akshare as ak
@@ -152,6 +153,60 @@ def get_news(code: str, name: str, limit: int = 8) -> list[NewsItem]:
     except Exception as e:
         logger.debug("新闻兜底源失败: %s", e)
         return []
+
+
+# ---------------- 全局预拉数据（公告 / 财经快讯，供批量场景一次请求覆盖全部候选） ----------------
+
+_notice_cache: tuple[float, dict[str, list[str]]] | None = None
+
+
+def get_notices_today() -> dict[str, list[str]]:
+    """东财当日全市场公告 -> {code: [公告标题, ...]}。60 分钟缓存，失败返回 {}。"""
+    global _notice_cache
+    now = time.time()
+    if _notice_cache and now - _notice_cache[0] < 3600:
+        return _notice_cache[1]
+    out: dict[str, list[str]] = {}
+    try:
+        df = ak.stock_notice_report(symbol="全部", date=dt.date.today().strftime("%Y%m%d"))
+        if df is not None and not df.empty:
+            for _, row in df.iterrows():
+                code = (
+                    str(row.get("代码", "")).strip().replace("sh", "").replace("sz", "").replace("bj", "")
+                )
+                title = str(row.get("公告标题", "")).strip()
+                if code and code.isdigit() and title:
+                    out.setdefault(code, []).append(title)
+    except Exception as e:
+        logger.warning("获取当日公告失败: %s", e)
+    _notice_cache = (now, out)
+    return out
+
+
+_global_news_cache: tuple[float, list[dict]] | None = None
+
+
+def get_global_news(limit: int = 300) -> list[dict]:
+    """全市场财经快讯（东财，一条请求覆盖所有个股），5 分钟缓存。"""
+    global _global_news_cache
+    now = time.time()
+    if _global_news_cache and now - _global_news_cache[0] < 300:
+        return _global_news_cache[1]
+    rows: list[dict] = []
+    try:
+        df = ak.stock_info_global_em()
+        if df is not None and not df.empty:
+            for _, row in df.head(limit).iterrows():
+                rows.append(
+                    {
+                        "title": str(row.get("标题", "")).strip(),
+                        "date": str(row.get("发布时间", "")).strip() or None,
+                    }
+                )
+    except Exception as e:
+        logger.warning("获取财经快讯失败: %s", e)
+    _global_news_cache = (now, rows)
+    return rows
 
 
 def format_market_cap(v: float | None) -> str:
