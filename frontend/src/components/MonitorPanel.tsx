@@ -1,12 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Bell, BellRing, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import { fetchMonitor } from "../api/client";
 import CollapsiblePanel from "./CollapsiblePanel";
 import type { MonitorResult, MonitorStock } from "../types";
 
 const LS_KEY = "ai:monitorCodes";
+const LS_NOTIFY = "ai:monitorNotify";
 const POLL_MS = 5 * 60 * 1000; // 5 分钟
 const MAX_CODES = 20;
+
+/** 触发类指令：动作从其他状态切换进来时提醒 */
+const TRIGGER_ACTIONS = new Set(["buy", "sell", "stop"]);
 
 function loadSaved(): string[] {
   try {
@@ -18,6 +23,14 @@ function loadSaved(): string[] {
       : [];
   } catch {
     return [];
+  }
+}
+
+function loadNotify(): boolean {
+  try {
+    return localStorage.getItem(LS_NOTIFY) === "1";
+  } catch {
+    return false;
   }
 }
 
@@ -52,7 +65,12 @@ export default function MonitorPanel() {
   const [data, setData] = useState<MonitorResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
+  const [notifyOn, setNotifyOn] = useState<boolean>(loadNotify);
   const busyRef = useRef(false);
+  const prevActionRef = useRef<Record<string, string>>({});
+  const notifyRef = useRef<boolean>(notifyOn);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const lastHintRef = useRef<{ code: string; at: number; label: string } | null>(null);
 
   const persist = (arr: string[]) => {
     setCodes(arr);
@@ -63,6 +81,86 @@ export default function MonitorPanel() {
     }
   };
 
+  /** 提示音：双声"叮" */
+  const beep = useCallback(() => {
+    try {
+      const Ctor =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!Ctor) return;
+      if (!audioCtxRef.current) audioCtxRef.current = new Ctor();
+      const ctx = audioCtxRef.current;
+      if (ctx.state === "suspended") void ctx.resume();
+      const t0 = ctx.currentTime;
+      [880, 1174].forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.value = freq;
+        const start = t0 + i * 0.18;
+        gain.gain.setValueAtTime(0.0001, start);
+        gain.gain.exponentialRampToValueAtTime(0.2, start + 0.03);
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.25);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(start);
+        osc.stop(start + 0.28);
+      });
+    } catch {
+      /* 无 AudioContext 时静默 */
+    }
+  }, []);
+
+  const fireAlert = useCallback(
+    (it: MonitorStock) => {
+      const key = `${it.code}:${it.advice.action}`;
+      // 同票同指令 3 分钟内不重复提醒（防止连续轮询反复响）
+      const now = Date.now();
+      const prev = lastHintRef.current;
+      if (prev && prev.code === key && now - prev.at < 3 * 60 * 1000) return;
+      lastHintRef.current = { code: key, at: now, label: it.advice.label };
+
+      beep();
+      const title = `${it.name} · ${it.advice.label}`;
+      const body = `${it.advice.hint}${it.code ? `（${it.code}）` : ""}`;
+      const inBackground = typeof document !== "undefined" && document.hidden;
+      const canNotify =
+        notifyRef.current &&
+        "Notification" in window &&
+        window.Notification.permission === "granted";
+      if (canNotify && inBackground) {
+        try {
+          new window.Notification(title, { body });
+          return;
+        } catch {
+          /* fallthrough to toast */
+        }
+      }
+      toast.warning(title, { description: body });
+    },
+    [beep]
+  );
+
+  /** 对比上一轮指令，触发类变化才提醒 */
+  const checkAlerts = useCallback(
+    (items: MonitorStock[]) => {
+      const nowMap: Record<string, string> = {};
+      for (const it of items) {
+        nowMap[it.code] = it.advice.action;
+        const prev = prevActionRef.current[it.code];
+        if (prev && prev !== it.advice.action && TRIGGER_ACTIONS.has(it.advice.action)) {
+          fireAlert(it);
+        }
+      }
+      // 清理已不在名单中的记录，避免累积
+      for (const c of Object.keys(prevActionRef.current)) {
+        if (!nowMap[c]) delete prevActionRef.current[c];
+      }
+      prevActionRef.current = nowMap;
+    },
+    [fireAlert]
+  );
+
   const refresh = useCallback(
     async (silent = false) => {
       if (codes.length === 0) return;
@@ -71,7 +169,9 @@ export default function MonitorPanel() {
       if (!silent) setLoading(true);
       setErr("");
       try {
-        setData(await fetchMonitor(codes));
+        const result = await fetchMonitor(codes);
+        setData(result);
+        checkAlerts(result.items);
       } catch (e) {
         if (!silent) setErr((e as Error).message);
       } finally {
@@ -79,8 +179,47 @@ export default function MonitorPanel() {
         setLoading(false);
       }
     },
-    [codes]
+    [codes, checkAlerts]
   );
+
+  /** 开启/关闭桌面通知 */
+  const toggleNotify = async () => {
+    if (!("Notification" in window)) {
+      toast.error("当前浏览器不支持系统通知，仅保留提示音与页面提醒");
+      return;
+    }
+    if (notifyOn) {
+      notifyRef.current = false;
+      setNotifyOn(false);
+      try {
+        localStorage.setItem(LS_NOTIFY, "0");
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
+    const perm = await window.Notification.requestPermission();
+    const on = perm === "granted";
+    notifyRef.current = on;
+    setNotifyOn(on);
+    try {
+      localStorage.setItem(LS_NOTIFY, on ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+    if (on) {
+      // 用户手势内预热音频上下文，保证后续轮询提示音可播放
+      try {
+        if (!audioCtxRef.current) audioCtxRef.current = new AudioContext();
+        void audioCtxRef.current.resume();
+      } catch {
+        /* ignore */
+      }
+      toast.success("桌面提醒已开启：指令变化时响铃+通知");
+    } else {
+      toast.warning("未获得通知权限，仍会保留页面内提示音提醒");
+    }
+  };
 
   const codesKey = codes.join(",");
 
@@ -88,6 +227,7 @@ export default function MonitorPanel() {
   useEffect(() => {
     if (codes.length === 0) {
       setData(null);
+      prevActionRef.current = {};
       return;
     }
     void refresh(true);
@@ -142,14 +282,28 @@ export default function MonitorPanel() {
       subtitle="自定义名单 · 信号位 + 操作指令 · 5 分钟自动轮询（名单保存在本机）"
       defaultOpen
       action={
-        <button
-          onClick={() => void refresh()}
-          disabled={loading || codes.length === 0}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1 text-xs text-slate-400 hover:text-slate-200 disabled:opacity-50"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-          {loading ? "刷新中..." : "立即刷新"}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => void toggleNotify()}
+            title="指令变化时（回踩可买/压力减仓/止损离场）响铃提醒，页面后台时弹系统通知"
+            className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1 text-xs transition-colors ${
+              notifyOn
+                ? "border-amber-700/60 bg-amber-950/40 text-amber-300 hover:bg-amber-950/60"
+                : "border-slate-700 text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            {notifyOn ? <BellRing className="h-3.5 w-3.5" /> : <Bell className="h-3.5 w-3.5" />}
+            {notifyOn ? "提醒已开" : "开启提醒"}
+          </button>
+          <button
+            onClick={() => void refresh()}
+            disabled={loading || codes.length === 0}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1 text-xs text-slate-400 hover:text-slate-200 disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+            {loading ? "刷新中..." : "立即刷新"}
+          </button>
+        </div>
       }
     >
       {/* 添加栏 */}
@@ -301,7 +455,8 @@ export default function MonitorPanel() {
       )}
 
       <p className="mt-2 text-[10px] text-slate-600">
-        信号基于日 K 线布林带/均线/斐波那契回撤自动计算，指令仅供参考，不构成投资建议。数据约 3 秒延迟。
+        信号基于日 K 线布林带/均线/斐波那契回撤自动计算；开启「提醒」后，指令从持有变为
+        回踩可买/压力减仓/止损离场时会响铃（页面在后台时弹系统通知）。仅供参考，不构成投资建议。
       </p>
     </CollapsiblePanel>
   );
