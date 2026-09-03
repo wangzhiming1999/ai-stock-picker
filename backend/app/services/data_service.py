@@ -17,8 +17,10 @@ _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like
 
 
 def _code_to_symbol(code: str) -> str:
-    """600519 -> sh600519"""
-    code = code.strip()
+    """600519 -> sh600519；若已带 sh/sz/bj 前缀则原样返回（幂等）。"""
+    code = code.strip().lower()
+    if code.startswith(("sh", "sz", "bj")):
+        return code
     if code.startswith(("6", "9")):
         return f"sh{code}"
     return f"sz{code}"

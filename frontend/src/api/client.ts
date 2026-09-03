@@ -14,6 +14,7 @@ import type {
   PortfolioAdvice,
   PredictionRecord,
   PredictionStats,
+  QuadRankResult,
   ScanStock,
   StockInfo,
   StockSearchResult,
@@ -247,6 +248,12 @@ export async function fetchPortfolioAdvice(): Promise<PortfolioAdvice> {
 export async function fetchIndexHistory(days = 120): Promise<IndexHistory> {
   const res = await fetch(`${API}/market/prediction/index-history?days=${days}`);
   if (!res.ok) throw new Error(`获取大盘走势失败: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchQuadRanking(refresh = false): Promise<QuadRankResult> {
+  const res = await fetch(`${API}/market/quad${refresh ? "?refresh=true" : ""}`);
+  if (!res.ok) throw new Error(`获取四维牛股榜失败: ${res.status}`);
   return res.json();
 }
 

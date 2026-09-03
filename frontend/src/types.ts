@@ -189,6 +189,38 @@ export interface DailyRecommendResult {
   message?: string;
 }
 
+/** 四维牛股榜：基本面/技术面/资金面/消息面 */
+export interface QuadScores {
+  fundamental: number;
+  technical: number;
+  capital: number;
+  news: number;
+}
+
+export interface QuadStock {
+  rank: number;
+  code: string;
+  name: string;
+  price: number;
+  change_pct: number;
+  turnover: number | null;
+  pe: number | null;
+  market_cap_yi: number | null;
+  overall_score: number;
+  scores: QuadScores;
+  tags: string[];
+  comments: { fundamental: string; technical: string; capital: string; news: string };
+}
+
+export interface QuadRankResult {
+  date: string;
+  source: "rule";
+  pool_size: number;
+  /** 四维全部 >=7 的只数 */
+  strict_count: number;
+  items: QuadStock[];
+}
+
 export interface BacktestResult {
   strategy: string;
   start: string;

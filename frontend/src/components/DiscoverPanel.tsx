@@ -4,6 +4,7 @@ import CollapsiblePanel from "./CollapsiblePanel";
 import DailyBriefing from "./DailyBriefing";
 import DailyRecommendCard from "./DailyRecommendCard";
 import PredictionCard from "./PredictionCard";
+import QuadRankTable from "./QuadRankTable";
 import type { Industry } from "../types";
 
 interface Props {
@@ -34,6 +35,8 @@ export default function DiscoverPanel({ onPick }: Props) {
   return (
     <div className="space-y-5">
       <DailyBriefing onPick={onPick} />
+
+      <QuadRankTable onPick={onPick} />
 
       <CollapsiblePanel
         id="daily-recommend-detail"
