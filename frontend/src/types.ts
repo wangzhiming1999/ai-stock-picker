@@ -175,6 +175,8 @@ export interface DailyRecommendation {
   change_pct: number;
   reason: string;
   confidence: number;
+  /** 关联 daily_recommendations.id，模拟盘买卖可回写 related_reco_id */
+  id?: string | null;
   tags?: string[];
 }
 
@@ -606,6 +608,8 @@ export interface BriefingStock {
   change_pct?: number;
   reason: string;
   confidence?: number;
+  /** 关联 daily_recommendations.id，模拟盘一键买入时回写 related_reco_id 闭合胜率环 */
+  id?: string | null;
   buy_point?: number | null;
   stop_loss?: number | null;
   sell_point?: number | null;

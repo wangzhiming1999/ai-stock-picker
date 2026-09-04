@@ -133,7 +133,7 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
         try:
             async def _llm_pick() -> str:
                 client = AsyncOpenAI(api_key=settings.deepseek_api_key, base_url=settings.deepseek_base_url)
-                stream = await client.chat.completions.create(
+                resp = await client.chat.completions.create(
                     model=settings.deepseek_model,
                     messages=[
                         {"role": "system", "content": RECOMMEND_SYSTEM_PROMPT},
@@ -141,11 +141,7 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
                     ],
                     temperature=0.3,
                 )
-                parts: list[str] = []
-                async for chunk in stream:
-                    if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
-                        parts.append(chunk.choices[0].delta.content)
-                return "".join(parts)
+                return resp.choices[0].message.content or ""
 
             # 整体限时（含流式消费），超过即降级，避免拖垮首屏
             text = await asyncio.wait_for(_llm_pick(), timeout=25)
@@ -204,9 +200,13 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
         result["message"] = "AI 精选暂不可用，当前为规则推荐"
     _recommendation_cache[today] = (dt.datetime.now().isoformat(), result)
 
-    # 保存推荐记录（胜率跟踪 + 当日缓存持久化）
+    # 保存推荐记录（胜率跟踪 + 当日缓存持久化），并取回每条 DB id 供模拟盘回写 related_reco_id
     try:
-        await save_recommendations(today, recs)
+        id_map = await save_recommendations(today, recs)
+        for r in recs:
+            rid = id_map.get(r["code"])
+            if rid:
+                r["id"] = rid
         await _save_db_recommendation(today, result)
     except Exception as e:
         print(f"[recommend] 保存推荐记录失败: {e}")
@@ -253,21 +253,23 @@ async def _save_db_recommendation(rec_date: str, result: dict) -> None:
         await sb.table("daily_recommend_snapshots").insert(payload).execute()
 
 
-async def save_recommendations(rec_date: str, recs: list[dict]) -> None:
-    """将当日推荐写入 Supabase daily_recommendations 表（幂等）。"""
+async def save_recommendations(rec_date: str, recs: list[dict]) -> dict[str, str]:
+    """将当日推荐写入 Supabase daily_recommendations 表（幂等），返回 {code: id} 映射。
+
+    返回的 id 用于模拟盘成交流水回写 related_reco_id，闭合「推荐 → 模拟验证 → 胜率」环。
+    """
     if not supabase_store.is_configured() or not recs:
-        return
+        return {}
     sb = await supabase_store.get_service_client()
     # 先检查当日是否已保存，避免重复
     existing = (
         await sb.table("daily_recommendations")
-        .select("id")
+        .select("id, code")
         .eq("rec_date", rec_date)
-        .limit(1)
         .execute()
     )
     if existing.data:
-        return
+        return {row["code"]: str(row["id"]) for row in existing.data}
     rows = [
         {
             "rec_date": rec_date,
@@ -280,7 +282,8 @@ async def save_recommendations(rec_date: str, recs: list[dict]) -> None:
         }
         for r in recs
     ]
-    await sb.table("daily_recommendations").insert(rows).execute()
+    res = await sb.table("daily_recommendations").insert(rows).select("id, code").execute()
+    return {row["code"]: str(row["id"]) for row in (res.data or [])}
 
 
 def _prefilter_codes(spot: list) -> list[str]:

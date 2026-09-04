@@ -3,7 +3,7 @@ import os
 
 from fastapi import APIRouter, HTTPException, Request
 
-from app.services import alert_service, quad_service, sim_service, winrate_service
+from app.services import alert_service, quad_service, recommend_service, sim_service, winrate_service
 
 router = APIRouter(prefix="/api/cron", tags=["cron"])
 
@@ -41,6 +41,12 @@ async def daily_cron(request: Request):
         except Exception as se:
             print(f"[cron] sim snapshot failed: {se}")
             result["sim_snapshots"] = None
+        # 每日收盘推荐：策略扫描 + AI 精选（落库 + 预热全市场快照缓存，用户白天访问秒回）
+        try:
+            result["recommendations"] = await recommend_service.generate_daily_recommendations(force_refresh=True)
+        except Exception as re_:
+            print(f"[cron] recommend gen failed: {re_}")
+            result["recommendations"] = None
         return result
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"定时任务失败: {e}")

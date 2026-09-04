@@ -83,6 +83,7 @@ function MorningStockCard({ s, onPick }: { s: BriefingStock; onPick: (c: string)
         side: "buy",
         shares,
         source: "briefing",
+        related_reco_id: s.id ?? null,
         note: `简报一键买入 · ${s.reason.slice(0, 30)}`,
       });
       toast.success("已模拟买入", { description: `${s.name} ${shares}股 @ 实时价` });

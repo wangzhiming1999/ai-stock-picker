@@ -61,6 +61,7 @@ async def _enrich_morning_stock(
         "change_pct": rec.get("change_pct"),
         "reason": rec.get("reason", ""),
         "confidence": rec.get("confidence", 0),
+        "id": rec.get("id"),  # 关联 daily_recommendations.id，供模拟盘回写 related_reco_id 闭合胜率环
         "buy_point": None,
         "stop_loss": None,
         "sell_point": None,

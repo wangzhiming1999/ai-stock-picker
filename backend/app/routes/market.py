@@ -1,29 +1,70 @@
 """市场筛选接口：行业板块、板块成分股、全市场扫描、策略选股、明日推衍。"""
 import asyncio
+import datetime as dt
 import time
 
 import akshare as ak
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from app.services import data_service, market_prediction, opportunity_service, recommend_service, winrate_service
+from app.services import data_service, market_prediction, opportunity_service, recommend_service, supabase_store, winrate_service
 
 router = APIRouter(prefix="/api/market", tags=["market"])
 
 # 全市场快照缓存：key -> (timestamp, data)，缓存 5 分钟
 _spot_cache: tuple[float, list] | None = None
 _SPOT_TTL = 300  # 5 分钟
+# Supabase 持久化快照有效期：ak.stock_zh_a_spot 在 Vercel 上单次 ~70s，
+# 落库后跨实例/跨请求复用，避免每个冷实例都打一次慢速行情源（每日最多拉几次）。
+_SPOT_DB_TTL = 6 * 3600
+
+
+async def _load_spot_db() -> list | None:
+    """从 Supabase 读取最近的全市场快照（6h 内有效）。表未建时静默返回 None。"""
+    if not supabase_store.is_configured():
+        return None
+    try:
+        sb = await supabase_store.get_service_client()
+        res = await sb.table("market_spot_cache").select("rows, updated_at").order("updated_at", desc=True).limit(1).execute()
+        if res.data:
+            row = res.data[0]
+            updated = row.get("updated_at")
+            if isinstance(updated, str):
+                updated = dt.datetime.fromisoformat(updated.replace("Z", "+00:00"))
+            if updated and (dt.datetime.now(dt.timezone.utc) - updated).total_seconds() < _SPOT_DB_TTL:
+                return row["rows"]
+    except Exception as e:
+        print(f"[spot] db load failed: {e}")
+    return None
+
+
+async def _save_spot_db(rows: list) -> None:
+    """全市场快照落库（单例行，upsert）。表未建时静默跳过。"""
+    if not supabase_store.is_configured():
+        return
+    try:
+        sb = await supabase_store.get_service_client()
+        await sb.table("market_spot_cache").upsert(
+            {"id": 1, "rows": rows, "updated_at": dt.datetime.now(dt.timezone.utc).isoformat()}
+        ).execute()
+    except Exception as e:
+        print(f"[spot] db save failed: {e}")
 
 
 async def _get_spot(force: bool = False) -> list:
-    """获取全市场快照，默认带 5 分钟缓存；force=True 时忽略缓存重新拉取。
+    """获取全市场快照。
 
-    force 必须由用户显式「强制刷新」触发，避免轮询/自动加载打爆行情源。
+    内存 5 分钟缓存 → Supabase 6h 持久化快照（跨实例共享，避免每个冷实例都打 ~70s 慢速行情源）
+    → 以上都未命中才真正拉 akshare 并落库。force=True 仅绕过内存缓存，仍优先复用持久化快照。
     """
     global _spot_cache
     now = time.monotonic()
     if not force and _spot_cache and now - _spot_cache[0] < _SPOT_TTL:
         return _spot_cache[1]
+    db_rows = await _load_spot_db()
+    if db_rows:
+        _spot_cache = (now, db_rows)
+        return db_rows
     df = await asyncio.to_thread(ak.stock_zh_a_spot)
     rows = []
     for _, row in df.iterrows():
@@ -40,6 +81,7 @@ async def _get_spot(force: bool = False) -> list:
         except (ValueError, TypeError):
             continue
     _spot_cache = (now, rows)
+    await _save_spot_db(rows)
     return rows
 
 
