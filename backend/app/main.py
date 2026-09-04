@@ -98,9 +98,16 @@ async def health():
 
     from app.services.supabase_store import is_configured as supabase_configured
 
+    # 暴露 LLM 端点域名（去敏），便于核对 model 与 base_url 是否匹配：
+    # base=api.deepseek.com 时 model 必须是 deepseek-chat / deepseek-reasoner，
+    # 若填 deepseek-ai/DeepSeek-V3（硅基流动命名）会因模型不存在而调用失败降级。
+    base = (settings.deepseek_base_url or "").strip()
+    host = base.split("://", 1)[1].split("/")[0] if "://" in base else ""
+
     return {
         "status": "ok",
         "model": settings.deepseek_model,
+        "llm_host": host or None,
         "api_configured": bool(settings.deepseek_api_key),
         "mode": "mock(本地规则)" if should_use_mock() else "llm(DeepSeek)",
         "rate_limit": settings.enable_rate_limit,

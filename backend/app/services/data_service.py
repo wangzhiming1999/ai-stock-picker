@@ -85,8 +85,18 @@ def get_stock_name(code: str) -> str:
     return quotes[0].name if quotes else ""
 
 
-def get_history(code: str, days: int = 120) -> StockHistory | None:
-    """获取历史日 K 数据（腾讯接口）。"""
+# ---------------- 历史 K 线缓存 ----------------
+# K 线盘中变化很小（只有当日那根在动），但每只票一次 akshare 请求要 1~4s，
+# 简报(6只)/个股详情/持仓建议/盯盘都会重复拉取，是首屏延迟的主要来源。
+# 成功缓存 5 分钟，失败短缓存 30s（避免瞬时故障被反复重试放大）。
+_hist_cache: dict[tuple[str, int], tuple[float, StockHistory | None]] = {}
+_HIST_TTL_OK = 300
+_HIST_TTL_FAIL = 30
+_HIST_CACHE_MAX = 400
+
+
+def _fetch_history(code: str, days: int) -> StockHistory | None:
+    """实际拉取历史日 K（腾讯接口）。"""
     end = dt.date.today()
     start = end - dt.timedelta(days=days * 2)
     try:
@@ -106,6 +116,27 @@ def get_history(code: str, days: int = 120) -> StockHistory | None:
     except Exception as e:
         logger.warning("获取 %s 历史K线失败: %s", code, e)
         return None
+
+
+def get_history(code: str, days: int = 120) -> StockHistory | None:
+    """获取历史日 K 数据（腾讯接口），带 TTL 缓存。"""
+    key = (code, days)
+    now = time.time()
+    hit = _hist_cache.get(key)
+    if hit:
+        cached_at, cached_val = hit
+        ttl = _HIST_TTL_OK if cached_val is not None else _HIST_TTL_FAIL
+        if now - cached_at < ttl:
+            return cached_val
+
+    result = _fetch_history(code, days)
+
+    # 容量控制：超过上限淘汰最旧的一半，避免 serverless 实例内存无限增长
+    if len(_hist_cache) >= _HIST_CACHE_MAX:
+        for k in sorted(_hist_cache, key=lambda k: _hist_cache[k][0])[: _HIST_CACHE_MAX // 2]:
+            _hist_cache.pop(k, None)
+    _hist_cache[key] = (now, result)
+    return result
 
 
 def get_news(code: str, name: str, limit: int = 8) -> list[NewsItem]:

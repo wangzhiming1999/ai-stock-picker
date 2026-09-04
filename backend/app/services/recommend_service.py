@@ -1,6 +1,7 @@
 """每日收盘推荐：策略扫描候选 + LLM 精选 10 只并给出推荐理由。"""
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 import json
 
@@ -114,22 +115,27 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
     # 4. LLM 精选
     recs: list[dict] = []
     source = "rule"
+    llm_error: str | None = None
     if settings.deepseek_api_key:
         try:
-            client = AsyncOpenAI(api_key=settings.deepseek_api_key, base_url=settings.deepseek_base_url)
-            stream = await client.chat.completions.create(
-                model=settings.deepseek_model,
-                messages=[
-                    {"role": "system", "content": RECOMMEND_SYSTEM_PROMPT},
-                    {"role": "user", "content": ctx},
-                ],
-                temperature=0.3,
-            )
-            parts: list[str] = []
-            async for chunk in stream:
-                if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
-                    parts.append(chunk.choices[0].delta.content)
-            text = "".join(parts)
+            async def _llm_pick() -> str:
+                client = AsyncOpenAI(api_key=settings.deepseek_api_key, base_url=settings.deepseek_base_url)
+                stream = await client.chat.completions.create(
+                    model=settings.deepseek_model,
+                    messages=[
+                        {"role": "system", "content": RECOMMEND_SYSTEM_PROMPT},
+                        {"role": "user", "content": ctx},
+                    ],
+                    temperature=0.3,
+                )
+                parts: list[str] = []
+                async for chunk in stream:
+                    if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
+                        parts.append(chunk.choices[0].delta.content)
+                return "".join(parts)
+
+            # 整体限时（含流式消费），超过即降级，避免拖垮首屏
+            text = await asyncio.wait_for(_llm_pick(), timeout=25)
             start, end = text.find("["), text.rfind("]")
             if start != -1 and end > start:
                 parsed = json.loads(text[start : end + 1])
@@ -154,7 +160,8 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
                             )
                     source = "llm"
         except Exception as e:
-            print(f"[recommend] LLM 失败，回退规则: {e}")
+            llm_error = f"{type(e).__name__}: {e}"
+            print(f"[recommend] LLM 失败，回退规则: {llm_error}")
 
     # 5. 回退：规则模式取 top 10
     if not recs:
@@ -178,6 +185,10 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
         "recommendations": recs,
         "candidates": len(ranked),
     }
+    # 降级为规则推荐时，带上 AI 失败原因（供前端/排查透明展示）
+    if source == "rule" and llm_error:
+        result["llm_error"] = llm_error
+        result["message"] = "AI 精选暂不可用，当前为规则推荐"
     _recommendation_cache[today] = (dt.datetime.now().isoformat(), result)
 
     # 保存推荐记录（胜率跟踪 + 当日缓存持久化）

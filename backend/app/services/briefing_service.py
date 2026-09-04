@@ -235,12 +235,19 @@ async def build_today(user_id: str | None = None) -> dict:
     if user_id and tail.get("holdings"):
         tail["holdings"] = [_enrich_tail_holding(h) for h in tail["holdings"]]
 
+    # 目标交易日：pred 里 target_date 才是"这份简报针对哪个交易日"；
+    # pred["date"] 只是行情数据的最后一根 K 线日（数据基准），不能当目标日展示
+    pred_date = pred.get("date") if isinstance(pred, dict) else None
+    target_date = (pred.get("target_date") if isinstance(pred, dict) else None) or pred_date
+
     return {
         "session": session,
         "is_trading_day": is_trading,
         "is_premarket": is_premarket,
         "is_tail_urgent": is_tail_urgent,
-        "target_date": pred.get("date") if isinstance(pred, dict) else None,
+        # 语义修正：target_date = 要操作的交易日；data_date = 行情数据基准日
+        "target_date": target_date,
+        "data_date": pred_date,
         "phase": phase,  # morning | tail | closed
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         "market": {
