@@ -142,11 +142,19 @@ async def predict_tomorrow(force_refresh: bool = False) -> dict:
     if not force_refresh:
         db_result = await _load_db_prediction(today)
         if db_result:
+            # 兼容旧记录（无日期语义字段）：按当前交易日补齐
+            db_result.setdefault("data_date", today)
+            if not db_result.get("target_date"):
+                db_result["target_date"] = next_day.isoformat()
             _prediction_cache[today] = (dt.datetime.now().isoformat(), db_result)
             return db_result
     # 2. 内存缓存
     if not force_refresh and today in _prediction_cache:
-        return _prediction_cache[today][1]
+        cached = _prediction_cache[today][1]
+        cached.setdefault("data_date", today)
+        if not cached.get("target_date"):
+            cached["target_date"] = next_day.isoformat()
+        return cached
 
     hist = await asyncio_hist()
     ctx, summary = build_market_context(hist, data_day=data_day, next_day=next_day)
@@ -205,6 +213,13 @@ async def predict_tomorrow(force_refresh: bool = False) -> dict:
             "technical": summary,
             "source": "llm",
         }
+
+    # 统一补齐日期语义字段（LLM 与规则回退两个分支共用）：
+    # - date：行情 K 线最后一根的日期（数据源可能滞后一日，仅作参考）
+    # - data_date：本份预测的数据基准交易日（缓存 key 也用它）
+    # - target_date：本份预测针对的交易日（T+1，跳过周末/节假日）
+    result["data_date"] = today
+    result["target_date"] = next_day.isoformat()
 
     # 保存预测记录（用于准确率统计）
     try:
