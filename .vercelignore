@@ -1,0 +1,11 @@
+# Vercel CLI 上传排除（Git 集成不受影响，只作用于本地 vercel deploy）
+node_modules
+frontend/node_modules
+frontend/dist
+**/__pycache__
+**/*.pyc
+**/.git
+.workbuddy
+backend/.venv
+*.log
+.DS_Store

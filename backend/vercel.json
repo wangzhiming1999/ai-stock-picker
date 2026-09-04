@@ -1,11 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "services": {
-    "api": {
-      "memory": 1024,
-      "maxDuration": 60
-    }
-  },
   "crons": [
     {
       "path": "/api/cron/daily",
