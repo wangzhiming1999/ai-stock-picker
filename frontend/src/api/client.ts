@@ -21,6 +21,10 @@ import type {
   PredictionStats,
   QuadRankResult,
   ScanStock,
+  SimAccount,
+  SimPerformance,
+  SimPositionsData,
+  SimTradesData,
   StockInfo,
   StockSearchResult,
   StrategyName,
@@ -346,6 +350,82 @@ export async function evaluateAlerts(): Promise<number> {
   } catch {
     return 0;
   }
+}
+
+/* ---------- 模拟盘（V5 Paper Trading） ---------- */
+
+export async function fetchSimAccount(): Promise<SimAccount> {
+  const res = await authFetch(`${API}/sim/account`);
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(d.detail || `获取模拟账户失败: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function initSimAccount(total_capital?: number): Promise<SimAccount> {
+  const res = await authFetch(`${API}/sim/account/init`, {
+    method: "POST",
+    body: JSON.stringify(total_capital ? { total_capital } : {}),
+  });
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(d.detail || `初始化模拟账户失败: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function simTrade(payload: {
+  code: string;
+  side: "buy" | "sell";
+  shares: number;
+  price?: number;
+  source?: "manual" | "briefing" | "recommend";
+  related_reco_id?: string | null;
+  note?: string;
+}): Promise<{ trade: unknown; account: SimAccount; realized_pnl?: number }> {
+  const res = await authFetch(`${API}/sim/trade`, { method: "POST", body: JSON.stringify(payload) });
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(d.detail || `模拟交易失败: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function fetchSimPositions(): Promise<SimPositionsData> {
+  const res = await authFetch(`${API}/sim/positions`);
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(d.detail || `获取模拟持仓失败: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function fetchSimTrades(limit = 50, offset = 0): Promise<SimTradesData> {
+  const res = await authFetch(`${API}/sim/trades?limit=${limit}&offset=${offset}`);
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(d.detail || `获取成交记录失败: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function fetchSimPerformance(): Promise<SimPerformance> {
+  const res = await authFetch(`${API}/sim/performance`);
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(d.detail || `获取收益统计失败: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function resetSimAccount(): Promise<SimAccount> {
+  const res = await authFetch(`${API}/sim/reset`, { method: "POST", body: JSON.stringify({ confirm: true }) });
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(d.detail || `重置失败: ${res.status}`);
+  }
+  return res.json();
 }
 
 export async function fetchBriefing(): Promise<Briefing> {

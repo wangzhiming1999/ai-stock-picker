@@ -1,7 +1,8 @@
 import { type MouseEvent, useCallback, useEffect, useState } from "react";
 import { ArrowDownRight, ArrowUpRight, Bell, Plus, RefreshCw, Sunrise, Target } from "lucide-react";
-import { addToWatchlist, fetchBriefing, getAuthToken } from "../api/client";
+import { addToWatchlist, fetchBriefing, getAuthToken, simTrade } from "../api/client";
 import type { Briefing, BriefingHolding, BriefingStock } from "../types";
+import { toast } from "sonner";
 
 /** 技术位由规则推导的标识，避免误当确定性建议 */
 function AlgoTag() {
@@ -40,6 +41,7 @@ function MorningStockCard({ s, onPick }: { s: BriefingStock; onPick: (c: string)
   const [added, setAdded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [tip, setTip] = useState("");
+  const [simBusy, setSimBusy] = useState(false);
 
   const flashTip = (msg: string) => {
     setTip(msg);
@@ -65,6 +67,35 @@ function MorningStockCard({ s, onPick }: { s: BriefingStock; onPick: (c: string)
     }
   };
 
+  /** 一键模拟买入（V5 闭环）：按建议手数预填，实时价成交 */
+  const simBuy = async (e: MouseEvent) => {
+    e.stopPropagation();
+    if (simBusy) return;
+    if (!getAuthToken()) {
+      flashTip("请先登录");
+      return;
+    }
+    setSimBusy(true);
+    try {
+      const shares = s.suggest_shares && s.suggest_shares % 100 === 0 ? s.suggest_shares : 100;
+      const r = await simTrade({
+        code: s.code,
+        side: "buy",
+        shares,
+        source: "briefing",
+        note: `简报一键买入 · ${s.reason.slice(0, 30)}`,
+      });
+      toast.success("已模拟买入", { description: `${s.name} ${shares}股 @ 实时价` });
+      flashTip("已模拟买入");
+      void r;
+    } catch (err) {
+      toast.error((err as Error).message);
+      flashTip((err as Error).message);
+    } finally {
+      setSimBusy(false);
+    }
+  };
+
   return (
     <div
       onClick={() => onPick(s.code)}
@@ -86,6 +117,14 @@ function MorningStockCard({ s, onPick }: { s: BriefingStock; onPick: (c: string)
         >
           <Plus className="h-3 w-3" />
           {added ? "已自选" : busy ? "..." : "加自选"}
+        </button>
+        <button
+          onClick={simBuy}
+          disabled={simBusy}
+          className="flex shrink-0 items-center gap-1 rounded border border-red-800/60 bg-red-500/10 px-2 py-0.5 text-[11px] text-red-300 transition-colors hover:bg-red-500/20"
+          title="用虚拟资金按建议手数一键模拟买入"
+        >
+          {simBusy ? "..." : "模拟买"}
         </button>
       </div>
 
@@ -167,6 +206,7 @@ function TailHoldingCard({ h }: { h: BriefingHolding }) {
   const [watching, setWatching] = useState(false);
   const [busy, setBusy] = useState(false);
   const [tip, setTip] = useState("");
+  const [simBusy, setSimBusy] = useState(false);
 
   const flashTip = (msg: string) => {
     setTip(msg);
@@ -191,6 +231,27 @@ function TailHoldingCard({ h }: { h: BriefingHolding }) {
     }
   };
 
+  /** 一键模拟买入/卖出（V5）：按尾盘挂单方向预填，实时价成交 */
+  const simOrder = async (side: "buy" | "sell") => {
+    if (simBusy) return;
+    if (!getAuthToken()) {
+      flashTip("请先登录");
+      return;
+    }
+    setSimBusy(true);
+    try {
+      const r = await simTrade({ code: h.code, side, shares: 100, source: "briefing", note: `简报尾盘${side === "buy" ? "买入" : "卖出"}` });
+      toast.success(side === "buy" ? "已模拟买入" : "已模拟卖出", { description: `${h.name} 100股 @ 实时价` });
+      flashTip(side === "buy" ? "已模拟买入" : "已模拟卖出");
+      void r;
+    } catch (err) {
+      toast.error((err as Error).message);
+      flashTip((err as Error).message);
+    } finally {
+      setSimBusy(false);
+    }
+  };
+
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-3">
       <div className="flex items-start justify-between gap-2">
@@ -200,6 +261,14 @@ function TailHoldingCard({ h }: { h: BriefingHolding }) {
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <span className={`rounded px-2 py-0.5 text-xs font-medium ${tone.bg} ${tone.text}`}>{tone.label}</span>
+          <button
+            onClick={() => void simOrder("sell")}
+            disabled={simBusy}
+            className="rounded border border-green-700/60 bg-green-500/10 px-2 py-0.5 text-[11px] text-green-300 transition-colors hover:bg-green-500/20"
+            title="用虚拟资金模拟卖出（实时价）"
+          >
+            {simBusy ? "..." : "模拟卖"}
+          </button>
           <button
             onClick={setReminder}
             disabled={watching}

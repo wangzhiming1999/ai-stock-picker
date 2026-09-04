@@ -12,6 +12,7 @@ import DiscoverPanel from "./components/DiscoverPanel";
 import ErrorBoundary from "./components/ErrorBoundary";
 import HistoryPanel from "./components/HistoryPanel";
 import PortfolioPanel from "./components/PortfolioPanel";
+import SimPanel from "./components/SimPanel";
 import ScanPanel from "./components/ScanPanel";
 import StockCard from "./components/StockCard";
 import StockSearchInput from "./components/StockSearchInput";
@@ -456,6 +457,7 @@ export default function App() {
               ) : (
                 <>
                   <WatchlistPanel onAnalyze={handleQuickPick} />
+                  <SimPanel />
                   <PortfolioPanel />
                   <HistoryPanel refreshKey={historyRefresh} />
                 </>

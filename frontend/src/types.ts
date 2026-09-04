@@ -516,6 +516,86 @@ export interface AnalysisBatchDetail extends AnalysisBatch {
   results: StockAnalysis[];
 }
 
+// ---------- 模拟盘（V5 Paper Trading） ----------
+
+/** 模拟盘成交流水（sim_trades） */
+export interface SimTrade {
+  id: number;
+  user_id: string;
+  code: string;
+  name: string;
+  side: "buy" | "sell";
+  price: number;
+  shares: number;
+  fee: number;
+  amount: number;
+  executed_at: string;
+  trade_date: string;
+  source: "manual" | "briefing" | "recommend";
+  related_reco_id?: string | null;
+  note?: string;
+}
+
+/** 模拟盘账户总览 */
+export interface SimAccount {
+  cash: number;
+  total_capital: number;
+  market_value: number;
+  total_value: number;
+  realized_pnl: number;
+  unrealized_pnl: number;
+  total_pnl: number | null;
+  total_pnl_pct: number | null;
+  positions_cnt: number;
+  initialized: boolean;
+}
+
+/** 模拟盘聚合持仓 */
+export interface SimPosition {
+  code: string;
+  name: string;
+  shares: number;
+  avg_cost: number;
+  current_price?: number | null;
+  market_value?: number | null;
+  unrealized_pnl?: number | null;
+  pnl_pct?: number | null;
+}
+
+export interface SimPositionsData {
+  positions: SimPosition[];
+  realized_pnl: number;
+  open_count: number;
+}
+
+/** 净值快照（portfolio_snapshots） */
+export interface SimSnapshot {
+  date: string;
+  total_value: number;
+  total_pnl: number;
+  total_pnl_pct: number;
+  cash: number;
+  market_value: number;
+}
+
+/** 收益统计 */
+export interface SimPerformance {
+  snapshots: SimSnapshot[];
+  realized_pnl: number;
+  unrealized_pnl: number;
+  total_pnl: number | null;
+  total_pnl_pct: number | null;
+  by_source: Record<string, { trades: number; buy_shares: number; sell_shares: number; buy_amount: number; sell_amount: number }>;
+}
+
+export interface SimTradesData {
+  trades: SimTrade[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+
 // ---------- 今日作战简报（V6 体验重构） ----------
 
 /** 早盘关注的一只票（含技术信号与建议仓位） */

@@ -3,7 +3,7 @@ import os
 
 from fastapi import APIRouter, HTTPException, Request
 
-from app.services import alert_service, quad_service, winrate_service
+from app.services import alert_service, quad_service, sim_service, winrate_service
 
 router = APIRouter(prefix="/api/cron", tags=["cron"])
 
@@ -35,6 +35,12 @@ async def daily_cron(request: Request):
         except Exception as ae:  # 预警评估失败不影响胜率结算结果
             print(f"[cron] alert evaluate_all failed: {ae}")
             result["alert_events"] = None
+        # V5 模拟盘：为所有有模拟流水的用户写当日净值快照（表未建时静默失败）
+        try:
+            result["sim_snapshots"] = await sim_service.snapshot_all_users()
+        except Exception as se:
+            print(f"[cron] sim snapshot failed: {se}")
+            result["sim_snapshots"] = None
         return result
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"定时任务失败: {e}")
