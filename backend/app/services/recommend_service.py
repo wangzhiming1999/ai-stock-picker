@@ -9,7 +9,7 @@ from openai import AsyncOpenAI
 
 from app.config import get_settings
 from app.routes import market as market_routes
-from app.services import supabase_store, trade_calendar_service
+from app.services import data_service, supabase_store, trade_calendar_service
 
 # 每日推荐缓存：key=日期，value=(生成时间, data)。一天只跑一次。
 _recommendation_cache: dict[str, tuple[str, dict]] = {}
@@ -81,17 +81,30 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
     settings = get_settings()
     candidates: dict[str, dict] = {}
 
-    # 1. 跑四个策略收集候选
-    for strategy in ("momentum", "trend", "value", "volume"):
-        try:
-            results = await _scan_strategy(strategy, force=force_refresh)
-            for item in results:
-                code = item["code"]
-                # 合并：保留更高策略分
-                if code not in candidates or item["strategy_score"] > candidates[code]["strategy_score"]:
-                    candidates[code] = item
-        except Exception as e:
-            print(f"[recommend] strategy {strategy} failed: {e}")
+    # 1. 跑四个策略收集候选（全市场快照只拉一次 + 4 策略并行 + 历史K线只拉一次）
+    spot = await market_routes._get_spot(force=force_refresh)
+    candidate_codes = _prefilter_codes(spot)
+    # 预拉历史K线：4 策略共享同一批候选（前 30 只），并行只拉一次，避免重复打行情源
+    if candidate_codes:
+        histories = await asyncio.gather(
+            *(asyncio.to_thread(data_service.get_history, c, 100) for c in candidate_codes[:30])
+        )
+        hist_map = {c: h for c, h in zip(candidate_codes[:30], histories)}
+    else:
+        hist_map = {}
+    strategy_results = await asyncio.gather(
+        *[_scan_strategy_with_spot(s, candidate_codes, hist_map) for s in ("momentum", "trend", "value", "volume")],
+        return_exceptions=True,
+    )
+    for strategy, res in zip(("momentum", "trend", "value", "volume"), strategy_results):
+        if isinstance(res, Exception):
+            print(f"[recommend] strategy {strategy} failed: {res}")
+            continue
+        for item in res:
+            code = item["code"]
+            # 合并：保留更高策略分
+            if code not in candidates or item["strategy_score"] > candidates[code]["strategy_score"]:
+                candidates[code] = item
 
     # 2. 按策略分排序取 top 15
     ranked = sorted(candidates.values(), key=lambda x: x["strategy_score"], reverse=True)[:15]
@@ -270,12 +283,9 @@ async def save_recommendations(rec_date: str, recs: list[dict]) -> None:
     await sb.table("daily_recommendations").insert(rows).execute()
 
 
-async def _scan_strategy(strategy: str, force: bool = False) -> list[dict]:
-    """对指定策略跑一次扫描（复用市场路由的逻辑）。force 时穿透行情快照缓存。"""
-    from app.services import data_service
-
-    spot = await market_routes._get_spot(force=force)
-    candidates = []
+def _prefilter_codes(spot: list) -> list[str]:
+    """全市场快照预筛：可交易 + 成交额达标，按成交额降序取前 40。与 strategy-scan 共用逻辑。"""
+    cands = []
     for row in spot:
         name = row.get("name", "")
         price = row.get("price", 0)
@@ -286,6 +296,11 @@ async def _scan_strategy(strategy: str, force: bool = False) -> list[dict]:
         if row["amount"] / 1e8 < 3:
             continue
         code = row["code"].replace("sh", "").replace("sz", "").replace("bj", "")
-        candidates.append(code)
-    codes = candidates[:40]
-    return await market_routes._apply_strategy(codes, strategy)
+        cands.append({"code": code, "amount": row["amount"]})
+    cands.sort(key=lambda x: x["amount"], reverse=True)
+    return [c["code"] for c in cands[:40]]
+
+
+async def _scan_strategy_with_spot(strategy: str, codes: list[str], hist_map: dict | None = None) -> list[dict]:
+    """对指定策略跑一次扫描（复用已预筛的候选与已拉取的历史K线，不再重复拉全市场快照）。"""
+    return await market_routes._apply_strategy(codes, strategy, hist_map=hist_map)

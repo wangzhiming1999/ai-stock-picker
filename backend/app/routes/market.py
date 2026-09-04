@@ -168,20 +168,24 @@ def _compute_indicators(closes: list[float]) -> dict | None:
     }
 
 
-async def _apply_strategy(codes: list[str], strategy: str) -> list[dict]:
-    """对候选代码应用策略过滤与评分。codes 已按成交额预排序。"""
+async def _apply_strategy(codes: list[str], strategy: str, hist_map: dict | None = None) -> list[dict]:
+    """对候选代码应用策略过滤与评分。codes 已按成交额预排序。
+
+    hist_map 可选：外部预拉好的 {code: StockHistory}，传入则跳过重复拉取（推荐生成时 4 策略共享复用）。
+    """
     # 1. 批量补充腾讯行情（PE/PB/换手率/市值）
     quotes = await asyncio.to_thread(data_service.get_spot_quote, codes)
     quote_map = {q.code: q for q in quotes}
 
-    # 2. 拉历史K线（并发，仅策略需要时）
-    if strategy in ("trend", "momentum", "volume"):
-        histories = await asyncio.gather(
-            *(asyncio.to_thread(data_service.get_history, c, 100) for c in codes[:30])
-        )
-        hist_map = {c: h for c, h in zip(codes[:30], histories)}
-    else:
-        hist_map = {}
+    # 2. 拉历史K线（并发，仅策略需要时；外部已给则直接复用）
+    if hist_map is None:
+        if strategy in ("trend", "momentum", "volume"):
+            histories = await asyncio.gather(
+                *(asyncio.to_thread(data_service.get_history, c, 100) for c in codes[:30])
+            )
+            hist_map = {c: h for c, h in zip(codes[:30], histories)}
+        else:
+            hist_map = {}
 
     results = []
     for code in codes[:30]:
