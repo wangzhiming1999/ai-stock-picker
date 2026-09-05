@@ -53,7 +53,9 @@ CREATE INDEX IF NOT EXISTS idx_portfolio_snapshots_user ON portfolio_snapshots(u
 
 -- RLS：service client 全权（与 user_holdings / alert 表一致，后端按 user_id 过滤隔离）
 ALTER TABLE sim_trades ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "sim_trades_service" ON sim_trades;
 CREATE POLICY "sim_trades_service" ON sim_trades FOR ALL USING (true) WITH CHECK (true);
 
 ALTER TABLE portfolio_snapshots ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "portfolio_snapshots_service" ON portfolio_snapshots;
 CREATE POLICY "portfolio_snapshots_service" ON portfolio_snapshots FOR ALL USING (true) WITH CHECK (true);

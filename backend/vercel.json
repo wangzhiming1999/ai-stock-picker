@@ -12,7 +12,7 @@
   ],
   "functions": {
     "api/index.py": {
-      "maxDuration": 120
+      "maxDuration": 300
     }
   }
 }

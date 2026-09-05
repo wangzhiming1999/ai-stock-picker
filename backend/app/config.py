@@ -46,6 +46,14 @@ class Settings(BaseSettings):
     supabase_anon_key: str = ""
     supabase_service_key: str = ""
 
+    # 运维：自动迁移接口鉴权令牌（空则禁用 /api/admin/*）
+    admin_token: str = ""
+    # 自动迁移执行 SQL 的两种方式（二选一）：
+    #   1) Supabase Management API Key（控制台生成，推荐，无需 DB 密码）
+    supabase_management_api_key: str = ""
+    #   2) Postgres 直连串（DATABASE_URL=postgresql://...），优先级低于 management key
+    database_url: str = ""
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

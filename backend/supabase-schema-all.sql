@@ -1,5 +1,10 @@
--- AI 选股分析工具 · V4 迁移：价格预警中心
+-- AI 选股分析工具 · 全量合并迁移（v4 + v5 + v6）
 -- 在 Supabase 控制台 → SQL Editor 中执行本文件
+--
+-- ⚠️ 本文件内容等价于按顺序执行 supabase-schema-v4.sql + v5.sql + v6.sql，
+--    三份拆分版本各自独立维护，新环境建议改用「按序执行拆分版本」或
+--    POST /api/admin/migrate 自动迁移，避免此合并副本与拆分版本不同步。
+--    本文件保留仅为一次性全量执行提供便利，所有语句均幂等，可重复执行。
 
 -- 预警规则表：用户对某只股票设定的价格触发条件
 CREATE TABLE IF NOT EXISTS alert_rules (
@@ -37,9 +42,11 @@ CREATE INDEX IF NOT EXISTS idx_alert_events_unread ON alert_events(user_id, is_r
 
 -- RLS：service client 全权（与 user_holdings 一致，后端按 user_id 过滤隔离）
 ALTER TABLE alert_rules ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "alert_rules_service" ON alert_rules;
 CREATE POLICY "alert_rules_service" ON alert_rules FOR ALL USING (true) WITH CHECK (true);
 
 ALTER TABLE alert_events ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "alert_events_service" ON alert_events;
 CREATE POLICY "alert_events_service" ON alert_events FOR ALL USING (true) WITH CHECK (true);
 -- AI 选股分析工具 · V5 迁移：模拟盘（Paper Trading）
 -- 在 Supabase 控制台 → SQL Editor 中执行本文件
@@ -96,9 +103,11 @@ CREATE INDEX IF NOT EXISTS idx_portfolio_snapshots_user ON portfolio_snapshots(u
 
 -- RLS：service client 全权（与 user_holdings / alert 表一致，后端按 user_id 过滤隔离）
 ALTER TABLE sim_trades ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "sim_trades_service" ON sim_trades;
 CREATE POLICY "sim_trades_service" ON sim_trades FOR ALL USING (true) WITH CHECK (true);
 
 ALTER TABLE portfolio_snapshots ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "portfolio_snapshots_service" ON portfolio_snapshots;
 CREATE POLICY "portfolio_snapshots_service" ON portfolio_snapshots FOR ALL USING (true) WITH CHECK (true);
 
 -- AI 选股分析工具 · 全市场快照缓存（性能/成本优化）
@@ -115,5 +124,6 @@ CREATE TABLE IF NOT EXISTS market_spot_cache (
 );
 
 ALTER TABLE market_spot_cache ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "market_spot_cache_service" ON market_spot_cache;
 CREATE POLICY "market_spot_cache_service" ON market_spot_cache FOR ALL USING (true) WITH CHECK (true);
 

@@ -36,10 +36,15 @@ CREATE TABLE IF NOT EXISTS winrate_snapshot (
 
 -- RLS：公开只读 + 服务端写
 ALTER TABLE daily_recommendations ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "daily_rec_public_read" ON daily_recommendations;
 CREATE POLICY "daily_rec_public_read" ON daily_recommendations FOR SELECT USING (true);
+DROP POLICY IF EXISTS "daily_rec_service_insert" ON daily_recommendations;
 CREATE POLICY "daily_rec_service_insert" ON daily_recommendations FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS "daily_rec_service_update" ON daily_recommendations;
 CREATE POLICY "daily_rec_service_update" ON daily_recommendations FOR UPDATE USING (true);
 
 ALTER TABLE winrate_snapshot ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "winrate_public_read" ON winrate_snapshot;
 CREATE POLICY "winrate_public_read" ON winrate_snapshot FOR SELECT USING (true);
+DROP POLICY IF EXISTS "winrate_service_insert" ON winrate_snapshot;
 CREATE POLICY "winrate_service_insert" ON winrate_snapshot FOR INSERT WITH CHECK (true);

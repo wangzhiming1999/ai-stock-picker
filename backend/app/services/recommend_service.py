@@ -106,8 +106,8 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
             if code not in candidates or item["strategy_score"] > candidates[code]["strategy_score"]:
                 candidates[code] = item
 
-    # 2. 按策略分排序取 top 15
-    ranked = sorted(candidates.values(), key=lambda x: x["strategy_score"], reverse=True)[:15]
+    # 2. 按策略分排序取 top 12（LLM 精选出 10，少发候选可显著缩短推理耗时）
+    ranked = sorted(candidates.values(), key=lambda x: x["strategy_score"], reverse=True)[:12]
     if not ranked:
         result = {"date": today, "target_date": target_day, "source": "empty", "recommendations": [], "candidates": 0, "message": "没有找到合适的候选股票（可能是非交易日或盘前）"}
         _recommendation_cache[today] = (dt.datetime.now().isoformat(), result)
@@ -143,8 +143,8 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
                 )
                 return resp.choices[0].message.content or ""
 
-            # 整体限时（含流式消费），超过即降级，避免拖垮首屏
-            text = await asyncio.wait_for(_llm_pick(), timeout=25)
+            # 整体限时（SiliconFlow DeepSeek-V3 推理较慢，给足 55s；函数 maxDuration=300 容得下）
+            text = await asyncio.wait_for(_llm_pick(), timeout=55)
             start, end = text.find("["), text.rfind("]")
             if start != -1 and end > start:
                 parsed = json.loads(text[start : end + 1])

@@ -37,7 +37,9 @@ CREATE INDEX IF NOT EXISTS idx_alert_events_unread ON alert_events(user_id, is_r
 
 -- RLS：service client 全权（与 user_holdings 一致，后端按 user_id 过滤隔离）
 ALTER TABLE alert_rules ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "alert_rules_service" ON alert_rules;
 CREATE POLICY "alert_rules_service" ON alert_rules FOR ALL USING (true) WITH CHECK (true);
 
 ALTER TABLE alert_events ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "alert_events_service" ON alert_events;
 CREATE POLICY "alert_events_service" ON alert_events FOR ALL USING (true) WITH CHECK (true);
