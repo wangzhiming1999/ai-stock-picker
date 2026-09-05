@@ -63,6 +63,57 @@ async def delete_rule(user_id: str, rule_id: int) -> bool:
     return bool(res.data)
 
 
+_STOP_RULE_NOTE = "auto:holding_stop"  # 自动规则的标记，与手动规则区分
+
+
+async def sync_holding_stop_rules(user_id: str, code: str, name: str, stop_price: float) -> dict:
+    """持仓止损自动预警：为持仓同步一条 stop_loss 规则（幂等，跟随最新止损位）。
+
+    - 已有同 code 的 auto 规则 → 更新阈值（止损位随行情变化）
+    - 没有 → 新建
+    删除持仓时调 remove_holding_stop_rule 清理。
+    """
+    _require_configured()
+    sb = await supabase_store.get_service_client()
+    existing = (
+        await sb.table("alert_rules")
+        .select("id")
+        .eq("user_id", user_id)
+        .eq("code", code)
+        .eq("type", "stop_loss")
+        .eq("note", _STOP_RULE_NOTE)
+        .limit(1)
+        .execute()
+    )
+    if existing.data:
+        await (
+            sb.table("alert_rules")
+            .update({"threshold": round(stop_price, 3), "name": name, "enabled": True})
+            .eq("id", existing.data[0]["id"])
+            .execute()
+        )
+        return {"action": "updated", "rule_id": existing.data[0]["id"]}
+    rule = await add_rule(user_id, code, "stop_loss", stop_price, name=name, note=_STOP_RULE_NOTE)
+    return {"action": "created", "rule_id": rule["id"]}
+
+
+async def remove_holding_stop_rule(user_id: str, code: str) -> bool:
+    """删除持仓时清理其自动止损规则（不影响用户手动建的规则）。"""
+    if not supabase_store.is_configured():
+        return False
+    sb = await supabase_store.get_service_client()
+    res = (
+        await sb.table("alert_rules")
+        .delete()
+        .eq("user_id", user_id)
+        .eq("code", code)
+        .eq("type", "stop_loss")
+        .eq("note", _STOP_RULE_NOTE)
+        .execute()
+    )
+    return bool(res.data)
+
+
 async def list_events(user_id: str, unread_only: bool = False, limit: int = 50) -> list[dict]:
     _require_configured()
     sb = await supabase_store.get_service_client()

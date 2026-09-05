@@ -49,6 +49,18 @@ export default function WinratePanel() {
 
       {data && (
         <div className="space-y-4">
+          {/* 数据积累徽标：让用户看见闭环在跑 */}
+          {(data.prediction?.total ?? 0) + (data.recommendation?.total ?? 0) > 0 ? (
+            <div className="flex items-center gap-2 rounded-lg border border-green-800/40 bg-green-500/5 px-3 py-2 text-xs text-green-300">
+              <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-green-400" />
+              闭环运行中 · 已结算 {data.prediction?.total ?? 0} 次预测 + {data.recommendation?.total ?? 0} 只推荐
+            </div>
+          ) : (
+            <div className="rounded-lg border border-slate-700 bg-slate-800/40 px-3 py-2 text-xs text-slate-400">
+              闭环待启动 · 首次结算将在今日收盘后自动执行
+            </div>
+          )}
+
           {/* 大盘预测胜率 */}
           <div>
             <div className="mb-1.5 text-xs font-semibold text-slate-400">大盘推衍命中率</div>
@@ -71,7 +83,7 @@ export default function WinratePanel() {
               </div>
             ) : (
               <div className="rounded-lg bg-slate-800/40 px-3 py-2 text-xs text-slate-500">
-                暂无数据，每日收盘后自动结算（需执行 schema-v2.sql）
+                暂无数据 · 每日收盘后自动结算（今日收盘后回来看第一批结果）
               </div>
             )}
             {data.prediction && Object.keys(data.prediction.by_direction || {}).length > 0 && (
@@ -107,7 +119,7 @@ export default function WinratePanel() {
               </div>
             ) : (
               <div className="rounded-lg bg-slate-800/40 px-3 py-2 text-xs text-slate-500">
-                暂无数据，每日收盘后自动结算（需执行 schema-v3.sql）
+                暂无数据 · 每日收盘后自动结算（推荐生成后次日判定涨跌）
               </div>
             )}
           </div>

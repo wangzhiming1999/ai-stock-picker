@@ -1,8 +1,64 @@
 import { type MouseEvent, useCallback, useEffect, useState } from "react";
-import { ArrowDownRight, ArrowUpRight, Bell, Plus, RefreshCw, Sunrise, Target } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Bell, ClipboardCheck, Plus, RefreshCw, Sunrise, Target } from "lucide-react";
 import { addToWatchlist, fetchBriefing, getAuthToken, simTrade } from "../api/client";
 import type { Briefing, BriefingHolding, BriefingStock } from "../types";
 import { toast } from "sonner";
+
+/** 当日复盘块：持仓盈亏快照 + 今日触发预警（登录用户） */
+function ReviewBlock({ review }: { review: NonNullable<Briefing["review"]> }) {
+  const hp = review.holdings_pnl;
+  const fmt = (v?: number | null, pct = false) => {
+    if (v == null) return "—";
+    const s = (v >= 0 ? "+" : "") + v.toFixed(2);
+    return pct ? `${s}%` : s;
+  };
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-3">
+      <div className="flex items-center gap-2 text-sm font-medium text-slate-200">
+        <ClipboardCheck className="h-4 w-4 text-brand" />
+        当日复盘
+      </div>
+      {review.summary && <p className="mt-1.5 text-xs text-slate-300">{review.summary}</p>}
+      {hp && (hp.total_pnl != null || hp.count) && (
+        <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+          <div className="rounded bg-slate-800/60 px-2 py-1.5">
+            <div className="text-slate-500">持仓总盈亏</div>
+            <div className={(hp.total_pnl ?? 0) >= 0 ? "text-green-300" : "text-red-300"}>
+              {fmt(hp.total_pnl)}
+              {hp.total_pnl_pct != null && <span className="ml-1">({fmt(hp.total_pnl_pct, true)})</span>}
+            </div>
+          </div>
+          <div className="rounded bg-slate-800/60 px-2 py-1.5">
+            <div className="text-slate-500">最强</div>
+            <div className="text-green-300">
+              {hp.best?.name ?? "—"} {hp.best?.pnl_pct != null && fmt(hp.best.pnl_pct, true)}
+            </div>
+          </div>
+          <div className="rounded bg-slate-800/60 px-2 py-1.5">
+            <div className="text-slate-500">最弱</div>
+            <div className="text-red-300">
+              {hp.worst?.name ?? "—"} {hp.worst?.pnl_pct != null && fmt(hp.worst.pnl_pct, true)}
+            </div>
+          </div>
+        </div>
+      )}
+      {review.alerts_today && review.alerts_today.length > 0 && (
+        <div className="mt-2 space-y-1">
+          {review.alerts_today.map((a, i) => (
+            <div key={i} className="flex items-center gap-2 text-xs text-slate-300">
+              <Bell
+                className={`h-3 w-3 shrink-0 ${a.severity === "danger" ? "text-red-400" : "text-amber-400"}`}
+              />
+              <span className="truncate">
+                {a.title} · {a.message}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** 模拟盘失败统一降级提示：500/网络错误给友好文案，其余透传后端消息 */
 function simErrMsg(e: unknown): string {
@@ -426,6 +482,11 @@ export default function DailyBriefing({ onPick }: Props) {
           <div className="rounded-lg border border-amber-800/40 bg-amber-500/5 px-4 py-3 text-sm text-amber-200/90">
             今日非交易日，下方为下一交易日关注池，开盘前可据此准备。
           </div>
+        )}
+
+        {/* 当日复盘（登录 + 有数据时展示：昨日操作结果与今日预警） */}
+        {data?.review && (data.review.summary || data.review.alerts_today) && (
+          <ReviewBlock review={data.review} />
         )}
 
         {phase === "tail" && (

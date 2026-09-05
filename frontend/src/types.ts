@@ -686,4 +686,17 @@ export interface Briefing {
     need_login: boolean;
     risk_level?: string;
   };
+  /** 当日复盘（登录用户）：持仓盈亏快照 + 今日预警 + 一句话总结 */
+  review?: {
+    holdings_pnl?: {
+      total_pnl?: number | null;
+      total_pnl_pct?: number | null;
+      count?: number;
+      best?: { name: string; pnl_pct?: number | null } | null;
+      worst?: { name: string; pnl_pct?: number | null } | null;
+    } | null;
+    alerts_today?: { title: string; message: string; severity: string }[] | null;
+    actions?: string | null;
+    summary?: string | null;
+  } | null;
 }

@@ -9,7 +9,19 @@ router = APIRouter(prefix="/api/cron", tags=["cron"])
 
 
 def _authorize(request: Request) -> None:
-    """校验 CRON_SECRET，未配置或失败抛异常。"""
+    """校验 CRON_SECRET，未配置或失败抛异常。
+
+    兼容两种鉴权：
+    - Vercel Cron 平台自动携带 `Authorization: Bearer <CRON_SECRET>`
+    - 手动运维触发：`X-Admin-Token: <ADMIN_TOKEN>`（与 /api/admin/migrate 共用凭据）
+
+    背景：2026-09-05 发现 Vercel Cron 调用连续 401（secret 不匹配）导致胜率闭环
+    从未结算过；双通道鉴权保证平台 secret 出错时仍可手动触发兜底。
+    """
+    admin_token = os.getenv("ADMIN_TOKEN", "")
+    if admin_token and request.headers.get("x-admin-token", "") == admin_token:
+        return
+
     expected = os.getenv("CRON_SECRET", "")
     if not expected:
         raise HTTPException(status_code=503, detail="CRON_SECRET 未配置")

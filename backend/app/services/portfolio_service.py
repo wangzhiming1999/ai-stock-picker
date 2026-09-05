@@ -105,7 +105,26 @@ async def add_holding(user_id: str, code: str, cost_price: float, shares: int, b
         payload.update({"user_id": user_id, "code": code})
         res = await sb.table("user_holdings").insert(payload).execute()
         hid = res.data[0]["id"]
-    return {"id": hid, "code": code, "name": name}
+
+    # 自动止损预警：成本价 -7% 保底，技术信号止损位（若有且更低）优先
+    stop_price = round(cost_price * 0.93, 2)
+    try:
+        hist = await asyncio.to_thread(data_service.get_history, code, 60)
+        if hist and hist.closes:
+            signal = signal_service.compute_signals(hist.closes, hist.closes[-1])
+            if signal and signal.get("stop_loss") and signal["stop_loss"] < stop_price:
+                stop_price = signal["stop_loss"]
+    except Exception:
+        pass
+    rule_sync = None
+    try:
+        from app.services import alert_service
+
+        rule_sync = await alert_service.sync_holding_stop_rules(user_id, code, name, stop_price)
+    except Exception:
+        pass  # 预警规则失败不阻塞持仓保存
+
+    return {"id": hid, "code": code, "name": name, "auto_stop_rule": rule_sync, "stop_price": stop_price}
 
 
 async def add_holdings_batch(user_id: str, items: list[dict]) -> dict:
@@ -159,6 +178,26 @@ async def add_holdings_batch(user_id: str, items: list[dict]) -> dict:
             added += 1
         except Exception:
             skipped += 1
+
+    # 批量导入后统一同步自动止损规则（逐只，失败不阻塞）
+    if added:
+        try:
+            from app.services import alert_service
+
+            for it in items[:added]:
+                code = it["code"]
+                stop_price = round(float(it.get("cost_price", 0)) * 0.93, 2)
+                if stop_price <= 0:
+                    continue
+                try:
+                    await alert_service.sync_holding_stop_rules(
+                        user_id, code, it.get("name") or name_map.get(code, ""), stop_price
+                    )
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
     return {"added": added, "skipped": skipped}
 
 
@@ -241,6 +280,15 @@ async def remove_holding(user_id: str, holding_id: int) -> bool:
     """删除持仓。"""
     _require_configured()
     sb = await supabase_store.get_service_client()
+    # 先取 code（用于清理自动止损规则），再删除
+    row = (
+        await sb.table("user_holdings")
+        .select("code")
+        .eq("id", holding_id)
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+    )
     res = (
         await sb.table("user_holdings")
         .delete()
@@ -248,7 +296,15 @@ async def remove_holding(user_id: str, holding_id: int) -> bool:
         .eq("user_id", user_id)
         .execute()
     )
-    return bool(res.data)
+    ok = bool(res.data)
+    if ok and row.data:
+        try:
+            from app.services import alert_service
+
+            await alert_service.remove_holding_stop_rule(user_id, row.data[0]["code"])
+        except Exception:
+            pass  # 规则清理失败不影响持仓删除
+    return ok
 
 
 async def update_holding(user_id: str, holding_id: int, **fields) -> dict:

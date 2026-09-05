@@ -111,6 +111,61 @@ def _tail_summary(holdings: list[dict]) -> str:
     return "、".join(parts) if parts else "持仓均持有观察"
 
 
+async def _build_review(user_id: str | None) -> dict | None:
+    """当日复盘块：持仓盈亏快照 + 今日触发预警 + 操作要点（纯算法拼装，无 LLM）。
+
+    收盘/尾盘时段最有价值；数据缺失时各项为 None，前端按需隐藏。
+    """
+    if not user_id:
+        return None
+    review: dict = {"holdings_pnl": None, "alerts_today": None, "actions": None, "summary": None}
+    try:
+        data = await portfolio_service.list_holdings(user_id)
+        holdings = data.get("holdings", [])
+        if holdings:
+            best = max(holdings, key=lambda h: h.get("pnl_pct") or -1e9)
+            worst = min(holdings, key=lambda h: h.get("pnl_pct") or 1e9)
+            review["holdings_pnl"] = {
+                "total_pnl": data.get("total_pnl"),
+                "total_pnl_pct": data.get("total_pnl_pct"),
+                "count": len(holdings),
+                "best": {"name": best.get("name") or best.get("code"), "pnl_pct": best.get("pnl_pct")},
+                "worst": {"name": worst.get("name") or worst.get("code"), "pnl_pct": worst.get("pnl_pct")},
+            }
+    except Exception:
+        pass
+
+    # 今日触发的预警事件（收盘后复盘「盘中发生了什么」）
+    try:
+        from app.services import alert_service
+
+        events = await alert_service.list_events(user_id, limit=20)
+        today = dt.date.today().isoformat()
+        todays = [e for e in events if str(e.get("created_at", ""))[:10] == today]
+        if todays:
+            review["alerts_today"] = [
+                {"title": e.get("title"), "message": e.get("message"), "severity": e.get("severity")}
+                for e in todays[:5]
+            ]
+    except Exception:
+        pass
+
+    # 汇总一句话
+    parts = []
+    hp = review["holdings_pnl"]
+    if hp and hp.get("total_pnl") is not None:
+        sign = "+" if (hp["total_pnl"] or 0) >= 0 else ""
+        parts.append(f"持仓盈亏 {sign}{hp['total_pnl']}（{sign}{hp['total_pnl_pct']}%）")
+        if hp.get("best") and hp["best"].get("pnl_pct") is not None and hp["best"]["pnl_pct"] > 0:
+            parts.append(f"最强 {hp['best']['name']} {sign}{hp['best']['pnl_pct']}%")
+        if hp.get("worst") and hp["worst"].get("pnl_pct") is not None and hp["worst"]["pnl_pct"] < 0:
+            parts.append(f"最弱 {hp['worst']['name']} {hp['worst']['pnl_pct']}%")
+    if review["alerts_today"]:
+        parts.append(f"盘中触发 {len(review['alerts_today'])} 条预警")
+    review["summary"] = "；".join(parts) if parts else None
+    return review
+
+
 def _enrich_tail_holding(h: dict) -> dict:
     """补尾盘挂单价与挂单建议（算法推导，非成交价）。"""
     out = dict(h)
@@ -236,6 +291,9 @@ async def build_today(user_id: str | None = None) -> dict:
     if user_id and tail.get("holdings"):
         tail["holdings"] = [_enrich_tail_holding(h) for h in tail["holdings"]]
 
+    # 当日复盘（登录用户；收盘/尾盘时段前端重点展示）
+    review = await _build_review(user_id)
+
     # 目标交易日：pred 里 target_date 才是"这份简报针对哪个交易日"；
     # pred["date"] 只是行情数据的最后一根 K 线日（数据基准），不能当目标日展示
     pred_date = pred.get("date") if isinstance(pred, dict) else None
@@ -271,6 +329,7 @@ async def build_today(user_id: str | None = None) -> dict:
             "candidates": rec.get("candidates"),
         },
         "tail": tail,
+        "review": review,
     }
 
 
