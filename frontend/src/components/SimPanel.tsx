@@ -1,5 +1,14 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import type { SimAccount, SimPerformance, SimPosition, SimPositionsData, SimTradesData } from "../types";
+import { useAuth } from "../auth/AuthContext";
+import { fmtPct, safeNumber } from "../lib/safe";
+import {
+  MOCK_SIM_ACCOUNT,
+  MOCK_SIM_PERFORMANCE,
+  MOCK_SIM_POSITIONS,
+  MOCK_SIM_TRADES,
+} from "../data/simMock";
 import {
   fetchSimAccount,
   fetchSimPerformance,
@@ -9,9 +18,6 @@ import {
   resetSimAccount,
   simTrade,
 } from "../api/client";
-import type { SimAccount, SimPerformance, SimPosition, SimPositionsData, SimTradesData } from "../types";
-import { useAuth } from "../auth/AuthContext";
-import { fmtPct, safeNumber } from "../lib/safe";
 
 /** 收益折线（echarts，P1） */
 function PerfChart({ data }: { data: SimPerformance }) {
@@ -63,31 +69,24 @@ function PerfChart({ data }: { data: SimPerformance }) {
 function TradeModal({
   side,
   initialCode,
+  initialPrice,
   onClose,
   onDone,
-  cash,
 }: {
   side: "buy" | "sell";
   initialCode: string;
+  initialPrice?: number;
   onClose: () => void;
   onDone: () => void;
-  cash: number;
 }) {
   const [code, setCode] = useState(initialCode);
   const [shares, setShares] = useState("");
-  const [price, setPrice] = useState("");
+  const [price, setPrice] = useState(initialPrice ? initialPrice.toString() : "");
   const [priceAuto, setPriceAuto] = useState(true);
   const [busy, setBusy] = useState(false);
   const isBuy = side === "buy";
   const sharesNum = parseInt(shares) || 0;
   const priceNum = parseFloat(price) || null;
-  // 预估费用：佣金 max(0.025%,5) + 过户 0.001% +（卖）印花 0.05%
-  const estFee = (() => {
-    if (!sharesNum || !priceNum) return null;
-    const notional = sharesNum * priceNum;
-    const fee = Math.max(notional * 0.00025, 5) + notional * 0.00001 + (isBuy ? 0 : notional * 0.0005);
-    return Math.round(fee * 100) / 100;
-  })();
 
   const submit = async () => {
     if (!code || code.length !== 6 || !sharesNum) {
@@ -96,20 +95,19 @@ function TradeModal({
     }
     setBusy(true);
     try {
-      const r = await simTrade({
-        code,
-        side,
-        shares: sharesNum,
-        price: priceAuto ? undefined : (priceNum ?? undefined),
-        source: "manual",
-      });
-      toast.success(isBuy ? "模拟买入已成交" : "模拟卖出已成交", {
-        description: `${code} ${sharesNum}股 @${(r.trade as { price?: number }).price ?? "-"}`,
+      await simTrade({ code, side, shares: sharesNum, price: priceAuto ? undefined : (priceNum ?? undefined) });
+      toast.success(isBuy ? "模拟买入成功" : "模拟卖出成功", {
+        description: `${code} ${sharesNum}股${priceAuto ? " @实时价" : `@${priceNum}`}`,
       });
       onDone();
       onClose();
-    } catch (e) {
-      toast.error((e as Error).message);
+    } catch (err) {
+      const msg = (err as Error).message || "";
+      if (/500|NetworkError|Failed to fetch|timeout/i.test(msg)) {
+        toast.error("模拟盘后端暂不可用，请稍后重试");
+      } else {
+        toast.error(msg);
+      }
     } finally {
       setBusy(false);
     }
@@ -130,7 +128,7 @@ function TradeModal({
             <input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="6 位代码" disabled={!!initialCode} className="w-full rounded-lg border border-slate-700 bg-slate-800/80 px-3 py-1.5 text-sm disabled:opacity-60" />
           </label>
           <label className="block">
-            <span className="mb-1 block text-xs text-slate-500">数量（股，100 的整数倍）{!isBuy && <span className="ml-1 text-slate-600">· 可用现金 ¥{safeNumber(cash).toLocaleString()}</span>}</span>
+            <span className="mb-1 block text-xs text-slate-500">数量（股，100 的整数倍）</span>
             <input value={shares} onChange={(e) => setShares(e.target.value.replace(/\D/g, ""))} type="number" placeholder="如 100" className="w-full rounded-lg border border-slate-700 bg-slate-800/80 px-3 py-1.5 text-sm" />
           </label>
           <label className="block">
@@ -141,19 +139,11 @@ function TradeModal({
                 用实时价
               </label>
             </span>
-            <input value={price} onChange={(e) => setPrice(e.target.value)} type="number" step="0.01" disabled={priceAuto} placeholder={priceAuto ? "自动取实时行情" : "如 12.50"} className="w-full rounded-lg border border-slate-700 bg-slate-800/80 px-3 py-1.5 text-sm disabled:opacity-50" />
+            <input value={price} onChange={(e) => setPrice(e.target.value)} type="number" step="0.01" disabled={priceAuto} placeholder={priceAuto ? "自动取当前价" : "如 12.50"} className="w-full rounded-lg border border-slate-700 bg-slate-800/80 px-3 py-1.5 text-sm disabled:opacity-50" />
           </label>
-          {estFee != null && (
-            <p className="text-[11px] text-slate-500">
-              预估费用 ¥{estFee.toFixed(2)} · 预计{isBuy ? "占用" : "回收"} ¥{((sharesNum * (priceNum ?? 0)) + (isBuy ? estFee : -estFee)).toFixed(2)}
-            </p>
-          )}
-          {isBuy && estFee != null && priceNum && sharesNum * priceNum + estFee > cash && (
-            <p className="text-[11px] text-red-400">现金不足</p>
-          )}
           <div className="flex gap-2 pt-1">
-            <button onClick={() => void submit()} disabled={busy} className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50 ${isBuy ? "bg-red-600 hover:bg-red-500" : "bg-green-600 hover:bg-green-500"}`}>
-              {busy ? "处理中..." : isBuy ? "买入" : "卖出"}
+            <button onClick={submit} disabled={busy} className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-60 ${isBuy ? "bg-red-600 hover:bg-red-500" : "bg-green-600 hover:bg-green-500"}`}>
+              {busy ? "提交中..." : isBuy ? "买入" : "卖出"}
             </button>
             <button onClick={onClose} className="rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-400 hover:text-slate-200">取消</button>
           </div>
@@ -169,36 +159,44 @@ export default function SimPanel() {
   const [positions, setPositions] = useState<SimPositionsData | null>(null);
   const [trades, setTrades] = useState<SimTradesData | null>(null);
   const [perf, setPerf] = useState<SimPerformance | null>(null);
+  const [usingMock, setUsingMock] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState("");
-  const [modal, setModal] = useState<{ side: "buy" | "sell"; code: string } | null>(null);
-  const [initCapital, setInitCapital] = useState("100000");
+  const [modal, setModal] = useState<{ side: "buy" | "sell"; code: string; price?: number } | null>(null);
 
+  /** 真实优先：并行拉取 4 个接口；任一 500/网络失败则整体降级到固定 mock 数据。 */
   const load = useCallback(async () => {
     if (!user) return;
     setLoading(true);
-    setErr("");
     try {
-      const [a, p, t, pf] = await Promise.all([
+      const [acct, pos, trd, pf] = await Promise.all([
         fetchSimAccount(),
-        fetchSimPositions().catch(() => null),
-        fetchSimTrades(30).catch(() => null),
-        fetchSimPerformance().catch(() => null),
+        fetchSimPositions(),
+        fetchSimTrades(30),
+        fetchSimPerformance(),
       ]);
-      setAccount(a);
-      setPositions(p);
-      setTrades(t);
+      setAccount(acct);
+      setPositions(pos);
+      setTrades(trd);
       setPerf(pf);
-    } catch (e) {
-      setErr((e as Error).message);
+      setUsingMock(false);
+    } catch {
+      // 后端 sim 接口不可用（缺表/未部署）：降级到固定演示数据，不抛红屏
+      setAccount(MOCK_SIM_ACCOUNT);
+      setPositions(MOCK_SIM_POSITIONS);
+      setTrades(MOCK_SIM_TRADES);
+      setPerf(MOCK_SIM_PERFORMANCE);
+      setUsingMock(true);
+      toast.warning("模拟盘后端暂不可用，已显示演示数据", { id: "sim-mock-fallback" });
     } finally {
       setLoading(false);
     }
   }, [user]);
 
   useEffect(() => {
-    if (user) void load();
-  }, [user, load]);
+    void load();
+  }, [load]);
+
+  const pnlColor = useCallback((v: number | null | undefined) => (v == null ? "text-slate-500" : v >= 0 ? "text-red-400" : "text-green-400"), []);
 
   if (!user) {
     return (
@@ -208,67 +206,77 @@ export default function SimPanel() {
     );
   }
 
-  const doInit = async () => {
-    const v = parseFloat(initCapital) || 100000;
-    try {
-      await initSimAccount(v);
-      toast.success("模拟账户已初始化", { description: `本金 ¥${v.toLocaleString()} 已入账` });
-      await load();
-    } catch (e) {
-      toast.error((e as Error).message);
-    }
-  };
+  // 真实模式但未初始化账户：提示建仓
+  const realButUninit = !usingMock && account && !account.initialized;
 
-  const doReset = async () => {
-    if (!window.confirm("确认清零模拟账户？将删除全部模拟成交流水与收益快照，此操作不可恢复。")) return;
-    if (!window.confirm("再次确认：真的要清零重来吗？")) return;
-    try {
-      await resetSimAccount();
-      toast.success("模拟账户已重置");
-      await load();
-    } catch (e) {
-      toast.error((e as Error).message);
-    }
-  };
-
-  const pnlColor = (v: number | null | undefined) => (v == null ? "text-slate-500" : v >= 0 ? "text-red-400" : "text-green-400");
   const hasData = account && (account.positions_cnt > 0 || account.cash > 0 || (trades?.total ?? 0) > 0);
+
+  const summary = useMemo(() => {
+    if (!positions || positions.positions.length === 0) return null;
+    return positions.positions.reduce((s, p) => s + safeNumber(p.market_value), 0);
+  }, [positions]);
 
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
       <div className="mb-4 flex items-center justify-between">
-        <div>
-          <h3 className="text-sm font-semibold text-slate-200">模拟盘</h3>
-          <p className="mt-0.5 text-[11px] text-slate-500">虚拟资金实操验证 · A 股费用规则 · T+1</p>
+        <div className="flex items-center gap-2">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-200">模拟盘</h3>
+            <p className="mt-0.5 text-[11px] text-slate-500">虚拟资金实操验证 · A 股费用规则 · T+1</p>
+          </div>
+          {usingMock && (
+            <span className="rounded border border-amber-700/40 bg-amber-950/40 px-1.5 py-0.5 text-[10px] font-medium text-amber-300" title="模拟盘后端当前不可用，前端展示固定演示数据">
+              演示数据
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
-          {hasData && (
-            <button onClick={() => void doReset()} className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs font-medium text-slate-400 hover:border-red-400 hover:text-red-300" title="清零重来">
+          {loading && <span className="text-[11px] text-slate-500">加载中…</span>}
+          {!usingMock && hasData && (
+            <button
+              onClick={async () => {
+                try {
+                  await resetSimAccount();
+                  toast.success("已重置模拟盘");
+                  void load();
+                } catch (e) {
+                  toast.error((e as Error).message);
+                }
+              }}
+              className="rounded border border-slate-600 px-2 py-1 text-[11px] text-slate-400 hover:text-slate-200"
+            >
               重置
             </button>
           )}
-          <button onClick={() => setModal({ side: "buy", code: "" })} className="rounded-lg bg-brand px-4 py-1.5 text-xs font-medium text-white hover:bg-brand-dark" disabled={!account}>
+          <button
+            onClick={() => setModal({ side: "buy", code: "" })}
+            className="rounded-lg bg-brand px-4 py-1.5 text-xs font-medium text-white hover:bg-brand-dark"
+          >
             + 模拟买入
           </button>
         </div>
       </div>
 
-      {err && <div className="mb-3 rounded-lg border border-red-800 bg-red-950/40 px-3 py-2 text-sm text-red-300">{err}</div>}
-      {loading && <div className="p-3 text-sm text-slate-500">加载中...</div>}
-
-      {/* 未初始化 */}
-      {account && !account.initialized && (
-        <div className="rounded-lg border border-slate-700 bg-slate-800/50 p-4">
-          <div className="text-sm font-medium text-slate-200">初始化模拟账户</div>
-          <p className="mt-1 text-xs text-slate-500">设定虚拟本金开始模拟交易，建议 10 万（A 股一手 100 股）</p>
-          <div className="mt-3 flex items-center gap-2">
-            <input value={initCapital} onChange={(e) => setInitCapital(e.target.value.replace(/\D/g, ""))} className="w-32 rounded-lg border border-slate-700 bg-slate-800/80 px-3 py-1.5 text-sm" placeholder="100000" />
-            <button onClick={() => void doInit()} className="rounded-lg bg-brand px-4 py-1.5 text-xs font-medium text-white hover:bg-brand-dark">开始模拟</button>
-          </div>
+      {realButUninit && (
+        <div className="mb-4 rounded-lg border border-amber-700/40 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
+          模拟账户尚未初始化。
+          <button
+            onClick={async () => {
+              try {
+                await initSimAccount();
+                toast.success("模拟账户已初始化");
+                void load();
+              } catch (e) {
+                toast.error((e as Error).message);
+              }
+            }}
+            className="ml-2 underline underline-offset-2 hover:text-amber-100"
+          >
+            立即初始化（¥100,000 虚拟资金）
+          </button>
         </div>
       )}
 
-      {/* 账户四卡 */}
       {account && account.initialized && (
         <>
           <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -294,9 +302,9 @@ export default function SimPanel() {
           <div className="mb-3 flex gap-4 text-[11px] text-slate-500">
             <span>已实现盈亏 <span className={pnlColor(account.realized_pnl)}>{account.realized_pnl >= 0 ? "+" : ""}{safeNumber(account.realized_pnl)}</span></span>
             <span>未实现盈亏 <span className={pnlColor(account.unrealized_pnl)}>{account.unrealized_pnl >= 0 ? "+" : ""}{safeNumber(account.unrealized_pnl)}</span></span>
+            <span>持仓市值 <span className="text-slate-300">{safeNumber(summary ?? account.market_value).toLocaleString()}</span></span>
           </div>
 
-          {/* 持仓列表 */}
           {positions && positions.positions.length > 0 && (
             <div className="mb-4 overflow-x-auto">
               <table className="w-full text-sm">
@@ -324,7 +332,7 @@ export default function SimPanel() {
                         {p.pnl_pct != null ? `${p.pnl_pct >= 0 ? "+" : ""}${p.pnl_pct.toFixed(2)}%` : "-"}
                       </td>
                       <td className="px-2 py-2 text-right">
-                        <button onClick={() => setModal({ side: "sell", code: p.code })} className="rounded border border-slate-600 px-2 py-1 text-xs text-slate-300 hover:border-green-400 hover:text-green-300" title="模拟卖出">
+                        <button onClick={() => setModal({ side: "sell", code: p.code, price: p.current_price ?? undefined })} className="rounded border border-slate-600 px-2 py-1 text-xs text-slate-300 hover:border-green-400 hover:text-green-300">
                           卖出
                         </button>
                       </td>
@@ -335,10 +343,8 @@ export default function SimPanel() {
             </div>
           )}
 
-          {/* 收益曲线（P1：有快照时展示） */}
           {perf && perf.snapshots.length > 1 && <PerfChart data={perf} />}
 
-          {/* 成交记录 */}
           {trades && trades.trades.length > 0 && (
             <div className="mt-4 border-t border-slate-800 pt-3">
               <div className="mb-2 text-xs font-semibold text-slate-400">最近成交（{trades.total}）</div>
@@ -365,7 +371,7 @@ export default function SimPanel() {
         <TradeModal
           side={modal.side}
           initialCode={modal.code}
-          cash={account?.cash ?? 0}
+          initialPrice={modal.price}
           onClose={() => setModal(null)}
           onDone={() => void load()}
         />

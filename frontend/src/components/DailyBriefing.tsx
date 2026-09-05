@@ -4,6 +4,13 @@ import { addToWatchlist, fetchBriefing, getAuthToken, simTrade } from "../api/cl
 import type { Briefing, BriefingHolding, BriefingStock } from "../types";
 import { toast } from "sonner";
 
+/** 模拟盘失败统一降级提示：500/网络错误给友好文案，其余透传后端消息 */
+function simErrMsg(e: unknown): string {
+  const msg = (e as Error)?.message || "";
+  if (/500|NetworkError|Failed to fetch|timeout/i.test(msg)) return "模拟盘后端暂不可用，请稍后重试";
+  return msg;
+}
+
 /** 技术位由规则推导的标识，避免误当确定性建议 */
 function AlgoTag() {
   return (
@@ -90,8 +97,8 @@ function MorningStockCard({ s, onPick }: { s: BriefingStock; onPick: (c: string)
       flashTip("已模拟买入");
       void r;
     } catch (err) {
-      toast.error((err as Error).message);
-      flashTip((err as Error).message);
+      toast.error(simErrMsg(err));
+      flashTip(simErrMsg(err));
     } finally {
       setSimBusy(false);
     }
@@ -246,8 +253,8 @@ function TailHoldingCard({ h }: { h: BriefingHolding }) {
       flashTip(side === "buy" ? "已模拟买入" : "已模拟卖出");
       void r;
     } catch (err) {
-      toast.error((err as Error).message);
-      flashTip((err as Error).message);
+      toast.error(simErrMsg(err));
+      flashTip(simErrMsg(err));
     } finally {
       setSimBusy(false);
     }
