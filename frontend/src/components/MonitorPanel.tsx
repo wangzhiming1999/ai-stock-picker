@@ -7,7 +7,7 @@ import type { MonitorResult, MonitorStock } from "../types";
 
 const LS_KEY = "ai:monitorCodes";
 const LS_NOTIFY = "ai:monitorNotify";
-const POLL_MS = 5 * 60 * 1000; // 5 分钟
+const DEFAULT_POLL_MS = 5 * 60 * 1000;
 const MAX_CODES = 20;
 
 /** 触发类指令：动作从其他状态切换进来时提醒 */
@@ -174,7 +174,8 @@ export default function MonitorPanel() {
         setData(result);
         checkAlerts(result.items);
       } catch (e) {
-        if (!silent) setErr((e as Error).message);
+        const message = (e as Error).message;
+        setErr(silent ? `自动刷新失败，正在显示上次行情：${message}` : message);
       } finally {
         busyRef.current = false;
         setLoading(false);
@@ -235,12 +236,13 @@ export default function MonitorPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [codesKey]);
 
-  // 5 分钟轮询 + 切回页面时立即刷新（页面隐藏时不发请求）
+  // 交易时段按后端建议频率刷新；休市时降为 5 分钟。每次收到结果后重排定时器。
   useEffect(() => {
     if (codes.length === 0) return;
+    const delay = Math.max(15_000, (data?.poll_interval_seconds ?? 300) * 1000);
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") void refresh(true);
-    }, POLL_MS);
+    }, delay || DEFAULT_POLL_MS);
     const onVis = () => {
       if (document.visibilityState === "visible") void refresh(true);
     };
@@ -250,7 +252,7 @@ export default function MonitorPanel() {
       document.removeEventListener("visibilitychange", onVis);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [codesKey]);
+  }, [codesKey, data?.updated_at, data?.poll_interval_seconds, refresh]);
 
   const addCodes = () => {
     const parsed = input.match(/\d{6}/g) ?? [];
@@ -280,7 +282,7 @@ export default function MonitorPanel() {
     <CollapsiblePanel
       id="monitor"
       title="盯盘监控"
-      subtitle="自定义名单 · 信号位 + 操作指令 · 5 分钟自动轮询（名单保存在本机）"
+      subtitle="自定义名单 · 交易时段约 20 秒刷新 · 行情延迟可见（名单保存在本机）"
       defaultOpen
       action={
         <div className="flex items-center gap-2">
@@ -332,10 +334,13 @@ export default function MonitorPanel() {
         <span className="text-[11px] text-slate-500">
           {data && (
             <>
-              上次更新 <b className="text-slate-300">{fmtTime(data.updated_at)}</b> ·{" "}
+              行情时间 <b className="text-slate-300">{fmtTime(data.quote_at || data.updated_at)}</b> ·{" "}
+              <span className={data.freshness === "stale" ? "text-amber-400" : data.freshness === "live" ? "text-green-400" : "text-slate-500"}>
+                {data.freshness === "stale" ? "行情可能延迟" : data.freshness === "live" ? "实时" : data.freshness === "closed" ? "收盘数据" : "时间未知"}
+              </span>{" · "}
             </>
           )}
-          每 5 分钟自动轮询 · {codes.length}/{MAX_CODES}
+          {data?.market_open ? `每 ${data.poll_interval_seconds ?? 20} 秒刷新` : "休市低频刷新"} · {codes.length}/{MAX_CODES}
         </span>
       </div>
 
@@ -345,7 +350,7 @@ export default function MonitorPanel() {
         <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-slate-700 py-8 text-center">
           <p className="text-sm text-slate-300">还没有监控的股票</p>
           <p className="mt-1 max-w-sm text-xs text-slate-500">
-            输入你要盯的股票代码，每 5 分钟自动拉最新行情，结合支撑/压力/止损位给出
+            输入你要盯的股票代码，交易时段自动高频刷新、休市自动降频，结合支撑/压力/止损位给出
             「持有观察 / 回踩可买 / 压力减仓 / 止损离场」指令
           </p>
         </div>

@@ -90,6 +90,9 @@ export default function DailyRecommendCard({ onPick, collapsed = false }: Props)
           ) : (
             <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[11px] text-amber-400">最近交易日</span>
           )}
+          <span className="ml-auto rounded bg-slate-900 px-1.5 py-0.5 text-[11px] text-slate-400">
+            {data.source === "llm" ? "AI 精选" : data.source === "rule" ? "规则推荐" : "暂无推荐"} · {data.candidates} 个候选
+          </span>
         </div>
       )}
 
@@ -129,6 +132,15 @@ export default function DailyRecommendCard({ onPick, collapsed = false }: Props)
                 </div>
               </div>
               <p className="mt-1.5 text-xs leading-relaxed text-slate-400">{r.reason}</p>
+              {!!r.tags?.length && (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {r.tags.map((tag) => (
+                    <span key={tag} className="rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 text-[10px] text-slate-400">
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
         </div>

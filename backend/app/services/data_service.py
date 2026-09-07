@@ -15,6 +15,21 @@ from app.models import NewsItem, StockHistory, StockQuote
 logger = logging.getLogger(__name__)
 
 _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+_CN_TZ = dt.timezone(dt.timedelta(hours=8))
+
+
+def _parse_qq_quote_time(raw: str | None) -> str | None:
+    """解析腾讯行情时间；字段异常时只降级为未知时间，不丢弃整条行情。"""
+    if not raw or len(raw) != 14:
+        return None
+    try:
+        return (
+            dt.datetime.strptime(raw, "%Y%m%d%H%M%S")
+            .replace(tzinfo=_CN_TZ)
+            .isoformat(timespec="seconds")
+        )
+    except ValueError:
+        return None
 
 
 def _code_to_symbol(code: str) -> str:
@@ -72,6 +87,9 @@ def get_spot_quote(codes: list[str]) -> list[StockQuote]:
                     pe=float(fields[39]) if fields[39] else None,          # 市盈率
                     pb=float(fields[46]) if fields[46] else None,          # 市净率
                     market_cap=float(fields[45]) * 1e8 if fields[45] else None,  # 总市值 亿->元
+                    # 腾讯行情字段 30 为服务端成交时间（YYYYMMDDHHMMSS）。保留真实行情时间，
+                    # 避免上层把“接口请求完成时间”误当成行情新鲜度。
+                    quote_time=_parse_qq_quote_time(fields[30] if len(fields) > 30 else None),
                 )
             )
         except (ValueError, IndexError) as e:

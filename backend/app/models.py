@@ -12,6 +12,7 @@ class StockQuote(BaseModel):
     pe: float | None = None
     pb: float | None = None
     market_cap: float | None = None
+    quote_time: str | None = None
 
 
 class StockHistory(BaseModel):

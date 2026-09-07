@@ -189,6 +189,7 @@ export interface DailyRecommendResult {
   recommendations: DailyRecommendation[];
   candidates: number;
   message?: string;
+  generated_at?: string;
 }
 
 /** 四维牛股榜：基本面/技术面/资金面/消息面 */
@@ -252,12 +253,18 @@ export interface MonitorStock {
   price: number;
   change_pct: number;
   turnover: number | null;
+  quote_at?: string | null;
   signal: MonitorSignal;
   advice: MonitorAdvice;
 }
 
 export interface MonitorResult {
   updated_at: string;
+  quote_at?: string | null;
+  freshness_seconds?: number | null;
+  freshness?: "live" | "stale" | "closed" | "unknown";
+  market_open?: boolean;
+  poll_interval_seconds?: number;
   count: number;
   missed: string[];
   items: MonitorStock[];

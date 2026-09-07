@@ -16,6 +16,7 @@ from app.services import data_service, signal_service
 router = APIRouter(prefix="/api/market", tags=["monitor"])
 
 _KLINE_TTL = 30 * 60  # 30 分钟
+_CN_TZ = dt.timezone(dt.timedelta(hours=8))
 _kline_cache: dict[str, tuple[float, list[float] | None]] = {}
 
 
@@ -57,7 +58,23 @@ def _advice(price: float, sig: dict) -> dict:
             "hint": f"现价 {price:.2f} 已跌破止损位 {stop:.2f}，风控优先，建议离场",
             "dist": {"to_stop": round(to_stop, 2), "to_support": round(to_support, 2), "to_resistance": round(to_resist, 2)},
         }
-    if to_resist <= 0.5:
+    if price < support:
+        return {
+            "action": "sell",
+            "label": "跌破支撑",
+            "tone": "warn",
+            "hint": f"现价 {price:.2f} 已跌破支撑位 {support:.2f}，暂不低吸；若不能快速收回，优先减仓，止损 {stop:.2f}",
+            "dist": {"to_stop": round(to_stop, 2), "to_support": round(to_support, 2), "to_resistance": round(to_resist, 2)},
+        }
+    if price > resistance:
+        return {
+            "action": "hold",
+            "label": "突破观察",
+            "tone": "good" if sig.get("strength", 0) >= 7 else "neutral",
+            "hint": f"现价 {price:.2f} 已突破原压力位 {resistance:.2f}，不按旧压力位机械减仓；观察能否站稳并等待新信号位",
+            "dist": {"to_stop": round(to_stop, 2), "to_support": round(to_support, 2), "to_resistance": round(to_resist, 2)},
+        }
+    if 0 <= to_resist <= 0.5:
         return {
             "action": "sell",
             "label": "压力减仓",
@@ -65,7 +82,7 @@ def _advice(price: float, sig: dict) -> dict:
             "hint": f"现价 {price:.2f} 逼近压力位 {resistance:.2f}，可分批止盈/减仓",
             "dist": {"to_stop": round(to_stop, 2), "to_support": round(to_support, 2), "to_resistance": round(to_resist, 2)},
         }
-    if to_support <= 1.0 and price > stop:
+    if 0 <= to_support <= 1.0 and price > stop:
         return {
             "action": "buy",
             "label": "回踩可买",
@@ -140,14 +157,46 @@ async def monitor(req: MonitorRequest):
                 "price": round(q.price, 2),
                 "change_pct": round(q.change_pct or 0, 2),
                 "turnover": round(q.turnover, 2) if q.turnover is not None else None,
+                "quote_at": q.quote_time,
                 "signal": sig_out,
                 "advice": _advice(q.price, sig),
             }
         )
 
-    missed = [c for c in seen if c not in quote_map]
+    completed = {item["code"] for item in items}
+    missed = [c for c in seen if c not in completed]
+    now = dt.datetime.now(dt.timezone.utc).astimezone(_CN_TZ)
+    quote_times = []
+    for q in quotes:
+        if not q.quote_time:
+            continue
+        try:
+            parsed = dt.datetime.fromisoformat(q.quote_time)
+            quote_times.append(parsed if parsed.tzinfo else parsed.replace(tzinfo=_CN_TZ))
+        except ValueError:
+            continue
+    latest_quote_at = max(quote_times) if quote_times else None
+    freshness_seconds = max(0, int((now - latest_quote_at).total_seconds())) if latest_quote_at else None
+    local_time = now.time()
+    market_open = now.weekday() < 5 and (
+        dt.time(9, 15) <= local_time <= dt.time(11, 30)
+        or dt.time(13, 0) <= local_time <= dt.time(15, 0)
+    )
     return {
-        "updated_at": dt.datetime.now(dt.timezone.utc).astimezone().isoformat(timespec="seconds"),
+        "updated_at": now.isoformat(timespec="seconds"),
+        "quote_at": latest_quote_at.isoformat(timespec="seconds") if latest_quote_at else None,
+        "freshness_seconds": freshness_seconds,
+        "freshness": (
+            "unknown"
+            if freshness_seconds is None
+            else "closed"
+            if not market_open
+            else "stale"
+            if freshness_seconds > 90
+            else "live"
+        ),
+        "market_open": market_open,
+        "poll_interval_seconds": 20 if market_open else 300,
         "count": len(items),
         "missed": missed,
         "items": items,

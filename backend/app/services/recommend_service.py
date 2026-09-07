@@ -175,13 +175,23 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
     # 5. 回退：规则模式取 top 10
     if not recs:
         for c in ranked[:10]:
+            indicators = c.get("indicators") or {}
+            levels = []
+            for key, label in (("ma5", "MA5"), ("ma20", "MA20"), ("ma60", "MA60"), ("rsi", "RSI")):
+                if indicators.get(key) is not None:
+                    levels.append(f"{label} {indicators[key]}")
+            evidence = "、".join(levels[:3]) or f"换手 {c.get('turnover') or 0:.2f}%"
+            tags = c.get("tags", [])
             recs.append(
                 {
                     "code": c["code"],
                     "name": c["name"],
                     "price": c["price"],
                     "change_pct": c["change_pct"],
-                    "reason": f"策略分 {c['strategy_score']}，信号：{'/'.join(c.get('tags', []))}。配置 LLM 后可获得更详细的推荐理由。",
+                    "reason": (
+                        f"策略分 {c['strategy_score']}，依据：{'/'.join(tags) or '综合筛选'}，{evidence}。"
+                        f"T+1 仅在量价继续确认时关注，跌破关键均线或转弱则放弃。"
+                    ),
                     "confidence": c["strategy_score"],
                     "tags": c.get("tags", []),
                 }
@@ -193,6 +203,7 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
         "source": source,
         "recommendations": recs,
         "candidates": len(ranked),
+        "generated_at": dt.datetime.now(dt.timezone(dt.timedelta(hours=8))).isoformat(timespec="seconds"),
     }
     # 降级为规则推荐时，带上 AI 失败原因（供前端/排查透明展示）
     if source == "rule" and llm_error:
