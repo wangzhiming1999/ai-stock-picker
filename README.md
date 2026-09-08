@@ -80,7 +80,7 @@ npm run dev                 # http://localhost:5173
 
 ### 2. 接入 Supabase（完整能力）
 
-1. 在 Supabase 新建项目，按顺序执行 `backend/supabase-schema.sql`（v1）及 `supabase-schema-v2.sql` … `supabase-schema-v6.sql`；
+1. 在 Supabase 新建项目，按顺序执行 `backend/supabase-schema.sql`（v1）及 `supabase-schema-v2.sql` … `supabase-schema-v7.sql`；
    或部署后端后调用 `POST /api/admin/migrate` 自动执行全部迁移（需先配置 `ADMIN_TOKEN` 与 `SUPABASE_MANAGEMENT_API_KEY`）。
    所有脚本均幂等，可重复执行。
 2. 在项目设置中获取 URL 与 anon / service_role Key，写入 `backend/.env`：
@@ -198,7 +198,7 @@ cd backend && vercel --prod     # 入口 api/index.py，maxDuration 60
 cd frontend && vercel --prod    # vercel.json 将 /api/* 代理到后端
 ```
 
-- CORS：Vercel 环境自动放行 `*.vercel.app`；Supabase 持久化按上文配置。
+- CORS：生产环境使用精确前端域名白名单；新增域名时通过 `ALLOWED_ORIGINS` 显式配置。Supabase 持久化按上文配置。
 - SQLite 在 Serverless 只读文件系统落到 `/tmp`，冷启动后历史记录丢失——生产请用 Supabase。
 
 ---
