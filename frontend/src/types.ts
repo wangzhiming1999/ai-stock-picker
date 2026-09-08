@@ -243,6 +243,7 @@ export interface MonitorSignal {
   ma60: number;
   high60: number;
   low60: number;
+  volume_ratio: number | null;
 }
 
 export interface MonitorAdvice {

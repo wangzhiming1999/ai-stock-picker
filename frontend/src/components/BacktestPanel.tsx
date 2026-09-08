@@ -6,6 +6,7 @@ import { safeArray, safeNumber } from "../lib/safe";
 import type { BacktestResult } from "../types";
 
 const STRATEGIES = [
+  { name: "quality_momentum", label: "质量动量", desc: "动量排序 + 趋势确认" },
   { name: "momentum", label: "动量", desc: "近20日涨幅选股" },
   { name: "trend", label: "趋势", desc: "均线多头排列" },
   { name: "value", label: "低估值", desc: "60日区间低位" },

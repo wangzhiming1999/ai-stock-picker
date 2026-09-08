@@ -440,7 +440,9 @@ export default function MonitorPanel() {
                         {a?.label ?? "等待信号"}
                       </span>
                       <div className="mt-0.5 truncate text-[10px] text-slate-500" style={{ maxWidth: 220 }}>
-                        {a?.dist ? `支撑距 ${num(a.dist.to_support, 1)}% · 压力距 ${num(a.dist.to_resistance, 1)}%` : " "}
+                        {a?.dist
+                          ? `支撑距 ${num(a.dist.to_support, 1)}% · 压力距 ${num(a.dist.to_resistance, 1)}%${s?.volume_ratio != null ? ` · 盘中量比 ${num(s.volume_ratio, 2)}x` : ""}`
+                          : " "}
                       </div>
                     </td>
                     <td className="px-2 py-2 text-right">

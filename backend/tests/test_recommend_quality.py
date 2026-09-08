@@ -1,6 +1,6 @@
 import unittest
 
-from app.services.recommend_service import _build_action_plan, _quality_gate
+from app.services.recommend_service import _build_action_plan, _merge_strategy_results, _quality_gate
 
 
 class RecommendQualityTests(unittest.TestCase):
@@ -38,6 +38,19 @@ class RecommendQualityTests(unittest.TestCase):
         self.assertIn("19.80", plan["trigger"])
         self.assertIn("18.90", plan["invalidation"])
         self.assertEqual(plan["valid_until"], "2026-09-08")
+
+    def test_strategy_merge_requires_momentum_and_trend_confirmation(self) -> None:
+        results = [
+            ("momentum", [{"code": "600000", "strategy_score": 7, "tags": ["动量"], "indicators": {"rsi": 60}}]),
+            ("trend", [{"code": "600000", "strategy_score": 4.5, "tags": ["趋势"], "indicators": {"ma20": 10}}]),
+            ("value", [{"code": "000001", "strategy_score": 6, "tags": ["低估"], "indicators": {}}]),
+        ]
+
+        merged = _merge_strategy_results(results)
+
+        self.assertEqual([item["code"] for item in merged], ["600000"])
+        self.assertEqual(merged[0]["strategy_votes"], ["momentum", "trend"])
+        self.assertLessEqual(merged[0]["strategy_score"], 10)
 
 
 if __name__ == "__main__":

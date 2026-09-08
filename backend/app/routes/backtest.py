@@ -24,7 +24,7 @@ class BacktestRequest(BaseModel):
 @router.post("/run")
 async def backtest_run(req: BacktestRequest):
     """运行策略回测（结果持久化，同参数直接复用）。"""
-    valid = {"momentum", "trend", "value", "volume", "all"}
+    valid = {"momentum", "trend", "value", "volume", "all", "quality_momentum"}
     if req.strategy not in valid:
         raise HTTPException(status_code=400, detail=f"未知策略 {req.strategy}，可选: {valid}")
     params = BacktestParams(

@@ -11,13 +11,14 @@ import time
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from app.models import StockHistory
 from app.services import data_service, signal_service
 
 router = APIRouter(prefix="/api/market", tags=["monitor"])
 
 _KLINE_TTL = 30 * 60  # 30 分钟
 _CN_TZ = dt.timezone(dt.timedelta(hours=8))
-_kline_cache: dict[str, tuple[float, list[float] | None]] = {}
+_kline_cache: dict[str, tuple[float, StockHistory | None]] = {}
 _KLINE_CACHE_MAX = 200
 
 
@@ -26,7 +27,7 @@ class MonitorRequest(BaseModel):
     force: bool = Field(False, description="强制刷新：忽略 K 线内存缓存，重新拉取")
 
 
-def _get_closes_cached(code: str, days: int = 120, force: bool = False) -> list[float] | None:
+def _get_history_cached(code: str, days: int = 120, force: bool = False) -> StockHistory | None:
     """取日 K（默认带内存缓存；force=True 时强制重新拉取）。"""
     now = time.monotonic()
     if not force:
@@ -35,15 +36,46 @@ def _get_closes_cached(code: str, days: int = 120, force: bool = False) -> list[
             return hit[1]
     try:
         hist = data_service.get_history(code, days)
-        closes = hist.closes if hist and hist.closes else None
+        history = hist if hist and hist.closes else None
     except Exception:
-        closes = None
+        history = None
     if len(_kline_cache) >= _KLINE_CACHE_MAX:
         oldest = sorted(_kline_cache, key=lambda item: _kline_cache[item][0])[: max(1, _KLINE_CACHE_MAX // 4)]
         for old_code in oldest:
             _kline_cache.pop(old_code, None)
-    _kline_cache[code] = (now, closes)
-    return closes
+    _kline_cache[code] = (now, history)
+    return history
+
+
+def _projected_volume_ratio(live_volume: float | None, historical_volumes: list[float] | None, quote_time: str | None) -> float | None:
+    """Compare projected full-day volume with the recent five-day average."""
+    if not live_volume or live_volume <= 0 or not historical_volumes or not quote_time:
+        return None
+    samples = [float(v) for v in historical_volumes[-5:] if v and float(v) > 0]
+    if not samples:
+        return None
+    try:
+        raw_time = quote_time.strip()
+        if "T" in raw_time or (len(raw_time) >= 10 and raw_time[4] == "-"):
+            clock = dt.datetime.fromisoformat(raw_time.replace("Z", "+00:00")).timetz()
+        else:
+            clock = dt.time.fromisoformat(raw_time.split()[-1][:8])
+    except ValueError:
+        return None
+    minute = clock.hour * 60 + clock.minute + clock.second / 60
+    if minute < 570:
+        return None
+    if minute <= 690:
+        elapsed = minute - 570
+    elif minute < 780:
+        elapsed = 120
+    else:
+        elapsed = 120 + min(120, minute - 780)
+    if elapsed < 15:
+        return None
+    progress = min(1.0, max(elapsed / 240, 1 / 240))
+    average = sum(samples) / len(samples)
+    return round(live_volume / (average * progress), 2) if average > 0 else None
 
 
 def _advice(price: float, sig: dict) -> dict:
@@ -72,11 +104,31 @@ def _advice(price: float, sig: dict) -> dict:
             "dist": {"to_stop": round(to_stop, 2), "to_support": round(to_support, 2), "to_resistance": round(to_resist, 2)},
         }
     if price > resistance:
+        breakout_pct = (price - resistance) / resistance * 100 if resistance > 0 else 0
+        volume_ratio = sig.get("volume_ratio")
+        if breakout_pct > 3:
+            label = "突破过远"
+            hint = f"现价 {price:.2f} 已高出压力位 {resistance:.2f} 达 {breakout_pct:.1f}%，即使放量也不追高，等待回踩确认"
+        elif volume_ratio is not None and volume_ratio >= 1.5 and breakout_pct >= 0.3:
+            return {
+                "action": "buy",
+                "label": "放量突破",
+                "tone": "good",
+                "hint": f"现价 {price:.2f} 突破压力位 {resistance:.2f}，盘中量比 {volume_ratio:.2f}x；可等回踩不破后分批关注",
+                "dist": {"to_stop": round(to_stop, 2), "to_support": round(to_support, 2), "to_resistance": round(to_resist, 2)},
+            }
+        elif volume_ratio is not None and volume_ratio < 1.0:
+            label = "缩量突破"
+            hint = f"现价 {price:.2f} 突破压力位 {resistance:.2f}，但盘中量比仅 {volume_ratio:.2f}x，暂按假突破风险观察"
+        else:
+            label = "突破待确认"
+            volume_text = f"，盘中量比 {volume_ratio:.2f}x" if volume_ratio is not None else "，量能数据不足"
+            hint = f"现价 {price:.2f} 突破压力位 {resistance:.2f}{volume_text}；等待站稳或回踩确认"
         return {
             "action": "hold",
-            "label": "突破观察",
-            "tone": "good" if sig.get("strength", 0) >= 7 else "neutral",
-            "hint": f"现价 {price:.2f} 已突破原压力位 {resistance:.2f}，不按旧压力位机械减仓；观察能否站稳并等待新信号位",
+            "label": label,
+            "tone": "neutral",
+            "hint": hint,
             "dist": {"to_stop": round(to_stop, 2), "to_support": round(to_support, 2), "to_resistance": round(to_resist, 2)},
         }
     if 0 <= to_resist <= 0.5:
@@ -128,20 +180,25 @@ async def monitor(req: MonitorRequest):
 
     async def _k(code: str):
         async with sem:
-            return await asyncio.to_thread(_get_closes_cached, code, 120, req.force)
+            return await asyncio.to_thread(_get_history_cached, code, 120, req.force)
 
-    closes_list = await asyncio.gather(*(_k(c) for c in seen))
-    closes_map = dict(zip(seen, closes_list))
+    histories = await asyncio.gather(*(_k(c) for c in seen))
+    history_map = dict(zip(seen, histories))
 
     items = []
     for code in seen:
         q = quote_map.get(code)
-        closes = closes_map.get(code)
-        if not q or not closes:
+        history = history_map.get(code)
+        if not q or not history or not history.closes:
             continue
-        sig = signal_service.compute_signals(closes, q.price)
+        historical_volumes = list(history.volumes or [])
+        if history.dates and q.quote_time and history.dates[-1] == q.quote_time[:10]:
+            historical_volumes = historical_volumes[:-1]
+        volume_ratio = _projected_volume_ratio(q.volume, historical_volumes, q.quote_time)
+        sig = signal_service.compute_signals(history.closes, q.price)
         if not sig:
             continue
+        sig["volume_ratio"] = volume_ratio
         sig_out = {
             "support": sig["support"],
             "resistance": sig["resistance"],
@@ -154,6 +211,7 @@ async def monitor(req: MonitorRequest):
             "ma60": sig["ma60"],
             "high60": sig["high60"],
             "low60": sig["low60"],
+            "volume_ratio": volume_ratio,
         }
         items.append(
             {

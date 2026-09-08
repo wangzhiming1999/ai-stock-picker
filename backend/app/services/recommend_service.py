@@ -88,6 +88,39 @@ def _build_action_plan(candidate: dict, valid_until: str) -> dict:
     }
 
 
+def _merge_strategy_results(strategy_results: list[tuple[str, list[dict]]]) -> list[dict]:
+    """Build a conservative consensus: momentum ranks, trend must confirm."""
+    buckets: dict[str, dict] = {}
+    for strategy, items in strategy_results:
+        for item in items:
+            code = item["code"]
+            merged = buckets.setdefault(
+                code,
+                {**item, "tags": [], "indicators": {}, "strategy_scores": {}},
+            )
+            merged["strategy_scores"][strategy] = float(item.get("strategy_score") or 0)
+            for tag in item.get("tags") or []:
+                if tag not in merged["tags"]:
+                    merged["tags"].append(tag)
+            merged["indicators"].update(item.get("indicators") or {})
+
+    qualified: list[dict] = []
+    for merged in buckets.values():
+        scores = merged["strategy_scores"]
+        momentum = scores.get("momentum", 0)
+        trend = scores.get("trend", 0)
+        if momentum < 4 or trend < 3.5:
+            continue
+        votes = [name for name, score in scores.items() if score >= 3.5]
+        confirmation_bonus = 0.25 * sum(1 for name in ("value", "volume") if scores.get(name, 0) >= 4)
+        merged["strategy_score"] = round(min(10, momentum * 0.7 + trend * 0.3 + confirmation_bonus), 2)
+        merged["strategy_votes"] = votes
+        if "多因子共振" not in merged["tags"]:
+            merged["tags"].append("多因子共振")
+        qualified.append(merged)
+    return qualified
+
+
 async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
     """生成每日收盘推荐：跑四个策略 → 合并候选 → LLM 精选 10 只。
 
@@ -133,15 +166,13 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
         *[_scan_strategy_with_spot(s, candidate_codes, hist_map) for s in ("momentum", "trend", "value", "volume")],
         return_exceptions=True,
     )
+    successful_results: list[tuple[str, list[dict]]] = []
     for strategy, res in zip(("momentum", "trend", "value", "volume"), strategy_results):
         if isinstance(res, Exception):
             print(f"[recommend] strategy {strategy} failed: {res}")
             continue
-        for item in res:
-            code = item["code"]
-            # 合并：保留更高策略分
-            if code not in candidates or item["strategy_score"] > candidates[code]["strategy_score"]:
-                candidates[code] = item
+        successful_results.append((strategy, res))
+    candidates = {item["code"]: item for item in _merge_strategy_results(successful_results)}
 
     # 技术位和硬门槛统一在 LLM 前执行，模型不能绕过风险规则。
     rejected: dict[str, list[str]] = {}

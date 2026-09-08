@@ -148,6 +148,8 @@ def _score(df: pd.DataFrame, strategy: str) -> float:
         return _volume_score(df)
     if strategy == "all":
         return _momentum_score(df) / 5 + _trend_score(df) + _value_score(df) * 0.5 + _volume_score(df)
+    if strategy == "quality_momentum":
+        return _momentum_score(df) if _trend_score(df) >= 5 else -999
     return 0.0
 
 
@@ -177,6 +179,7 @@ def run_backtest(params: BacktestParams) -> dict:
 
     # 3. 调仓
     capital = params.initial_capital
+    cash_balance = params.initial_capital
     equity_curve: list[dict] = []
     portfolio: list[tuple[str, float]] = []  # (code, shares)
     holdings_value = capital
@@ -198,12 +201,12 @@ def run_backtest(params: BacktestParams) -> dict:
                     continue
                 price = rows["close"].iloc[-1]
                 period_value += shares * price
-            capital = period_value
-            holdings_value = period_value
+            capital = period_value + cash_balance
+            holdings_value = capital
             equity_curve.append(
                 {
                     "date": str(trade_date),
-                    "value": round(float(period_value), 2),
+                    "value": round(float(capital), 2),
                     "holdings": [c for c, _ in portfolio],
                 }
             )
@@ -219,17 +222,20 @@ def run_backtest(params: BacktestParams) -> dict:
         # 换仓：计算策略分，选 top N
         scores: list[tuple[str, float]] = []
         for code, df in histories.items():
-            past = df[df["date"].dt.date <= trade_date]
+            # Rank with information available before the execution date. Using
+            # the same day's close here leaks the outcome into the signal.
+            past = df[df["date"].dt.date < trade_date]
             if past.empty:
                 continue
             scores.append((code, _score(past, params.strategy)))
         scores.sort(key=lambda x: x[1], reverse=True)
-        picked = [c for c, _ in scores[: params.top_n] if _score(histories[c][histories[c]["date"].dt.date <= trade_date], params.strategy) > -999]
+        picked = [c for c, _ in scores[: params.top_n] if _score(histories[c][histories[c]["date"].dt.date < trade_date], params.strategy) > -999]
 
         # 等权买入
         if picked and capital > 0:
             per_stock = capital / len(picked)
             portfolio = []
+            cash_balance = capital
             for code in picked:
                 df = histories.get(code)
                 rows = df[df["date"].dt.date <= trade_date]
@@ -241,6 +247,7 @@ def run_backtest(params: BacktestParams) -> dict:
                 shares = int(per_stock // price)
                 if shares > 0:
                     portfolio.append((code, shares))
+                    cash_balance -= shares * price
 
     # 4. 统计指标
     if len(equity_curve) < 2:
