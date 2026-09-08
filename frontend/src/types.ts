@@ -54,6 +54,17 @@ export interface TradeSignal {
   high60?: number;
 }
 
+export interface StrategyAssessment {
+  name: string;
+  source: string;
+  status: "passed" | "watch" | "failed" | "insufficient_data";
+  score: number;
+  passed: number;
+  total: number;
+  action: string;
+  conditions: Array<{ label: string; passed: boolean }>;
+}
+
 export interface StockAnalysis {
   code: string;
   name: string;
@@ -63,6 +74,7 @@ export interface StockAnalysis {
   risks: string[];
   suggestions: string[];
   signal?: TradeSignal;
+  strategy?: StrategyAssessment;
   holding_advice?: string;
 }
 

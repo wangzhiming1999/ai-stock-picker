@@ -54,6 +54,36 @@ export default function StockCard({ analysis, info }: Props) {
       {/* 综合点评 */}
       <p className="mt-4 text-sm leading-relaxed text-slate-300">{analysis.summary ?? ""}</p>
 
+      {analysis.strategy && (
+        <div className="mt-4 rounded-lg border border-slate-700 bg-slate-950/45 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="text-xs font-semibold text-white">趋势是否合格</div>
+              <div className="mt-0.5 text-[11px] text-slate-500">公开规则逐项检查，不由 AI 猜测</div>
+            </div>
+            <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+              analysis.strategy.status === "passed"
+                ? "bg-emerald-500/15 text-emerald-300"
+                : analysis.strategy.status === "watch"
+                  ? "bg-amber-500/15 text-amber-300"
+                  : "bg-slate-700 text-slate-300"
+            }`}>
+              {analysis.strategy.passed}/{analysis.strategy.total} 项通过
+            </span>
+          </div>
+          <p className="mt-2 text-sm font-medium text-slate-200">{analysis.strategy.action}</p>
+          {analysis.strategy.conditions.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {analysis.strategy.conditions.map((condition) => (
+                <span key={condition.label} className={`rounded px-2 py-1 text-[11px] ${condition.passed ? "bg-emerald-950/60 text-emerald-300" : "bg-red-950/40 text-red-300"}`}>
+                  {condition.passed ? "✓" : "×"} {condition.label}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* 技术信号（压力位/买卖点/止损） */}
       {analysis.signal && (
         <div className="mt-4 rounded-lg border border-amber-900/40 bg-amber-950/20 p-3">

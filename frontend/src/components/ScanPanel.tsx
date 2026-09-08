@@ -15,14 +15,17 @@ interface Props {
 }
 
 const STRATEGIES: StrategyDef[] = [
-  { name: "momentum", label: "动量", desc: "站上MA5 + MACD多头 + RSI健康" },
-  { name: "trend", label: "趋势", desc: "均线多头排列，顺势上行" },
-  { name: "value", label: "低估值", desc: "PE/PB 合理，交投健康" },
-  { name: "volume", label: "放量", desc: "量能活跃，温和上涨" },
+  { name: "trend", label: "稳健趋势", desc: "找走势稳定、均线向上的候选" },
+  { name: "volume", label: "放量启动", desc: "找成交活跃、刚开始走强的候选" },
+  { name: "momentum", label: "强势延续", desc: "找近期较强但不过热的候选" },
+  { name: "value", label: "估值观察", desc: "找估值克制、交投正常的候选" },
 ];
+
+type ScanView = "quick" | "timing" | "monitor" | "advanced";
 
 export default function ScanPanel({ onPick }: Props) {
   const { user } = useAuth();
+  const [scanView, setScanView] = useState<ScanView>("quick");
 
   // 批量加入自选（需登录）
   const importCodes = async (codes: string[]) => {
@@ -179,14 +182,33 @@ export default function ScanPanel({ onPick }: Props) {
 
   return (
     <div className="space-y-5">
-      {/* 盯盘监控（自定义名单 5 分钟轮询） */}
-      <MonitorPanel />
+      <section className="rounded-xl border border-slate-800 bg-gradient-to-br from-slate-900 to-slate-950 p-5">
+        <p className="text-xs font-semibold text-brand">选股扫描</p>
+        <h2 className="mt-1 text-xl font-bold text-white">你今天想找什么？</h2>
+        <p className="mt-1 text-sm text-slate-400">先选一个目标。扫描结果只是候选池，进入深度分析确认后再决定是否操作。</p>
+        <div className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
+          {([
+            ["quick", "找今日候选", "新手建议从这里开始"],
+            ["timing", "看早盘/尾盘", "只在对应时段使用"],
+            ["monitor", "看我的盯盘", "检查已有关注标的"],
+            ["advanced", "自己设条件", "适合熟悉指标的用户"],
+          ] as Array<[ScanView, string, string]>).map(([value, label, desc]) => (
+            <button key={value} onClick={() => setScanView(value)} className={`rounded-lg border p-3 text-left transition ${scanView === value ? "border-brand bg-brand/10" : "border-slate-700 hover:border-slate-500"}`}>
+              <div className="text-sm font-semibold text-slate-100">{label}</div>
+              <div className="mt-0.5 text-[11px] text-slate-500">{desc}</div>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {scanView === "monitor" && <MonitorPanel />}
 
       {/* 早盘竞价机会（9:15-9:30） */}
+      {scanView === "timing" && <>
       <CollapsiblePanel
         id="scan_auction"
-        title="早盘竞价机会"
-        subtitle="9:15-9:30 集合竞价 · 博当日大涨（涨幅+量比筛选）"
+        title="开盘前有哪些异动"
+        subtitle="仅 9:15-9:30 使用 · 异动不等于可以买"
         action={
           auctionResult?.items?.length ? (
             <div className="flex items-center gap-2">
@@ -269,8 +291,8 @@ export default function ScanPanel({ onPick }: Props) {
       {/* 尾盘机会（14:45-15:00） */}
       <CollapsiblePanel
         id="scan_closing"
-        title="尾盘机会"
-        subtitle="14:45-15:00 尾盘 · 博次日高开（翘尾+量比+换手筛选）"
+        title="收盘前有哪些异动"
+        subtitle="仅 14:45-15:00 使用 · 需防范尾盘诱多"
         action={
           closingResult?.items?.length ? (
             <div className="flex items-center gap-2">
@@ -354,11 +376,13 @@ export default function ScanPanel({ onPick }: Props) {
           </div>
         ) : null}
       </CollapsiblePanel>
+      </>}
 
+      {scanView === "quick" && (
       <CollapsiblePanel
         id="scan_strategy"
-        title="策略选股"
-        subtitle="按技术形态一键扫描（动量/趋势/低估值/放量）"
+        title="一键找候选"
+        subtitle="选择一种目标，系统会拉取最新行情并给出候选理由"
         action={
           strategyResult.length > 0 ? (
             <div className="flex items-center gap-2">
@@ -447,11 +471,13 @@ export default function ScanPanel({ onPick }: Props) {
           </div>
         )}
       </CollapsiblePanel>
+      )}
 
+      {scanView === "advanced" && <>
       <CollapsiblePanel
         id="scan_market"
-        title="全市场扫描"
-        subtitle="按涨幅/成交额/股价过滤，扫描 A 股候选标的"
+        title="按条件筛选"
+        subtitle="这里只按价格、涨幅和成交额过滤，不代表技术形态已经确认"
       >
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           <label className="block">
@@ -546,6 +572,7 @@ export default function ScanPanel({ onPick }: Props) {
 
       <WinratePanel />
       <BacktestPanel />
+      </>}
     </div>
   );
 }

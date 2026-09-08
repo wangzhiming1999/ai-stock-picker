@@ -68,6 +68,18 @@ class TradeSignal(BaseModel):
     high60: float | None = None
 
 
+class StrategyAssessment(BaseModel):
+    """可复核的规则策略检查，不依赖 LLM 自由发挥。"""
+    name: str
+    source: str
+    status: str
+    score: float = Field(..., ge=0, le=10)
+    passed: int
+    total: int
+    action: str
+    conditions: list[dict] = []
+
+
 class StockAnalysis(BaseModel):
     """单只股票的分析结果"""
     code: str
@@ -78,6 +90,7 @@ class StockAnalysis(BaseModel):
     risks: list[str] = []
     suggestions: list[str] = []
     signal: TradeSignal | None = None
+    strategy: StrategyAssessment | None = None
     holding_advice: str | None = None
 
 

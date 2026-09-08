@@ -7,7 +7,7 @@ from fastapi.responses import StreamingResponse
 
 from app import store
 from app.models import AnalysisRequest
-from app.services import data_service, signal_service, supabase_store
+from app.services import data_service, signal_service, supabase_store, trend_template_service
 from app.services.llm_service import mock_analyze, parse_analysis, should_use_mock, stream_analyze
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
@@ -97,6 +97,13 @@ async def analyze_stocks(req: AnalysisRequest, request: Request):
             # 1. 缓存命中：直接返回（force=False 时）
             if not req.force and q.code in cached_map:
                 cached = cached_map[q.code]
+                # 旧缓存没有规则策略字段时就地补齐，避免用户要等到次日才看到新结果。
+                if "strategy" not in cached:
+                    cached_history = await asyncio.to_thread(data_service.get_history, q.code, 260)
+                    if cached_history and cached_history.closes:
+                        cached["strategy"] = trend_template_service.assess_trend_template(
+                            cached_history.closes, q.price
+                        )
                 yield _sse(
                     "stock_start",
                     f"{q.name}（{q.code}）命中今日缓存...",
@@ -116,13 +123,16 @@ async def analyze_stocks(req: AnalysisRequest, request: Request):
             yield _sse("stock_start", f"正在分析 {q.name}（{q.code}）...", {"code": q.code, "name": q.name})
 
             # 2. 组装上下文（K线 + 新闻 + 技术信号）
-            history = await asyncio.to_thread(data_service.get_history, q.code)
+            # 长期趋势模板需要约一年的日线；缓存有容量上限，不会无限占用内存。
+            history = await asyncio.to_thread(data_service.get_history, q.code, 260)
             news = await asyncio.to_thread(data_service.get_news, q.code, q.name)
             context = data_service.build_stock_context(q, history, news)
 
             signal = None
+            strategy_assessment = None
             if history and history.closes:
                 signal = signal_service.compute_signals(history.closes, q.price)
+                strategy_assessment = trend_template_service.assess_trend_template(history.closes, q.price)
                 if signal:
                     context += (
                         f"\n\n技术位（由系统计算）：支撑位 {signal['support']}，压力位 {signal['resistance']}，"
@@ -130,6 +140,10 @@ async def analyze_stocks(req: AnalysisRequest, request: Request):
                         f"止损位 {signal['stop_loss']}，风险收益比 {signal['rr_ratio']}，"
                         f"信号强度 {signal['strength']}。请结合这些技术位给出更精确的买卖建议。"
                     )
+                context += (
+                    f"\n\n长期趋势质量检查：{strategy_assessment['passed']}/{strategy_assessment['total']} 项通过，"
+                    f"系统结论：{strategy_assessment['action']}。这是筛选条件，不是买入信号。"
+                )
 
             # 3a. 本地规则评分模式
             if use_mock:
@@ -138,6 +152,7 @@ async def analyze_stocks(req: AnalysisRequest, request: Request):
                 analysis.name = q.name
                 if signal:
                     analysis.signal = signal_service.compute_signals(history.closes, q.price)
+                analysis.strategy = strategy_assessment
                 results.append(analysis)
                 await _write_cache(q.code, analysis.model_dump(), source="rule")
                 yield _sse(
@@ -169,6 +184,7 @@ async def analyze_stocks(req: AnalysisRequest, request: Request):
             analysis.name = q.name
             if signal:
                 analysis.signal = signal_service.compute_signals(history.closes, q.price)
+            analysis.strategy = strategy_assessment
             results.append(analysis)
             await _write_cache(q.code, analysis.model_dump(), source="llm")
             yield _sse(
