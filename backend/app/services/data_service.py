@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 import logging
 import time
 from typing import Any
@@ -11,6 +12,7 @@ import pandas as pd
 import requests
 
 from app.models import NewsItem, StockHistory, StockQuote
+from app.services import akshare_guard
 
 logger = logging.getLogger(__name__)
 
@@ -113,25 +115,48 @@ _HIST_TTL_FAIL = 30
 _HIST_CACHE_MAX = 400
 
 
-def _fetch_history(code: str, days: int) -> StockHistory | None:
-    """实际拉取历史日 K（腾讯接口）。"""
-    end = dt.date.today()
-    start = end - dt.timedelta(days=days * 2)
+def _parse_qq_history_payload(payload: dict, symbol: str, days: int) -> StockHistory | None:
+    """校验并解析腾讯 K 线响应。第三方响应异常时返回 None。"""
     try:
-        df = ak.stock_zh_a_hist_tx(
-            symbol=_code_to_symbol(code),
-            start_date=start.strftime("%Y%m%d"),
-            end_date=end.strftime("%Y%m%d"),
-        )
-        if df is None or df.empty:
+        node = payload.get("data", {}).get(symbol, {})
+        rows = node.get("qfqday") or node.get("day") or node.get("hfqday") or []
+        if not isinstance(rows, list):
             return None
-        df = df.tail(days)
+        valid = []
+        for row in rows[-days:]:
+            if not isinstance(row, list) or len(row) < 6:
+                continue
+            date = str(row[0])[:10]
+            close = float(row[2])
+            volume = float(row[5])
+            if close <= 0:
+                continue
+            valid.append((date, close, volume))
+        if not valid:
+            return None
         return StockHistory(
-            dates=[str(d)[:10] for d in df["date"]],
-            closes=[float(x) for x in df["close"]],
-            volumes=[float(x) for x in df["amount"]] if "amount" in df.columns else None,
+            dates=[row[0] for row in valid],
+            closes=[row[1] for row in valid],
+            volumes=[row[2] for row in valid],
         )
-    except Exception as e:
+    except (AttributeError, TypeError, ValueError, KeyError, IndexError):
+        return None
+
+
+def _fetch_history(code: str, days: int) -> StockHistory | None:
+    """直接拉取腾讯历史日 K，避免 AkShare 的 JS 解析器导致进程级崩溃。"""
+    symbol = _code_to_symbol(code)
+    url = "https://proxy.finance.qq.com/ifzqgtimg/appstock/app/newfqkline/get"
+    params = {"param": f"{symbol},day,,,{max(days, 60)},qfq", "_var": "kline_dayqfq"}
+    try:
+        resp = requests.get(url, params=params, headers={"User-Agent": _UA, "Referer": "https://gu.qq.com/"}, timeout=10)
+        resp.raise_for_status()
+        text = resp.text.strip()
+        json_start = text.find("{")
+        if json_start < 0:
+            return None
+        return _parse_qq_history_payload(json.loads(text[json_start:]), symbol, days)
+    except (requests.RequestException, json.JSONDecodeError) as e:
         logger.warning("获取 %s 历史K线失败: %s", code, e)
         return None
 
@@ -160,7 +185,7 @@ def get_history(code: str, days: int = 120) -> StockHistory | None:
 def get_news(code: str, name: str, limit: int = 8) -> list[NewsItem]:
     """获取个股新闻：优先东方财富，失败则用市场快讯过滤兜底。"""
     try:
-        df = ak.stock_news_em(symbol=code.strip())
+        df = akshare_guard.call(ak.stock_news_em, symbol=code.strip())
         if df is not None and not df.empty:
             items: list[NewsItem] = []
             for _, row in df.head(limit).iterrows():
@@ -178,7 +203,7 @@ def get_news(code: str, name: str, limit: int = 8) -> list[NewsItem]:
 
     # 兜底：全市场财经快讯按关键词过滤
     try:
-        df = ak.stock_info_global_em()
+        df = akshare_guard.call(ak.stock_info_global_em)
         if df is None or df.empty:
             return []
         keywords = [code.strip()]
@@ -220,7 +245,7 @@ def get_notices_today(force: bool = False) -> dict[str, list[str]]:
         return _notice_cache[1]
     out: dict[str, list[str]] = {}
     try:
-        df = ak.stock_notice_report(symbol="全部", date=dt.date.today().strftime("%Y%m%d"))
+        df = akshare_guard.call(ak.stock_notice_report, symbol="全部", date=dt.date.today().strftime("%Y%m%d"))
         if df is not None and not df.empty:
             for _, row in df.iterrows():
                 code = (
@@ -249,7 +274,7 @@ def get_global_news(limit: int = 300, force: bool = False) -> list[dict]:
         return _global_news_cache[1]
     rows: list[dict] = []
     try:
-        df = ak.stock_info_global_em()
+        df = akshare_guard.call(ak.stock_info_global_em)
         if df is not None and not df.empty:
             for _, row in df.head(limit).iterrows():
                 rows.append(

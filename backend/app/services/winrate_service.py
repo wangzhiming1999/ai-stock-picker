@@ -7,6 +7,24 @@ import datetime as dt
 from app.services import data_service, market_prediction, supabase_store, trade_calendar_service
 
 
+def _next_close_after(history, rec_date: str) -> tuple[str, float] | None:
+    """返回推荐日后的首个真实交易日收盘，禁止用 Cron 执行时现价替代。"""
+    if not history:
+        return None
+    for date, close in zip(history.dates, history.closes):
+        if str(date)[:10] > rec_date and close:
+            return str(date)[:10], float(close)
+    return None
+
+
+def _sample_status(total: int) -> str:
+    if total < 30:
+        return "insufficient"
+    if total < 100:
+        return "developing"
+    return "established"
+
+
 async def settle_daily_recommendations() -> int:
     """结算未结算的推荐：用最近交易日收盘价对比推荐价，判断次日是否上涨。"""
     if not supabase_store.is_configured():
@@ -17,7 +35,7 @@ async def settle_daily_recommendations() -> int:
     data_day = await trade_calendar_service.last_trading_day()
     res = (
         await sb.table("daily_recommendations")
-        .select("id", "code", "recommend_price")
+        .select("id", "code", "rec_date", "recommend_price")
         .is_("settled_at", "null")
         .lt("rec_date", data_day.isoformat())
         .execute()
@@ -26,19 +44,19 @@ async def settle_daily_recommendations() -> int:
     if not rows:
         return 0
 
-    # 批量获取当前行情（腾讯接口为同步 requests，须丢线程池，不能直接 await）
+    # 批量获取历史 K 线，精确选择推荐后的首个交易日收盘。
     codes = list({r["code"] for r in rows})
-    quotes = await asyncio.to_thread(data_service.get_spot_quote, codes)
-    quote_map = {q.code: q for q in quotes}
+    histories = await asyncio.gather(*(asyncio.to_thread(data_service.get_history, code, 200) for code in codes))
+    history_map = dict(zip(codes, histories))
 
     settled = 0
     settled_at = dt.datetime.now(dt.timezone.utc).isoformat()
     for row in rows:
-        q = quote_map.get(row["code"])
-        if not q or not q.price or not row.get("recommend_price"):
+        settled_quote = _next_close_after(history_map.get(row["code"]), str(row.get("rec_date") or "")[:10])
+        if not settled_quote or not row.get("recommend_price"):
             continue
         recommend_price = row["recommend_price"]
-        next_close = q.price
+        _next_date, next_close = settled_quote
         next_return = (next_close / recommend_price - 1) * 100
         hit = next_return > 0
         await (
@@ -127,11 +145,13 @@ async def get_winrate_stats() -> dict:
             "hit": pred_hit,
             "hit_rate": round(pred_hit / pred_total * 100, 1) if pred_total else None,
             "by_direction": by_dir,
+            "sample_status": _sample_status(pred_total),
         },
         "recommendation": {
             "total": rec_total,
             "hit": rec_hit,
             "hit_rate": round(rec_hit / rec_total * 100, 1) if rec_total else None,
+            "sample_status": _sample_status(rec_total),
         },
         "snapshot": snapshot,
     }

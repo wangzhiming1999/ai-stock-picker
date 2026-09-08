@@ -16,7 +16,7 @@ from typing import Any
 
 import akshare as ak
 
-from app.services import data_service, supabase_store, trade_calendar_service
+from app.services import akshare_guard, data_service, supabase_store, trade_calendar_service
 
 # 当日内存缓存：key=交易日, value=(生成时间, data)
 _quad_cache: dict[str, tuple[str, dict]] = {}
@@ -92,7 +92,7 @@ def _full_spot(force: bool = False) -> list[dict]:
 
     rows: list[dict] = []
     try:
-        df = ak.stock_zh_a_spot_em()
+        df = akshare_guard.call(ak.stock_zh_a_spot_em)
         for _, row in df.iterrows():
             code = str(row.get("代码", "")).strip().replace("sh", "").replace("sz", "").replace("bj", "")
             if not code:
@@ -115,7 +115,7 @@ def _full_spot(force: bool = False) -> list[dict]:
     except Exception as e:
         print(f"[quad] 东财快照失败，降级腾讯: {e}")
         try:
-            df = ak.stock_zh_a_spot()
+            df = akshare_guard.call(ak.stock_zh_a_spot)
             for _, row in df.iterrows():
                 code = str(row["代码"]).replace("sh", "").replace("sz", "").replace("bj", "")
                 if not code:

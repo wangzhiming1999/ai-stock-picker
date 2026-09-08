@@ -48,12 +48,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // 监听 session 变化（登录/退出/自动 refresh 都会触发）
     const sbPromise = getSupabase();
     let sub: { unsubscribe: () => void } | null = null;
-    sbPromise.then((sb) => {
-      const { data } = sb.auth.onAuthStateChange((_event, session) => {
-        if (mounted) setState(sessionToAuth(session));
+    void sbPromise
+      .then((sb) => {
+        const { data } = sb.auth.onAuthStateChange((_event, session) => {
+          if (mounted) setState(sessionToAuth(session));
+        });
+        sub = data.subscription;
+      })
+      .catch(() => {
+        // 未配置 Supabase 时保持访客模式，避免未处理的 Promise 污染控制台。
       });
-      sub = data.subscription;
-    });
     return () => {
       mounted = false;
       sub?.unsubscribe();

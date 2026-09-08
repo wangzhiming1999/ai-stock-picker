@@ -13,6 +13,7 @@ import asyncio
 import datetime as dt
 
 from app.services import (
+    akshare_guard,
     data_service,
     market_prediction,
     portfolio_service,
@@ -70,6 +71,10 @@ async def _enrich_morning_stock(
         "suggest_amount": None,
         "suggest_shares": None,
         "risk_level": risk_level,
+        "trigger": rec.get("trigger"),
+        "invalidation": rec.get("invalidation"),
+        "target": rec.get("target"),
+        "valid_until": rec.get("valid_until"),
     }
     try:
         code = base["code"]
@@ -202,7 +207,7 @@ async def _fetch_overseas() -> dict | None:
         import akshare as ak
 
         def _pull() -> list[dict]:
-            df = ak.index_us_stock_sina()
+            df = akshare_guard.call(ak.index_us_stock_sina)
             cols = list(df.columns)
             name_col = "name" if "name" in cols else cols[1]
             price_col = "latest_price" if "latest_price" in cols else ("close" if "close" in cols else cols[2])
@@ -260,7 +265,8 @@ async def build_today(user_id: str | None = None) -> dict:
     max_pos_pct = _RISK_POS_PCT.get(risk_level, 20)
     total_capital = float((profile or {}).get("total_capital", 100000) or 100000)
 
-    recs = (rec.get("recommendations") or [])[:6]
+    # 首屏只保留最高质量的 3 只，完整清单留在“每日推荐明细”。
+    recs = (rec.get("recommendations") or [])[:3]
     morning_stocks = await asyncio.gather(
         *[_enrich_morning_stock(r, total_capital, max_pos_pct, risk_level) for r in recs]
     )

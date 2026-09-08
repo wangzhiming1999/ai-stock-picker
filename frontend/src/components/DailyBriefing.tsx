@@ -219,6 +219,12 @@ function MorningStockCard({ s, onPick }: { s: BriefingStock; onPick: (c: string)
       </div>
 
       <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-slate-400">{s.reason}</p>
+      {(s.trigger || s.invalidation) && (
+        <div className="mt-2 space-y-1 rounded-md border border-slate-800 bg-slate-950/50 p-2 text-[11px]">
+          <div><span className="text-slate-500">满足才关注：</span><span className="text-green-300">{s.trigger}</span></div>
+          <div><span className="text-slate-500">出现即放弃：</span><span className="text-red-300">{s.invalidation}</span></div>
+        </div>
+      )}
     </div>
   );
 }

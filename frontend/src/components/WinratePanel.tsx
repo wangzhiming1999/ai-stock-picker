@@ -95,6 +95,9 @@ export default function WinratePanel() {
                 ))}
               </div>
             )}
+            {data.prediction?.sample_status === "insufficient" && data.prediction.total > 0 && (
+              <p className="mt-2 text-[11px] text-amber-400">样本不足 30 次，当前命中率只用于观察，不代表稳定能力。</p>
+            )}
           </div>
 
           {/* 个股推荐胜率 */}
@@ -121,6 +124,9 @@ export default function WinratePanel() {
               <div className="rounded-lg bg-slate-800/40 px-3 py-2 text-xs text-slate-500">
                 暂无数据 · 每日收盘后自动结算（推荐生成后次日判定涨跌）
               </div>
+            )}
+            {data.recommendation?.sample_status === "insufficient" && data.recommendation.total > 0 && (
+              <p className="mt-2 text-[11px] text-amber-400">样本不足 30 只，暂不据此判断策略有效性。</p>
             )}
           </div>
 

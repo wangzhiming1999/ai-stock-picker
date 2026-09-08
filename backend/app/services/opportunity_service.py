@@ -13,7 +13,7 @@ import time
 
 import akshare as ak
 
-from app.services import supabase_store
+from app.services import akshare_guard, supabase_store
 
 _SHORT_CACHE: dict[str, tuple[float, list[dict]]] = {}
 _TTL = 60
@@ -33,7 +33,7 @@ async def _get_rich_spot(force: bool = False) -> list[dict]:
     rows: list[dict] = []
     # 优先东财接口（含 量比/换手/5分钟涨跌）
     try:
-        df = await asyncio.to_thread(ak.stock_zh_a_spot_em)
+        df = await asyncio.to_thread(akshare_guard.call, ak.stock_zh_a_spot_em)
         for _, row in df.iterrows():
             try:
                 amount = float(row.get("成交额", 0))
@@ -56,7 +56,7 @@ async def _get_rich_spot(force: bool = False) -> list[dict]:
     except Exception as e:
         # Fallback：腾讯基础接口（基础字段，量比/换手/5分钟涨跌不可用）
         try:
-            df = await asyncio.to_thread(ak.stock_zh_a_spot)
+            df = await asyncio.to_thread(akshare_guard.call, ak.stock_zh_a_spot)
             for _, row in df.iterrows():
                 try:
                     amount = float(row.get("成交额", 0))

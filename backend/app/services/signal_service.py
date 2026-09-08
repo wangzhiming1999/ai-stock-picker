@@ -64,8 +64,9 @@ def compute_signals(closes: list[float], price: float) -> dict | None:
     # 卖出区：现价上方 1%（冲高卖点），但不高于压力位
     sell_point = round(min(current * 1.01, resistance), 2)
 
-    # 风险收益比
-    upside = sell_point - current
+    # 风险收益比按主压力位计算；sell_point 只是 1% 的分批观察价，不能作为完整收益空间，
+    # 否则绝大多数正常形态都会被错误判为低风险收益比。
+    upside = resistance - current
     downside = current - stop_loss
     rr_ratio = round(upside / downside, 2) if downside > 0 else 0.0
 

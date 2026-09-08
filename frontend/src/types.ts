@@ -178,6 +178,11 @@ export interface DailyRecommendation {
   /** 关联 daily_recommendations.id，模拟盘买卖可回写 related_reco_id */
   id?: string | null;
   tags?: string[];
+  trigger?: string;
+  invalidation?: string;
+  target?: string;
+  risk_reward?: number;
+  valid_until?: string;
 }
 
 export interface DailyRecommendResult {
@@ -188,6 +193,7 @@ export interface DailyRecommendResult {
   source: "llm" | "rule" | "empty";
   recommendations: DailyRecommendation[];
   candidates: number;
+  rejected?: number;
   message?: string;
   generated_at?: string;
 }
@@ -428,11 +434,13 @@ export interface WinrateStats {
     hit: number;
     hit_rate: number | null;
     by_direction: Record<string, { total: number; hit: number; hit_rate: number | null }>;
+    sample_status?: "insufficient" | "developing" | "established";
   } | null;
   recommendation: {
     total: number;
     hit: number;
     hit_rate: number | null;
+    sample_status?: "insufficient" | "developing" | "established";
   } | null;
   snapshot: {
     snapshot_date: string;
@@ -625,6 +633,10 @@ export interface BriefingStock {
   suggest_amount?: number | null;
   suggest_shares?: number | null;
   risk_level?: string;
+  trigger?: string;
+  invalidation?: string;
+  target?: string;
+  valid_until?: string;
 }
 
 /** 尾盘持仓操作项 */

@@ -18,6 +18,7 @@ router = APIRouter(prefix="/api/market", tags=["monitor"])
 _KLINE_TTL = 30 * 60  # 30 分钟
 _CN_TZ = dt.timezone(dt.timedelta(hours=8))
 _kline_cache: dict[str, tuple[float, list[float] | None]] = {}
+_KLINE_CACHE_MAX = 200
 
 
 class MonitorRequest(BaseModel):
@@ -37,6 +38,10 @@ def _get_closes_cached(code: str, days: int = 120, force: bool = False) -> list[
         closes = hist.closes if hist and hist.closes else None
     except Exception:
         closes = None
+    if len(_kline_cache) >= _KLINE_CACHE_MAX:
+        oldest = sorted(_kline_cache, key=lambda item: _kline_cache[item][0])[: max(1, _KLINE_CACHE_MAX // 4)]
+        for old_code in oldest:
+            _kline_cache.pop(old_code, None)
     _kline_cache[code] = (now, closes)
     return closes
 

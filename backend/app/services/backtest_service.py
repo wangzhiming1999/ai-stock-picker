@@ -11,6 +11,8 @@ import time
 import akshare as ak
 import pandas as pd
 
+from app.services import akshare_guard
+
 # 默认股票池（各行业代表性标的，控制数量以适配 Serverless 超时）
 DEFAULT_POOL = [
     "600519", "000858", "300750", "601318", "600036", "000333",
@@ -58,7 +60,8 @@ def _fetch_history(code: str, start: str, end: str) -> pd.DataFrame:
     if key in _history_cache and now - _history_cache[key][0] < _HIST_TTL:
         return _history_cache[key][1]
     try:
-        df = ak.stock_zh_a_hist_tx(
+        df = akshare_guard.call(
+            ak.stock_zh_a_hist_tx,
             symbol=_symbol(code),
             start_date=start.replace("-", ""),
             end_date=end.replace("-", ""),
@@ -276,7 +279,7 @@ def run_backtest(params: BacktestParams) -> dict:
     # 基准收益（沪深300，用新浪指数接口兜底）
     benchmark_return = None
     try:
-        bdf = ak.stock_zh_index_daily(symbol=BENCHMARK)
+        bdf = akshare_guard.call(ak.stock_zh_index_daily, symbol=BENCHMARK)
         bdf["date"] = pd.to_datetime(bdf["date"])
         bdf = bdf[bdf["date"].dt.date >= dt.date.fromisoformat(start)]
         bdf = bdf[bdf["date"].dt.date <= dt.date.fromisoformat(equity_curve[-1]["date"])]

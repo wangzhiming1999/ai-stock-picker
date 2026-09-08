@@ -8,7 +8,7 @@ import akshare as ak
 from openai import AsyncOpenAI
 
 from app.config import get_settings
-from app.services import signal_service, supabase_store, trade_calendar_service
+from app.services import akshare_guard, signal_service, supabase_store, trade_calendar_service
 
 MARKET_INDEX = "sh000001"
 MARKET_NAME = "上证指数"
@@ -53,7 +53,7 @@ PREDICTION_SYSTEM_PROMPT = """你是一位擅长 A 股大盘研判的资深策�
 
 def get_index_history(days: int = 180) -> list[dict]:
     """获取上证指数历史K线。"""
-    df = ak.stock_zh_index_daily(symbol=MARKET_INDEX)
+    df = akshare_guard.call(ak.stock_zh_index_daily, symbol=MARKET_INDEX)
     df = df.tail(days)
     return [
         {

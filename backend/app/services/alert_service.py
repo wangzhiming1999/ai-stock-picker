@@ -19,6 +19,26 @@ from app.services import data_service, portfolio_service, supabase_store, watchl
 _RULE_TYPES = {"stop_loss", "breakdown", "price_target"}
 # 同一规则命中后冷却期（避免盘中反复刷事件）
 _COOLDOWN_HOURS = 24
+_CN_TZ = dt.timezone(dt.timedelta(hours=8))
+
+
+def _is_quote_usable(quote, now: dt.datetime | None = None) -> bool:
+    """预警只使用可确认时间的行情，防止旧价格触发错误通知。"""
+    if not getattr(quote, "quote_time", None):
+        return False
+    now = now or dt.datetime.now(dt.timezone.utc).astimezone(_CN_TZ)
+    try:
+        quoted_at = dt.datetime.fromisoformat(quote.quote_time)
+        if quoted_at.tzinfo is None:
+            quoted_at = quoted_at.replace(tzinfo=_CN_TZ)
+        quoted_at = quoted_at.astimezone(_CN_TZ)
+    except (TypeError, ValueError):
+        return False
+    if quoted_at.date() != now.astimezone(_CN_TZ).date():
+        return False
+    local_time = now.astimezone(_CN_TZ).time()
+    market_open = dt.time(9, 15) <= local_time <= dt.time(11, 30) or dt.time(13, 0) <= local_time <= dt.time(15, 0)
+    return not market_open or (now - quoted_at).total_seconds() <= 180
 
 
 def _require_configured() -> None:
@@ -206,7 +226,7 @@ async def _fire_for_user(user_id: str, codes: list[str]) -> int:
     for r in enabled:
         code = r["code"]
         q = quote_map.get(code)
-        if not q or q.price is None:
+        if not q or q.price is None or not _is_quote_usable(q):
             continue
         if not _should_fire(r["type"], q.price, r["threshold"]):
             continue

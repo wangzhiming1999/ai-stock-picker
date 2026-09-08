@@ -1,4 +1,5 @@
 """定时任务路由：Vercel Cron 触发每日收盘结算。"""
+import datetime as dt
 import os
 
 from fastapi import APIRouter, HTTPException, Request
@@ -6,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Request
 from app.services import alert_service, quad_service, recommend_service, sim_service, winrate_service
 
 router = APIRouter(prefix="/api/cron", tags=["cron"])
+_CN_TZ = dt.timezone(dt.timedelta(hours=8))
 
 
 def _authorize(request: Request) -> None:
@@ -76,3 +78,22 @@ async def quad_cron(request: Request):
         return {"ok": True, "date": result["date"], "items": len(result["items"]), "pool": result["pool_size"]}
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"四维牛股榜预热失败: {e}")
+
+
+@router.post("/monitor")
+async def monitor_cron(request: Request):
+    """服务端盘中监控入口，供外部调度器每分钟调用；浏览器关闭后仍可落库预警。"""
+    _authorize(request)
+    now = dt.datetime.now(dt.timezone.utc).astimezone(_CN_TZ)
+    local_time = now.time()
+    market_open = now.weekday() < 5 and (
+        dt.time(9, 15) <= local_time <= dt.time(11, 30)
+        or dt.time(13, 0) <= local_time <= dt.time(15, 0)
+    )
+    if not market_open:
+        return {"ok": True, "skipped": "market_closed", "executed_at": now.isoformat(timespec="seconds")}
+    try:
+        result = await alert_service.evaluate_all()
+        return {"ok": True, "executed_at": now.isoformat(timespec="seconds"), **result}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"盘中监控失败: {type(e).__name__}")

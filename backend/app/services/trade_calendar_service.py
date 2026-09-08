@@ -14,7 +14,7 @@ import logging
 import akshare as ak
 import pandas as pd
 
-from app.services import supabase_store
+from app.services import akshare_guard, supabase_store
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +147,7 @@ async def _get_calendar() -> dict[str, bool]:
 
     # akshare 拉取全量交易日（含未来），生成完整日历（含非交易日 False）
     try:
-        df = await asyncio.to_thread(ak.tool_trade_date_hist_sina)
+        df = await asyncio.to_thread(akshare_guard.call, ak.tool_trade_date_hist_sina)
         trade_set = {str(d)[:10] for d in df["trade_date"].tolist()}
         # 覆盖最近 ~5 年（akshare 数据从 1990 开始到未来）
         if trade_set:

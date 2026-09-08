@@ -7,7 +7,7 @@ import akshare as ak
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from app.services import data_service, market_prediction, opportunity_service, recommend_service, supabase_store, winrate_service
+from app.services import akshare_guard, data_service, market_prediction, opportunity_service, recommend_service, supabase_store, winrate_service
 
 router = APIRouter(prefix="/api/market", tags=["market"])
 
@@ -65,7 +65,7 @@ async def _get_spot(force: bool = False) -> list:
     if db_rows:
         _spot_cache = (now, db_rows)
         return db_rows
-    df = await asyncio.to_thread(ak.stock_zh_a_spot)
+    df = await asyncio.to_thread(akshare_guard.call, ak.stock_zh_a_spot)
     rows = []
     for _, row in df.iterrows():
         try:
@@ -101,7 +101,7 @@ class ScanRequest(BaseModel):
 async def get_industries():
     """A 股行业板块列表（新浪行业）。"""
     try:
-        df = await asyncio.to_thread(ak.stock_sector_spot, "新浪行业")
+        df = await asyncio.to_thread(akshare_guard.call, ak.stock_sector_spot, "新浪行业")
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"获取行业板块失败: {e}")
     items = []
@@ -123,7 +123,7 @@ async def get_industries():
 async def get_industry_stocks(label: str):
     """某行业板块的成分股及实时行情。"""
     try:
-        df = await asyncio.to_thread(ak.stock_sector_detail, label)
+        df = await asyncio.to_thread(akshare_guard.call, ak.stock_sector_detail, label)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"获取板块成分失败: {e}")
     stocks = []

@@ -1,4 +1,5 @@
 import os
+import threading
 import time
 from collections import defaultdict
 from contextlib import asynccontextmanager
@@ -16,17 +17,31 @@ settings = get_settings()
 
 # ---------- 简单限流中间件（IP + 路径 滑动窗口） ----------
 class RateLimiter:
-    def __init__(self, max_requests: int = 60, window: int = 60):
+    def __init__(self, max_requests: int = 60, window: int = 60, max_keys: int = 10_000):
         self.max_requests = max_requests
         self.window = window
+        self.max_keys = max_keys
         self.hits: dict[str, list[float]] = defaultdict(list)
 
     def allow(self, key: str) -> bool:
         now = time.monotonic()
-        self.hits[key] = [t for t in self.hits[key] if now - t < self.window]
-        if len(self.hits[key]) >= self.max_requests:
+        timestamps = [t for t in self.hits.get(key, []) if now - t < self.window]
+        if len(timestamps) >= self.max_requests:
+            self.hits[key] = timestamps
             return False
-        self.hits[key].append(now)
+        timestamps.append(now)
+        self.hits[key] = timestamps
+        if len(self.hits) > self.max_keys:
+            stale = [k for k, values in self.hits.items() if not values or now - values[-1] >= self.window]
+            excess = max(1, len(self.hits) - self.max_keys)
+            if len(stale) < excess:
+                active = sorted(
+                    ((k, values[-1]) for k, values in self.hits.items() if k not in stale and values),
+                    key=lambda item: item[1],
+                )
+                stale.extend(k for k, _ in active[: excess - len(stale)])
+            for stale_key in stale[:excess]:
+                self.hits.pop(stale_key, None)
         return True
 
 

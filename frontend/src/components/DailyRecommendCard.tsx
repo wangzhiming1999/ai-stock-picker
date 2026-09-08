@@ -91,7 +91,8 @@ export default function DailyRecommendCard({ onPick, collapsed = false }: Props)
             <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[11px] text-amber-400">最近交易日</span>
           )}
           <span className="ml-auto rounded bg-slate-900 px-1.5 py-0.5 text-[11px] text-slate-400">
-            {data.source === "llm" ? "AI 精选" : data.source === "rule" ? "规则推荐" : "暂无推荐"} · {data.candidates} 个候选
+            {data.source === "llm" ? "AI 精选" : data.source === "rule" ? "规则推荐" : "暂无推荐"} · {data.candidates} 个通过
+            {data.rejected ? ` · ${data.rejected} 个被风控过滤` : ""}
           </span>
         </div>
       )}
@@ -139,6 +140,13 @@ export default function DailyRecommendCard({ onPick, collapsed = false }: Props)
                       {tag}
                     </span>
                   ))}
+                </div>
+              )}
+              {(r.trigger || r.invalidation || r.target) && (
+                <div className="mt-2 grid gap-1 rounded-md border border-slate-800 bg-slate-900/70 p-2 text-[11px] sm:grid-cols-3">
+                  <div><span className="text-slate-500">触发：</span><span className="text-green-300">{r.trigger || "等待确认"}</span></div>
+                  <div><span className="text-slate-500">失效：</span><span className="text-red-300">{r.invalidation || "转弱放弃"}</span></div>
+                  <div><span className="text-slate-500">目标：</span><span className="text-slate-300">{r.target || "待确认"}</span></div>
                 </div>
               )}
             </div>
