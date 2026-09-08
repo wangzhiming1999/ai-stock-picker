@@ -5,10 +5,19 @@ from app.services.recommend_service import (
     _build_watchlist_candidates,
     _merge_strategy_results,
     _quality_gate,
+    _should_use_cached_recommendation,
 )
 
 
 class RecommendQualityTests(unittest.TestCase):
+    def test_legacy_empty_snapshot_is_regenerated_for_watchlist_support(self) -> None:
+        self.assertFalse(
+            _should_use_cached_recommendation({"source": "empty", "recommendations": []})
+        )
+        self.assertTrue(
+            _should_use_cached_recommendation({"source": "empty", "recommendations": [], "watchlist": []})
+        )
+
     def test_rejects_high_chase_candidate(self) -> None:
         candidate = {"price": 20, "change_pct": 8.5, "turnover": 4, "strategy_score": 8, "signal": {"rr_ratio": 2}}
         accepted, flags = _quality_gate(candidate)

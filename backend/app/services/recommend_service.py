@@ -53,6 +53,11 @@ def clear_recommendation_cache() -> None:
     _recommendation_cache.clear()
 
 
+def _should_use_cached_recommendation(result: dict) -> bool:
+    """Reject pre-watchlist empty snapshots created by older deployments."""
+    return not (result.get("source") == "empty" and "watchlist" not in result)
+
+
 def _quality_gate(candidate: dict) -> tuple[bool, list[str]]:
     """推荐硬门槛：宁缺毋滥，拒绝追高、低流动性和低风险收益比。"""
     flags: list[str] = []
@@ -176,7 +181,7 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
     # 1. 数据库缓存（按数据日）
     if not force_refresh:
         db_result = await _load_db_recommendation(today)
-        if db_result:
+        if db_result and _should_use_cached_recommendation(db_result):
             db_result = _with_target(db_result)
             put_bounded(_recommendation_cache, today, (dt.datetime.now().isoformat(), db_result), max_entries=_RECOMMENDATION_CACHE_MAX)
             return db_result
