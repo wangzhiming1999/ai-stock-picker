@@ -106,6 +106,52 @@ async def _set_cash(user_id: str, cash: float) -> None:
     )
 
 
+async def _execute_trade_atomic(
+    sb,
+    *,
+    user_id: str,
+    code: str,
+    name: str,
+    side: str,
+    price: float,
+    shares: int,
+    fee: float,
+    amount: float,
+    source: str,
+    related_reco_id: str | None,
+    note: str,
+) -> dict:
+    """在数据库单事务内校验账户并完成现金与流水变更。"""
+    params = {
+        "p_user_id": user_id,
+        "p_code": code,
+        "p_name": name,
+        "p_side": side,
+        "p_price": round(price, 2),
+        "p_shares": shares,
+        "p_fee": fee,
+        "p_amount": round(amount, 2),
+        "p_source": source,
+        "p_related_reco_id": str(related_reco_id) if related_reco_id else None,
+        "p_note": note or "",
+        "p_trade_date": _today().isoformat(),
+    }
+    try:
+        response = await sb.rpc("execute_sim_trade", params).execute()
+    except Exception as exc:
+        message = str(exc)
+        for known in ("现金不足", "可用股数不足", "模拟账户不存在", "交易参数无效"):
+            if known in message:
+                raise ValueError(known) from exc
+        raise RuntimeError("模拟交易提交失败") from exc
+    data = response.data
+    if isinstance(data, list):
+        data = data[0] if data else None
+    if not isinstance(data, dict) or not isinstance(data.get("trade"), dict):
+        raise RuntimeError("模拟交易返回异常")
+    return data
+
+
 async def _load_trades(user_id: str) -> list[dict]:
     sb = await supabase_store.get_service_client()
     res = (
@@ -264,22 +310,12 @@ async def buy(
         raise ValueError(f"现金不足：本次需 ¥{total:,.2f}，当前可用 ¥{cash:,.2f}")
 
     sb = await supabase_store.get_service_client()
-    row = {
-        "user_id": user_id,
-        "code": code,
-        "name": name,
-        "side": "buy",
-        "price": round(price, 2),
-        "shares": shares,
-        "fee": fee,
-        "amount": round(total, 2),
-        "source": source,
-        "related_reco_id": str(related_reco_id) if related_reco_id else None,
-        "note": note or "",
-    }
-    await _set_cash(user_id, cash - total)
-    ins = await sb.table("sim_trades").insert(row).execute()
-    row = ins.data[0] if ins.data else row
+    executed = await _execute_trade_atomic(
+        sb, user_id=user_id, code=code, name=name, side="buy", price=price,
+        shares=shares, fee=fee, amount=total, source=source,
+        related_reco_id=related_reco_id, note=note,
+    )
+    row = executed["trade"]
     account = await get_account(user_id)
     return {"trade": row, "account": account}
 
@@ -343,24 +379,12 @@ async def sell(
     proceeds = price * shares - fee
 
     sb = await supabase_store.get_service_client()
-    profile = await _get_or_create_profile(user_id)
-    cash = float(profile.get("cash") or 0)
-    row = {
-        "user_id": user_id,
-        "code": code,
-        "name": name,
-        "side": "sell",
-        "price": round(price, 2),
-        "shares": shares,
-        "fee": fee,
-        "amount": round(proceeds, 2),
-        "source": source,
-        "related_reco_id": str(related_reco_id) if related_reco_id else None,
-        "note": note or "",
-    }
-    await _set_cash(user_id, cash + proceeds)
-    ins = await sb.table("sim_trades").insert(row).execute()
-    row = ins.data[0] if ins.data else row
+    executed = await _execute_trade_atomic(
+        sb, user_id=user_id, code=code, name=name, side="sell", price=price,
+        shares=shares, fee=fee, amount=proceeds, source=source,
+        related_reco_id=related_reco_id, note=note,
+    )
+    row = executed["trade"]
 
     # P2：反写关联推荐结算，闭合胜率环
     if related_reco_id:
