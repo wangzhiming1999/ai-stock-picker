@@ -110,7 +110,11 @@ export default function DailyRecommendCard({ onPick, collapsed = false }: Props)
       {data?.message && <div className="rounded-lg bg-slate-800/50 px-3 py-2 text-sm text-slate-400">{data.message}</div>}
 
       {data?.recommendations?.length ? (
-        <div className="max-h-[480px] space-y-2 overflow-y-auto pr-1">
+        <div className="space-y-3">
+          <div className="rounded-lg border border-emerald-800/40 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-200">
+            以下标的已通过基础风控，但仍须满足卡片里的“触发”条件；未触发就不买。
+          </div>
+          <div className="max-h-[480px] space-y-2 overflow-y-auto pr-1">
           {data.recommendations.map((r, idx) => (
             <div
               key={r.code}
@@ -159,6 +163,7 @@ export default function DailyRecommendCard({ onPick, collapsed = false }: Props)
               )}
             </div>
           ))}
+          </div>
         </div>
       ) : null}
 
@@ -218,8 +223,8 @@ export default function DailyRecommendCard({ onPick, collapsed = false }: Props)
   return (
     <CollapsiblePanel
       id="daily_recommend"
-      title={data ? `今天可以买什么 · ${fmtDate(data.date)}` : "今天可以买什么"}
-      subtitle="只有同时满足趋势和风险要求的股票，才会出现在这里"
+      title={data ? `今天有哪些可行动机会 · ${fmtDate(data.date)}` : "今天有哪些可行动机会"}
+      subtitle="通过基础风控后仍需等待触发条件，不是看到名单就直接买"
       action={
         <div className="flex items-center gap-2">
           {actions}

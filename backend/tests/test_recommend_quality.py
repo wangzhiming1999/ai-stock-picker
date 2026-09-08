@@ -14,7 +14,8 @@ class RecommendQualityTests(unittest.TestCase):
         self.assertFalse(
             _should_use_cached_recommendation({"source": "empty", "recommendations": []})
         )
-        self.assertTrue(_should_use_cached_recommendation({"schema_version": 2, "source": "empty", "recommendations": [], "watchlist": []}))
+        self.assertFalse(_should_use_cached_recommendation({"schema_version": 2, "source": "empty", "recommendations": [], "watchlist": []}))
+        self.assertTrue(_should_use_cached_recommendation({"schema_version": 3, "source": "empty", "recommendations": [], "watchlist": []}))
 
     def test_rejects_high_chase_candidate(self) -> None:
         candidate = {"price": 20, "change_pct": 8.5, "turnover": 4, "strategy_score": 8, "signal": {"rr_ratio": 2}}
@@ -27,6 +28,36 @@ class RecommendQualityTests(unittest.TestCase):
         accepted, flags = _quality_gate(candidate)
         self.assertFalse(accepted)
         self.assertIn("风险收益比不足", flags)
+
+    def test_accepts_confirmed_breakout_setup_even_when_old_resistance_makes_rr_small(self) -> None:
+        candidate = {
+            "price": 106.97,
+            "change_pct": 0.94,
+            "turnover": 2.5,
+            "strategy_score": 5.9,
+            "tags": ["接近新高", "量能活跃", "均线多头", "MACD转强"],
+            "signal": {"rr_ratio": 0.6, "strength": 8, "resistance": 108.0, "support": 101.0},
+        }
+
+        accepted, flags = _quality_gate(candidate)
+
+        self.assertTrue(accepted)
+        self.assertNotIn("风险收益比不足", flags)
+
+    def test_breakout_action_plan_uses_resistance_as_trigger(self) -> None:
+        candidate = {
+            "price": 106.97,
+            "change_pct": 0.94,
+            "strategy_score": 5.9,
+            "tags": ["接近新高", "量能活跃", "均线多头"],
+            "signal": {"buy_point": 105.9, "stop_loss": 101.0, "resistance": 108.0, "rr_ratio": 0.6, "strength": 8},
+        }
+
+        plan = _build_action_plan(candidate, "2026-09-09")
+
+        self.assertIn("放量突破 108.00", plan["trigger"])
+        self.assertIn("未突破不买", plan["trigger"])
+        self.assertIn("跌回 108.00", plan["invalidation"])
 
     def test_allows_low_turnover_for_large_cap_candidate(self) -> None:
         candidate = {

@@ -15,7 +15,7 @@ from app.services.cache_utils import put_bounded
 # 每日推荐缓存：key=日期，value=(生成时间, data)。一天只跑一次。
 _recommendation_cache: dict[str, tuple[str, dict]] = {}
 _RECOMMENDATION_CACHE_MAX = 7
-_RECOMMENDATION_SCHEMA_VERSION = 2
+_RECOMMENDATION_SCHEMA_VERSION = 3
 
 RECOMMEND_SYSTEM_PROMPT = """你是一位资深的 A 股投资顾问，类似同花顺/指南针的"明日机会股"专栏主编，擅长从候选股票中挑选下一个交易日最值得关注的标的。
 
@@ -76,9 +76,32 @@ def _quality_gate(candidate: dict) -> tuple[bool, list[str]]:
         flags.append("流动性异常")
     if score < 4:
         flags.append("策略强度不足")
-    if rr < 1.2:
+    # 突破票的旧压力位天然贴近现价，用旧压力位算回踩风报比会误杀。
+    # 仅当趋势、量能、位置和信号强度同时确认时，允许走条件突破路径。
+    if rr < 1.2 and not _is_breakout_setup(candidate):
         flags.append("风险收益比不足")
     return not flags, flags
+
+
+def _is_breakout_setup(candidate: dict) -> bool:
+    """识别可行动的突破准备，不把单一放量或接近高点当成买点。"""
+    tags = set(candidate.get("tags") or [])
+    signal = candidate.get("signal") or {}
+    change = float(candidate.get("change_pct") or 0)
+    score = float(candidate.get("strategy_score") or 0)
+    strength = float(signal.get("strength") or 0)
+    resistance = float(signal.get("resistance") or 0)
+    price = float(candidate.get("price") or 0)
+    near_resistance = resistance > 0 and price > 0 and 0.97 <= price / resistance <= 1.01
+    return (
+        0 <= change <= 5
+        and score >= 5.5
+        and strength >= 7
+        and near_resistance
+        and "接近新高" in tags
+        and "量能活跃" in tags
+        and ("均线多头" in tags or "趋势上行" in tags)
+    )
 
 
 def _build_action_plan(candidate: dict, valid_until: str) -> dict:
@@ -87,12 +110,24 @@ def _build_action_plan(candidate: dict, valid_until: str) -> dict:
     buy = float(signal.get("buy_point") or candidate.get("price") or 0)
     stop = float(signal.get("stop_loss") or 0)
     target = float(signal.get("resistance") or signal.get("sell_point") or 0)
+    if _is_breakout_setup(candidate):
+        breakout = float(signal.get("resistance") or 0)
+        projected_target = breakout + max(breakout - stop, breakout * 0.03) * 1.5
+        return {
+            "trigger": f"放量突破 {breakout:.2f} 并站稳再行动，未突破不买",
+            "invalidation": f"突破后跌回 {breakout:.2f} 下方则放弃，最迟跌破 {stop:.2f} 止损",
+            "target": f"突破路径第一观察目标 {projected_target:.2f}",
+            "risk_reward": 1.5,
+            "valid_until": valid_until,
+            "setup": "breakout",
+        }
     return {
         "trigger": f"回踩 {buy:.2f} 附近企稳，或放量确认后再关注",
         "invalidation": f"跌破 {stop:.2f} 则放弃，不补仓" if stop else "量价转弱则放弃",
         "target": f"第一观察目标 {target:.2f}" if target else "目标位待信号确认",
         "risk_reward": float(signal.get("rr_ratio") or 0),
         "valid_until": valid_until,
+        "setup": "pullback",
     }
 
 
