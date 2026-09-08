@@ -15,6 +15,7 @@ from app.services.cache_utils import put_bounded
 # 每日推荐缓存：key=日期，value=(生成时间, data)。一天只跑一次。
 _recommendation_cache: dict[str, tuple[str, dict]] = {}
 _RECOMMENDATION_CACHE_MAX = 7
+_RECOMMENDATION_SCHEMA_VERSION = 2
 
 RECOMMEND_SYSTEM_PROMPT = """你是一位资深的 A 股投资顾问，类似同花顺/指南针的"明日机会股"专栏主编，擅长从候选股票中挑选下一个交易日最值得关注的标的。
 
@@ -54,8 +55,8 @@ def clear_recommendation_cache() -> None:
 
 
 def _should_use_cached_recommendation(result: dict) -> bool:
-    """Reject pre-watchlist empty snapshots created by older deployments."""
-    return not (result.get("source") == "empty" and "watchlist" not in result)
+    """Reject snapshots created before the current recommendation contract."""
+    return result.get("schema_version") == _RECOMMENDATION_SCHEMA_VERSION
 
 
 def _quality_gate(candidate: dict) -> tuple[bool, list[str]]:
@@ -116,6 +117,8 @@ def _merge_strategy_results(strategy_results: list[tuple[str, list[dict]]]) -> l
         scores = merged["strategy_scores"]
         momentum = scores.get("momentum", 0)
         trend = scores.get("trend", 0)
+        if abs(float(merged.get("change_pct") or 0)) > 7:
+            continue
         if momentum < 4 or trend < 3.5:
             continue
         votes = [name for name, score in scores.items() if score >= 3.5]
@@ -258,7 +261,7 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
     # 2. 按策略分排序取 top 16，允许 LLM 精选但不强制凑满 10 只。
     ranked = sorted(qualified, key=lambda x: x["strategy_score"], reverse=True)[:16]
     if not ranked:
-        result = {"date": today, "target_date": target_day, "source": "empty", "recommendations": [], "watchlist": watchlist, "candidates": 0, "rejected": len(rejected), "message": "当前没有达到直接行动级别的标的，以下观察候选等待条件确认"}
+        result = {"schema_version": _RECOMMENDATION_SCHEMA_VERSION, "date": today, "target_date": target_day, "source": "empty", "recommendations": [], "watchlist": watchlist, "candidates": 0, "rejected": len(rejected), "message": "当前没有达到直接行动级别的标的，以下观察候选等待条件确认"}
         put_bounded(_recommendation_cache, today, (dt.datetime.now().isoformat(), result), max_entries=_RECOMMENDATION_CACHE_MAX)
         return result
 
@@ -351,6 +354,7 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
             )
 
     result = {
+        "schema_version": _RECOMMENDATION_SCHEMA_VERSION,
         "date": today,
         "target_date": target_day,
         "source": source,

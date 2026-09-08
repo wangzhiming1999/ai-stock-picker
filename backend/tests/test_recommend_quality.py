@@ -14,9 +14,7 @@ class RecommendQualityTests(unittest.TestCase):
         self.assertFalse(
             _should_use_cached_recommendation({"source": "empty", "recommendations": []})
         )
-        self.assertTrue(
-            _should_use_cached_recommendation({"source": "empty", "recommendations": [], "watchlist": []})
-        )
+        self.assertTrue(_should_use_cached_recommendation({"schema_version": 2, "source": "empty", "recommendations": [], "watchlist": []}))
 
     def test_rejects_high_chase_candidate(self) -> None:
         candidate = {"price": 20, "change_pct": 8.5, "turnover": 4, "strategy_score": 8, "signal": {"rr_ratio": 2}}
@@ -77,6 +75,14 @@ class RecommendQualityTests(unittest.TestCase):
 
         self.assertEqual([item["code"] for item in watchlist], ["600000"])
         self.assertEqual(watchlist[0]["status"], "等待趋势确认")
+
+    def test_watchlist_excludes_high_chase_candidate(self) -> None:
+        results = [
+            ("momentum", [{"code": "300001", "name": "高涨幅", "price": 20, "change_pct": 12, "strategy_score": 8, "tags": [], "indicators": {}}]),
+            ("trend", [{"code": "300001", "name": "高涨幅", "price": 20, "change_pct": 12, "strategy_score": 5, "tags": [], "indicators": {}}]),
+        ]
+
+        self.assertEqual(_build_watchlist_candidates(results, excluded_codes=set()), [])
 
 
 if __name__ == "__main__":
