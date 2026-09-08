@@ -119,12 +119,11 @@ async def save_batch(user_id: str | None, codes: list[str], mode: str, results: 
     return batch_id
 
 
-async def list_batches(user_id: str | None, limit: int = 20) -> list[dict]:
+async def list_batches(user_id: str, limit: int = 20) -> list[dict]:
     """列出最近的分析批次（只查当前用户的），附带每批次的股票名称。"""
     sb = await get_service_client()
     query = sb.table("analysis_batches").select("*").order("created_at", desc=True).limit(limit)
-    if user_id:
-        query = query.eq("user_id", user_id)
+    query = query.eq("user_id", user_id)
     res = await query.execute()
     batches = res.data or []
     if not batches:
@@ -164,12 +163,11 @@ async def list_batches(user_id: str | None, limit: int = 20) -> list[dict]:
     return batches
 
 
-async def get_batch(batch_id: int, user_id: str | None) -> dict | None:
+async def get_batch(batch_id: int, user_id: str) -> dict | None:
     """查询批次及全部结果（校验归属）。"""
     sb = await get_service_client()
     q = sb.table("analysis_batches").select("*").eq("id", batch_id)
-    if user_id:
-        q = q.eq("user_id", user_id)
+    q = q.eq("user_id", user_id)
     res = await q.execute()
     if not res.data:
         return None

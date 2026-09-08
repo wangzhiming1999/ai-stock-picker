@@ -13,6 +13,14 @@ from app.services import data_service, signal_service, supabase_store
 RISK_LEVELS = {"保守", "稳健", "进取", "激进"}
 
 
+def _select_stop_price(cost_price: float, technical_stop: float | None = None) -> float:
+    """固定最大亏损是硬底线；有效技术止损只能收紧，不能放大亏损。"""
+    fixed_stop = round(cost_price * 0.93, 2)
+    if technical_stop and 0 < technical_stop < cost_price:
+        return round(max(fixed_stop, technical_stop), 2)
+    return fixed_stop
+
+
 def _require_configured():
     if not supabase_store.is_configured():
         raise RuntimeError("Supabase 未配置")
@@ -107,13 +115,13 @@ async def add_holding(user_id: str, code: str, cost_price: float, shares: int, b
         hid = res.data[0]["id"]
 
     # 自动止损预警：成本价 -7% 保底，技术信号止损位（若有且更低）优先
-    stop_price = round(cost_price * 0.93, 2)
+    stop_price = _select_stop_price(cost_price)
     try:
         hist = await asyncio.to_thread(data_service.get_history, code, 60)
         if hist and hist.closes:
             signal = signal_service.compute_signals(hist.closes, hist.closes[-1])
-            if signal and signal.get("stop_loss") and signal["stop_loss"] < stop_price:
-                stop_price = signal["stop_loss"]
+            if signal:
+                stop_price = _select_stop_price(cost_price, signal.get("stop_loss"))
     except Exception:
         pass
     rule_sync = None

@@ -2,38 +2,34 @@
 
 支持两种存储：配置 Supabase 后走 Postgres（按用户隔离），否则回退本地 SQLite。
 """
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException
 
 from app import store
 from app.services import supabase_store
+from app.routes.portfolio import _require_user
 
 router = APIRouter(prefix="/api/history", tags=["history"])
 
 
-async def _resolve_user(request: Request) -> str | None:
-    """从 Authorization: Bearer <jwt> 解析用户 id（未带 token 返回 None）。"""
-    auth = request.headers.get("authorization", "")
-    if not auth.lower().startswith("bearer "):
+async def _history_user(authorization: str | None = Header(None)) -> str | None:
+    """Supabase 生产存储强制登录；本地 SQLite 降级模式保持可用。"""
+    if not supabase_store.is_configured():
         return None
-    token = auth.split(" ", 1)[1].strip()
-    user = await supabase_store.get_user_by_token(token)
-    return user.id if user else None
+    return await _require_user(authorization)
 
 
 @router.get("/batches")
-async def get_batches(request: Request, limit: int = 20):
+async def get_batches(limit: int = 20, user_id: str | None = Depends(_history_user)):
     """最近的分析批次列表。"""
     if supabase_store.is_configured():
-        user_id = await _resolve_user(request)
         return await supabase_store.list_batches(user_id, limit)
     return store.list_batches(limit)
 
 
 @router.get("/batches/{batch_id}")
-async def get_batch_detail(request: Request, batch_id: int):
+async def get_batch_detail(batch_id: int, user_id: str | None = Depends(_history_user)):
     """批次详情（含全部个股结果）。"""
     if supabase_store.is_configured():
-        user_id = await _resolve_user(request)
         batch = await supabase_store.get_batch(batch_id, user_id)
         if batch is None:
             raise HTTPException(status_code=404, detail="批次不存在或无权限")
