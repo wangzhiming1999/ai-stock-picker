@@ -7,12 +7,43 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.responses import Response
 
 from app import store
 from app.config import get_settings
 from app.routes import analysis, alerts, auth, backtest, briefing, cron, history, market, monitor, portfolio, quad, sim, stock, watchlist, admin
 
 settings = get_settings()
+
+_PRODUCTION_FRONTEND_ORIGINS = [
+    "https://frontend-vert-kappa-64.vercel.app",
+    "https://frontend-wnagzhimings-projects.vercel.app",
+]
+
+
+def _effective_rate_limit(configured: bool, is_vercel: bool) -> bool:
+    return configured or is_vercel
+
+
+def _resolve_cors_origins(configured: str, is_vercel: bool) -> list[str]:
+    if configured:
+        return [origin.strip() for origin in configured.split(",") if origin.strip()]
+    if is_vercel:
+        return list(_PRODUCTION_FRONTEND_ORIGINS)
+    return ["*"]
+
+
+def _apply_security_headers(response: Response, is_vercel: bool) -> None:
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    if is_vercel:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+
+
+_is_vercel = bool(os.getenv("VERCEL"))
+_rate_limit_enabled = _effective_rate_limit(settings.enable_rate_limit, _is_vercel)
 
 
 # ---------- 简单限流中间件（IP + 路径 滑动窗口） ----------
@@ -64,19 +95,11 @@ app = FastAPI(
 # ---------- CORS ----------
 # 优先级：ALLOWED_ORIGINS 白名单 > Vercel 环境自动放行 *.vercel.app > 本地开发全放行
 _cors_kwargs = {
+    "allow_origins": _resolve_cors_origins(settings.allowed_origins, _is_vercel),
     "allow_credentials": True,
     "allow_methods": ["*"],
     "allow_headers": ["*"],
 }
-
-if settings.allowed_origins:
-    _cors_kwargs["allow_origins"] = [o.strip() for o in settings.allowed_origins.split(",") if o.strip()]
-elif os.getenv("VERCEL"):
-    # 部署在 Vercel 但未显式配置白名单时，放行所有 Vercel 部署域名（含预览环境）
-    _cors_kwargs["allow_origin_regex"] = r"https://[a-zA-Z0-9-]+\.vercel\.app"
-else:
-    # 本地开发
-    _cors_kwargs["allow_origins"] = ["*"]
 
 app.add_middleware(CORSMiddleware, **_cors_kwargs)
 
@@ -84,11 +107,18 @@ app.add_middleware(CORSMiddleware, **_cors_kwargs)
 # ---------- 限流中间件 ----------
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
-    if settings.enable_rate_limit:
+    if _rate_limit_enabled:
         key = f"{request.client.host}:{request.url.path}"
         if not _rate_limiter.allow(key):
             return JSONResponse(status_code=429, content={"detail": "请求过于频繁，请稍后再试"})
     return await call_next(request)
+
+
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    response = await call_next(request)
+    _apply_security_headers(response, _is_vercel)
+    return response
 
 
 app.include_router(stock.router)
@@ -126,7 +156,7 @@ async def health():
         "llm_host": host or None,
         "api_configured": bool(settings.deepseek_api_key),
         "mode": "mock(本地规则)" if should_use_mock() else "llm(DeepSeek)",
-        "rate_limit": settings.enable_rate_limit,
+        "rate_limit": _rate_limit_enabled,
         "supabase": supabase_configured(),
     }
 
