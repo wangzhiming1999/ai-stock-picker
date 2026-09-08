@@ -45,14 +45,19 @@ def compute_signals(closes: list[float], price: float) -> dict | None:
     ma5 = sum(closes[-5:]) / 5 if len(closes) >= 5 else ma20
     ma60 = sum(closes[-60:]) / 60
 
+    # Anchor structural levels to the cached K-line close, not the live quote.
+    # Otherwise a small intraday move can remove the previous support candidate
+    # and make advice jump backwards (for example, buy at 40 but hold at 39).
+    reference = closes[-1]
+
     # 主支撑：取最近的支撑候选（低于现价且尽可能接近）
     supports = [fib_618, bb_lower, ma20, ma60]
-    valid_supports = [s for s in supports if s < current]
+    valid_supports = [s for s in supports if s <= reference]
     support = max(valid_supports) if valid_supports else low
 
     # 主压力：取最近的压力候选（高于现价且尽可能接近）
     resistances = [fib_382, bb_upper, high]
-    valid_resistances = [r for r in resistances if r > current]
+    valid_resistances = [r for r in resistances if r > reference]
     resistance = min(valid_resistances) if valid_resistances else high
 
     # 止损位：主支撑下方约 3%（或斐波那契 61.8% 下方）
