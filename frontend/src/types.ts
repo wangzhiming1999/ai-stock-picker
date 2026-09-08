@@ -192,6 +192,17 @@ export interface DailyRecommendResult {
   target_date?: string;
   source: "llm" | "rule" | "empty";
   recommendations: DailyRecommendation[];
+  watchlist?: Array<{
+    code: string;
+    name: string;
+    price: number;
+    change_pct: number;
+    score: number;
+    tags?: string[];
+    status: string;
+    trigger: string;
+    valid_until?: string;
+  }>;
   candidates: number;
   rejected?: number;
   message?: string;

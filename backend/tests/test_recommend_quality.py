@@ -1,6 +1,11 @@
 import unittest
 
-from app.services.recommend_service import _build_action_plan, _merge_strategy_results, _quality_gate
+from app.services.recommend_service import (
+    _build_action_plan,
+    _build_watchlist_candidates,
+    _merge_strategy_results,
+    _quality_gate,
+)
 
 
 class RecommendQualityTests(unittest.TestCase):
@@ -51,6 +56,18 @@ class RecommendQualityTests(unittest.TestCase):
         self.assertEqual([item["code"] for item in merged], ["600000"])
         self.assertEqual(merged[0]["strategy_votes"], ["momentum", "trend"])
         self.assertLessEqual(merged[0]["strategy_score"], 10)
+
+    def test_watchlist_keeps_near_miss_without_promoting_value_only_stock(self) -> None:
+        results = [
+            ("momentum", [{"code": "600000", "name": "浦发银行", "price": 10, "strategy_score": 5, "tags": ["动量"], "indicators": {}}]),
+            ("trend", [{"code": "600000", "name": "浦发银行", "price": 10, "strategy_score": 3, "tags": ["趋势待确认"], "indicators": {}}]),
+            ("value", [{"code": "000001", "name": "平安银行", "price": 11, "strategy_score": 7, "tags": ["低估"], "indicators": {}}]),
+        ]
+
+        watchlist = _build_watchlist_candidates(results, excluded_codes=set())
+
+        self.assertEqual([item["code"] for item in watchlist], ["600000"])
+        self.assertEqual(watchlist[0]["status"], "等待趋势确认")
 
 
 if __name__ == "__main__":

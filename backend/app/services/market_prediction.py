@@ -9,12 +9,14 @@ from openai import AsyncOpenAI
 
 from app.config import get_settings
 from app.services import akshare_guard, signal_service, supabase_store, trade_calendar_service
+from app.services.cache_utils import put_bounded
 
 MARKET_INDEX = "sh000001"
 MARKET_NAME = "上证指数"
 
 # 每日大盘推衍缓存：key=日期，value=(生成时间, data)。一天只跑一次。
 _prediction_cache: dict[str, tuple[str, dict]] = {}
+_PREDICTION_CACHE_MAX = 7
 
 PREDICTION_SYSTEM_PROMPT = """你是一位擅长 A 股大盘研判的资深策略分析师，风格类似同花顺/指南针的收盘复盘研报。基于用户提供的上证指数【最新交易日收盘后】技术数据，研判【下一个交易日】的走势。
 
@@ -146,7 +148,7 @@ async def predict_tomorrow(force_refresh: bool = False) -> dict:
             db_result.setdefault("data_date", today)
             if not db_result.get("target_date"):
                 db_result["target_date"] = next_day.isoformat()
-            _prediction_cache[today] = (dt.datetime.now().isoformat(), db_result)
+            put_bounded(_prediction_cache, today, (dt.datetime.now().isoformat(), db_result), max_entries=_PREDICTION_CACHE_MAX)
             return db_result
     # 2. 内存缓存
     if not force_refresh and today in _prediction_cache:
@@ -228,7 +230,7 @@ async def predict_tomorrow(force_refresh: bool = False) -> dict:
         print(f"[prediction] 保存记录失败: {e}")
 
     # 写入每日缓存（内存 + 数据库）
-    _prediction_cache[today] = (dt.datetime.now().isoformat(), result)
+    put_bounded(_prediction_cache, today, (dt.datetime.now().isoformat(), result), max_entries=_PREDICTION_CACHE_MAX)
     try:
         await _save_db_prediction(today, result)
     except Exception as e:

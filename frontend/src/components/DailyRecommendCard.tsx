@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { CalendarDays } from "lucide-react";
+import { CalendarDays, Eye, ShieldCheck } from "lucide-react";
 import { fetchDailyRecommend } from "../api/client";
 import { fmtDate, fmtDayLabel, isTodayCN } from "../lib/dates";
 import CollapsiblePanel from "./CollapsiblePanel";
@@ -153,6 +153,45 @@ export default function DailyRecommendCard({ onPick, collapsed = false }: Props)
           ))}
         </div>
       ) : null}
+
+      {data && !data.recommendations.length && !!data.watchlist?.length && (
+        <div className="mt-3 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-1.5 text-sm font-semibold text-amber-200">
+                <Eye className="h-4 w-4" /> 条件观察池
+              </div>
+              <p className="mt-0.5 text-xs text-slate-500">不是买入信号；条件满足后才升级为行动候选</p>
+            </div>
+            <span className="rounded-full border border-amber-800/60 bg-amber-500/10 px-2.5 py-1 text-xs text-amber-300">
+              {data.watchlist.length} 只待确认
+            </span>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {data.watchlist.map((item) => (
+              <button
+                key={item.code}
+                type="button"
+                onClick={() => onPick([item.code])}
+                className="group rounded-lg border border-slate-800 bg-slate-950/50 p-3 text-left transition hover:border-amber-700/70 hover:bg-amber-950/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <span className="font-medium text-slate-100">{item.name}</span>
+                    <span className="ml-1.5 text-xs text-slate-500">{item.code}</span>
+                  </div>
+                  <span className="text-xs font-semibold text-amber-300">{item.score.toFixed(1)}</span>
+                </div>
+                <div className="mt-2 flex items-center gap-1.5 text-xs text-slate-400">
+                  <ShieldCheck className="h-3.5 w-3.5 text-amber-400" />
+                  <span>{item.status}</span>
+                </div>
+                <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500 group-hover:text-slate-400">{item.trigger}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </>
   );
 

@@ -10,9 +10,11 @@ from openai import AsyncOpenAI
 from app.config import get_settings
 from app.routes import market as market_routes
 from app.services import data_service, signal_service, supabase_store, trade_calendar_service
+from app.services.cache_utils import put_bounded
 
 # 每日推荐缓存：key=日期，value=(生成时间, data)。一天只跑一次。
 _recommendation_cache: dict[str, tuple[str, dict]] = {}
+_RECOMMENDATION_CACHE_MAX = 7
 
 RECOMMEND_SYSTEM_PROMPT = """你是一位资深的 A 股投资顾问，类似同花顺/指南针的"明日机会股"专栏主编，擅长从候选股票中挑选下一个交易日最值得关注的标的。
 
@@ -121,6 +123,40 @@ def _merge_strategy_results(strategy_results: list[tuple[str, list[dict]]]) -> l
     return qualified
 
 
+def _build_watchlist_candidates(
+    strategy_results: list[tuple[str, list[dict]]], excluded_codes: set[str]
+) -> list[dict]:
+    """Keep technically relevant near-misses visible without calling them buys."""
+    buckets: dict[str, dict] = {}
+    for strategy, items in strategy_results:
+        for item in items:
+            code = item["code"]
+            merged = buckets.setdefault(
+                code,
+                {**item, "tags": [], "indicators": {}, "strategy_scores": {}},
+            )
+            merged["strategy_scores"][strategy] = float(item.get("strategy_score") or 0)
+            for tag in item.get("tags") or []:
+                if tag not in merged["tags"]:
+                    merged["tags"].append(tag)
+            merged["indicators"].update(item.get("indicators") or {})
+
+    watchlist: list[dict] = []
+    for code, merged in buckets.items():
+        if code in excluded_codes:
+            continue
+        scores = merged["strategy_scores"]
+        momentum = scores.get("momentum", 0)
+        trend = scores.get("trend", 0)
+        # Value/volume alone is informational noise for a T+1 watch list.
+        if momentum < 3 and trend < 3.5:
+            continue
+        merged["strategy_score"] = round(min(10, momentum * 0.7 + trend * 0.3), 2)
+        merged["status"] = "等待趋势确认" if trend < 3.5 else "等待动量确认"
+        watchlist.append(merged)
+    return sorted(watchlist, key=lambda item: item["strategy_score"], reverse=True)
+
+
 async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
     """生成每日收盘推荐：跑四个策略 → 合并候选 → LLM 精选 10 只。
 
@@ -142,7 +178,7 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
         db_result = await _load_db_recommendation(today)
         if db_result:
             db_result = _with_target(db_result)
-            _recommendation_cache[today] = (dt.datetime.now().isoformat(), db_result)
+            put_bounded(_recommendation_cache, today, (dt.datetime.now().isoformat(), db_result), max_entries=_RECOMMENDATION_CACHE_MAX)
             return db_result
     # 2. 内存缓存
     if not force_refresh and today in _recommendation_cache:
@@ -187,11 +223,38 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
         else:
             rejected[candidate["code"]] = flags
 
+    # A strict recommendation may legitimately be empty. Preserve useful
+    # near-misses as a separate observation layer so the UI can explain what
+    # is close and exactly what still needs confirmation.
+    accepted_codes = {candidate["code"] for candidate in qualified}
+    watchlist = []
+    for candidate in _build_watchlist_candidates(successful_results, accepted_codes)[:8]:
+        hist = hist_map.get(candidate["code"])
+        closes = hist.closes if hist and hist.closes else []
+        signal = signal_service.compute_signals(closes, float(candidate["price"])) if closes else None
+        candidate["signal"] = signal
+        _, flags = _quality_gate(candidate)
+        status = "、".join(flags[:2]) if flags else candidate.get("status", "等待信号确认")
+        plan = _build_action_plan(candidate, target_day)
+        watchlist.append(
+            {
+                "code": candidate["code"],
+                "name": candidate["name"],
+                "price": candidate["price"],
+                "change_pct": candidate["change_pct"],
+                "score": candidate["strategy_score"],
+                "tags": candidate.get("tags", []),
+                "status": status,
+                "trigger": plan["trigger"],
+                "valid_until": target_day,
+            }
+        )
+
     # 2. 按策略分排序取 top 16，允许 LLM 精选但不强制凑满 10 只。
     ranked = sorted(qualified, key=lambda x: x["strategy_score"], reverse=True)[:16]
     if not ranked:
-        result = {"date": today, "target_date": target_day, "source": "empty", "recommendations": [], "candidates": 0, "rejected": len(rejected), "message": "当前没有通过流动性、追高与风险收益门槛的标的，宁缺毋滥"}
-        _recommendation_cache[today] = (dt.datetime.now().isoformat(), result)
+        result = {"date": today, "target_date": target_day, "source": "empty", "recommendations": [], "watchlist": watchlist, "candidates": 0, "rejected": len(rejected), "message": "当前没有达到直接行动级别的标的，以下观察候选等待条件确认"}
+        put_bounded(_recommendation_cache, today, (dt.datetime.now().isoformat(), result), max_entries=_RECOMMENDATION_CACHE_MAX)
         return result
 
     # 3. 构造候选上下文
@@ -287,6 +350,7 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
         "target_date": target_day,
         "source": source,
         "recommendations": recs,
+        "watchlist": watchlist,
         "candidates": len(ranked),
         "rejected": len(rejected),
         "generated_at": dt.datetime.now(dt.timezone(dt.timedelta(hours=8))).isoformat(timespec="seconds"),
@@ -295,7 +359,7 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
     if source == "rule" and llm_error:
         result["llm_error"] = llm_error
         result["message"] = "AI 精选暂不可用，当前为规则推荐"
-    _recommendation_cache[today] = (dt.datetime.now().isoformat(), result)
+    put_bounded(_recommendation_cache, today, (dt.datetime.now().isoformat(), result), max_entries=_RECOMMENDATION_CACHE_MAX)
 
     # 保存推荐记录（胜率跟踪 + 当日缓存持久化），并取回每条 DB id 供模拟盘回写 related_reco_id
     try:

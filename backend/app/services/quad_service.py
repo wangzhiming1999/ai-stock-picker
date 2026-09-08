@@ -17,9 +17,11 @@ from typing import Any
 import akshare as ak
 
 from app.services import akshare_guard, data_service, supabase_store, trade_calendar_service
+from app.services.cache_utils import put_bounded
 
 # 当日内存缓存：key=交易日, value=(生成时间, data)
 _quad_cache: dict[str, tuple[str, dict]] = {}
+_QUAD_CACHE_MAX = 7
 _FULL_SPOT_TTL = 60  # 全市场快照短缓存（秒）
 _full_spot_cache: tuple[float, list[dict]] | None = None
 
@@ -621,7 +623,7 @@ async def generate_quad_rankings(force_refresh: bool = False) -> dict:
         "items": top10,
     }
     await _save_db_quad(data_day, result)
-    _quad_cache[data_day] = (data_day, result)
+    put_bounded(_quad_cache, data_day, (data_day, result), max_entries=_QUAD_CACHE_MAX)
     return result
 
 

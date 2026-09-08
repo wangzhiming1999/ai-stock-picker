@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { ComponentType, SVGProps } from "react";
 import { BarChart3, Lightbulb, LogIn, ScanSearch, UserRound } from "lucide-react";
 import AlertBell from "./components/AlertBell";
@@ -10,15 +10,16 @@ import AuthModal from "./components/AuthModal";
 import BrandLogo from "./components/BrandLogo";
 import DiscoverPanel from "./components/DiscoverPanel";
 import ErrorBoundary from "./components/ErrorBoundary";
-import HistoryPanel from "./components/HistoryPanel";
-import PortfolioPanel from "./components/PortfolioPanel";
-import SimPanel from "./components/SimPanel";
-import ScanPanel from "./components/ScanPanel";
 import StockCard from "./components/StockCard";
 import StockSearchInput from "./components/StockSearchInput";
-import WatchlistPanel from "./components/WatchlistPanel";
 import { cardItem, stagger } from "./lib/motion";
 import type { StockAnalysis, StockInfo, SSEEvent } from "./types";
+
+const ScanPanel = lazy(() => import("./components/ScanPanel"));
+const WatchlistPanel = lazy(() => import("./components/WatchlistPanel"));
+const SimPanel = lazy(() => import("./components/SimPanel"));
+const PortfolioPanel = lazy(() => import("./components/PortfolioPanel"));
+const HistoryPanel = lazy(() => import("./components/HistoryPanel"));
 
 type Phase = "idle" | "running" | "done" | "error";
 type Tab = "discover" | "scan" | "analyze" | "mine";
@@ -228,7 +229,7 @@ export default function App() {
             <BrandLogo onClick={() => changeTab("discover")} />
 
             {/* 全局快捷搜索 */}
-            <div className="relative flex-1 max-w-md">
+            <div className="relative hidden max-w-md flex-1 sm:block">
               <StockSearchInput value={quickText} onChange={setQuickText} onPickCode={handleQuickPick} />
             </div>
 
@@ -266,7 +267,7 @@ export default function App() {
 
       <main className="mx-auto max-w-6xl px-4 pb-20 pt-4 sm:px-6 sm:pt-6">
         {/* Tab 导航（桌面横向排列 / 移动横向滚动） */}
-        <nav className="relative mb-5 grid grid-cols-4 gap-1 rounded-xl border border-slate-800 bg-slate-900/60 p-1">
+        <nav aria-label="主要功能" className="relative mb-5 hidden grid-cols-4 gap-1 rounded-xl border border-slate-800 bg-slate-900/60 p-1 sm:grid">
           {TAB_LIST.map((t) => {
             const Icon = t.icon;
             const active = tab === t.key;
@@ -274,6 +275,7 @@ export default function App() {
               <button
                 key={t.key}
                 onClick={() => changeTab(t.key)}
+                aria-current={active ? "page" : undefined}
                 className={`relative flex min-w-0 flex-col items-center gap-1 rounded-lg px-2 py-2.5 text-sm font-medium transition-colors ${
                   active ? "text-white" : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
                 }`}
@@ -427,7 +429,9 @@ export default function App() {
         {/* 选股扫描：常驻 DOM */}
         {mountedTabs.has("scan") && (
           <div className={isTabVisible("scan")}>
-            <ScanPanel onPick={handlePick} />
+            <Suspense fallback={<PageSkeleton />}>
+              <ScanPanel onPick={handlePick} />
+            </Suspense>
           </div>
         )}
 
@@ -456,10 +460,12 @@ export default function App() {
                 </div>
               ) : (
                 <>
-                  <WatchlistPanel onAnalyze={handleQuickPick} />
-                  <SimPanel />
-                  <PortfolioPanel />
-                  <HistoryPanel refreshKey={historyRefresh} />
+                  <Suspense fallback={<PageSkeleton />}>
+                    <WatchlistPanel onAnalyze={handleQuickPick} />
+                    <SimPanel />
+                    <PortfolioPanel />
+                    <HistoryPanel refreshKey={historyRefresh} />
+                  </Suspense>
                 </>
               )}
             </div>
@@ -469,7 +475,7 @@ export default function App() {
       </main>
 
       {/* 移动端底部导航 */}
-      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-800 bg-slate-900/95 backdrop-blur sm:hidden">
+      <nav aria-label="主要功能" className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-800 bg-slate-900/95 backdrop-blur sm:hidden">
         <div className="grid grid-cols-4">
           {TAB_LIST.map((t) => {
             const Icon = t.icon;
@@ -478,6 +484,7 @@ export default function App() {
               <motion.button
                 key={t.key}
                 onClick={() => changeTab(t.key)}
+                aria-current={active ? "page" : undefined}
                 whileTap={{ scale: 0.92 }}
                 className={`flex flex-col items-center gap-0.5 py-2.5 text-[11px] font-medium transition-colors ${
                   active ? "text-brand" : "text-slate-500"
@@ -494,6 +501,18 @@ export default function App() {
       <footer className="mx-auto hidden max-w-6xl px-6 pb-8 text-center text-xs text-slate-600 sm:block">
         数据来源：akshare（腾讯/新浪）· 分析模型：DeepSeek · 仅供研究学习，不构成投资建议
       </footer>
+    </div>
+  );
+}
+
+function PageSkeleton() {
+  return (
+    <div aria-busy="true" aria-label="正在加载页面" className="space-y-4">
+      <div className="h-28 animate-pulse rounded-xl border border-slate-800 bg-slate-900/60" />
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="h-48 animate-pulse rounded-xl border border-slate-800 bg-slate-900/60" />
+        <div className="h-48 animate-pulse rounded-xl border border-slate-800 bg-slate-900/60" />
+      </div>
     </div>
   );
 }

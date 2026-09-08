@@ -12,6 +12,7 @@ import akshare as ak
 import pandas as pd
 
 from app.services import akshare_guard
+from app.services.cache_utils import put_bounded
 
 # 默认股票池（各行业代表性标的，控制数量以适配 Serverless 超时）
 DEFAULT_POOL = [
@@ -26,6 +27,7 @@ BENCHMARK = "sh000300"
 # 历史K线内存缓存：key=(code,start,end) -> (timestamp, df)，缓存 30 分钟
 _history_cache: dict[tuple, tuple[float, pd.DataFrame]] = {}
 _HIST_TTL = 1800
+_HIST_CACHE_MAX = 128
 
 
 class BacktestParams:
@@ -70,11 +72,11 @@ def _fetch_history(code: str, start: str, end: str) -> pd.DataFrame:
         df = None
     if df is None or df.empty:
         empty = pd.DataFrame()
-        _history_cache[key] = (now, empty)
+        put_bounded(_history_cache, key, (now, empty), max_entries=_HIST_CACHE_MAX)
         return empty
     df["date"] = pd.to_datetime(df["date"])
     df = df.sort_values("date").reset_index(drop=True)
-    _history_cache[key] = (now, df)
+    put_bounded(_history_cache, key, (now, df), max_entries=_HIST_CACHE_MAX)
     return df
 
 

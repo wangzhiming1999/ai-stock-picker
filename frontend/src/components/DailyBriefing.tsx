@@ -81,6 +81,7 @@ function AlgoTag() {
 
 interface Props {
   onPick: (codes: string[]) => void;
+  onSettled?: () => void;
 }
 
 function dirTone(direction: string): { text: string; bg: string; ring: string } {
@@ -408,7 +409,7 @@ function TailHoldingCard({ h }: { h: BriefingHolding }) {
   );
 }
 
-export default function DailyBriefing({ onPick }: Props) {
+export default function DailyBriefing({ onPick, onSettled }: Props) {
   const [data, setData] = useState<Briefing | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
@@ -422,8 +423,9 @@ export default function DailyBriefing({ onPick }: Props) {
       setErr((e as Error).message);
     } finally {
       setLoading(false);
+      onSettled?.();
     }
-  }, []);
+  }, [onSettled]);
 
   useEffect(() => {
     void load();
