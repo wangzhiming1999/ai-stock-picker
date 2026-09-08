@@ -156,6 +156,8 @@ def _build_watchlist_candidates(
         scores = merged["strategy_scores"]
         momentum = scores.get("momentum", 0)
         trend = scores.get("trend", 0)
+        if abs(float(merged.get("change_pct") or 0)) > 7:
+            continue
         # Value/volume alone is informational noise for a T+1 watch list.
         if momentum < 3 and trend < 3.5:
             continue
