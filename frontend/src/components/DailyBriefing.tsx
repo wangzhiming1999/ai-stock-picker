@@ -1,5 +1,5 @@
 import { type MouseEvent, useCallback, useEffect, useState } from "react";
-import { ArrowDownRight, ArrowUpRight, Bell, ClipboardCheck, Plus, RefreshCw, Sunrise, Target } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Bell, ClipboardCheck, Plus, RefreshCw, ShieldCheck, Sunrise, Target } from "lucide-react";
 import { addToWatchlist, fetchBriefing, getAuthToken, simTrade } from "../api/client";
 import type { Briefing, BriefingHolding, BriefingStock } from "../types";
 import { toast } from "sonner";
@@ -434,17 +434,23 @@ export default function DailyBriefing({ onPick, onSettled }: Props) {
   const m = data?.market;
   const tone = dirTone(m?.direction ?? "");
   const phase = data?.phase ?? "morning";
+  const hasPicks = (data?.morning.stocks.length ?? 0) > 0;
+  const hasHoldings = (data?.tail.holdings.length ?? 0) > 0;
+  const positionText = m?.position_suggestion?.match(/(\d+(?:\.\d+)?)成/)?.[1]
+    ? `总仓位最多 ${Number(m.position_suggestion.match(/(\d+(?:\.\d+)?)成/)?.[1]) * 10}%`
+    : m?.position_suggestion || "等待数据";
+  const mainAction = hasPicks
+    ? `今天有 ${data?.morning.stocks.length} 只股票值得等买点`
+    : "今天先不买，耐心等信号";
 
   return (
-    <section className="overflow-hidden rounded-xl border border-slate-800 bg-gradient-to-b from-slate-900 to-slate-950">
+    <section className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950">
       {/* 总览条 */}
       <div className={`border-b border-slate-800 px-4 py-3 ${tone.bg}`}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <Target className="h-4 w-4 text-brand" />
-            <span className="text-xs text-slate-400">
-              {data ? `${data.session} · 目标：盈利` : "今日作战简报"}
-            </span>
+            <h1 className="text-base font-semibold text-white">今天怎么做</h1>
           </div>
           <button
             onClick={() => void load()}
@@ -457,26 +463,26 @@ export default function DailyBriefing({ onPick, onSettled }: Props) {
         </div>
 
         {data ? (
-          <div className="mt-2 flex flex-wrap items-end gap-x-4 gap-y-1">
-            <div className="flex items-baseline gap-2">
-              <span className="text-xs text-slate-500">今日大方向</span>
-              <span className={`text-2xl font-bold ${tone.text}`}>{m?.direction || "—"}</span>
+          <div className="mt-3">
+            <div className={`text-2xl font-bold ${hasPicks ? "text-green-300" : "text-amber-300"}`}>{mainAction}</div>
+            <div className="mt-3 flex flex-wrap gap-2 text-sm">
+              <span className="rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-slate-300">
+                大盘预计：<b className={tone.text}>{m?.direction || "等待数据"}</b>
+              </span>
+              <span className="rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-slate-300">
+                资金安排：<b className="text-white">{positionText}</b>
+              </span>
+              {!hasHoldings && !data.tail.need_login && (
+                <span className="rounded-md border border-slate-800 px-3 py-1.5 text-slate-500">你没有持仓，今天无需卖出操作</span>
+              )}
             </div>
-            <div className="flex items-baseline gap-2">
-              <span className="text-xs text-slate-500">建议仓位</span>
-              <span className="text-lg font-semibold text-slate-100">{m?.position_suggestion || "—"}</span>
-            </div>
-            <span className="text-xs text-slate-500">
-              指向 {data.target_date ?? "—"}（{data.is_trading_day ? "交易日" : "非交易日"}）
-            </span>
+            <p className="mt-2 text-xs text-slate-500">这份判断用于 {data.target_date ?? "下一个交易日"}，数据来自最近收盘行情。</p>
           </div>
         ) : (
           <div className="mt-2 text-sm text-slate-500">加载中…</div>
         )}
 
-        {m?.trading_advice && (
-          <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-slate-400">{m.trading_advice}</p>
-        )}
+        {m?.trading_advice && <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-slate-400">原因：{m.trading_advice}</p>}
       </div>
 
       <div className="p-4">
@@ -497,7 +503,7 @@ export default function DailyBriefing({ onPick, onSettled }: Props) {
           <ReviewBlock review={data.review} />
         )}
 
-        {phase === "tail" && (
+        {phase === "tail" && (hasHoldings || data?.tail.need_login) && (
           <div className="space-y-3">
             {data?.is_tail_urgent && (
               <div className="flex items-center gap-2 rounded-lg border border-red-800/50 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-200">
@@ -515,11 +521,7 @@ export default function DailyBriefing({ onPick, onSettled }: Props) {
               </div>
             ) : data && data.tail.holdings.length > 0 ? (
               data.tail.holdings.map((h) => <TailHoldingCard key={h.code} h={h} />)
-            ) : (
-              <div className="rounded-lg border border-slate-800 bg-slate-900/60 px-4 py-6 text-center text-sm text-slate-400">
-                {data?.tail.summary ?? "暂无持仓"}
-              </div>
-            )}
+            ) : null}
           </div>
         )}
 
@@ -531,7 +533,7 @@ export default function DailyBriefing({ onPick, onSettled }: Props) {
             ) : (
               <ArrowDownRight className="h-4 w-4 text-slate-400" />
             )}
-            {phase === "morning" ? "今日买什么（早盘关注池）" : "今日关注池（供尾盘对照）"}
+            {hasPicks ? "今天关注这几只" : "为什么今天没有推荐"}
           </div>
           {data && data.morning.stocks.length > 0 ? (
             <div className="grid gap-2 sm:grid-cols-2">
@@ -540,8 +542,12 @@ export default function DailyBriefing({ onPick, onSettled }: Props) {
               ))}
             </div>
           ) : (
-            <div className="rounded-lg border border-slate-800 bg-slate-900/60 px-4 py-6 text-center text-sm text-slate-400">
-              暂无推荐，收盘后策略扫描生成明日关注池
+            <div role="status" className="flex items-start gap-3 rounded-lg border border-amber-900/40 bg-amber-500/5 px-4 py-3 text-sm text-slate-300">
+              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+              <div>
+                <div className="font-medium text-amber-200">没有股票同时满足上涨趋势和风险控制要求</div>
+                <p className="mt-1 text-xs leading-relaxed text-slate-500">先不新开仓。下方“先观察，别急着买”会列出接近条件的股票，以及还要等待什么。</p>
+              </div>
             </div>
           )}
         </div>

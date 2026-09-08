@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useState } from "react";
-import { Activity, Radar } from "lucide-react";
+import { Radar } from "lucide-react";
 import { fetchIndustries } from "../api/client";
 import CollapsiblePanel from "./CollapsiblePanel";
 import DailyBriefing from "./DailyBriefing";
@@ -34,25 +34,6 @@ export default function DiscoverPanel({ onPick }: Props) {
 
   return (
     <div className="space-y-5">
-      <section className="rounded-xl border border-slate-800 bg-slate-900/70 px-5 py-5">
-        <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
-          <div>
-            <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-brand">
-              <Activity className="h-4 w-4" /> A股 · 今日作战
-            </div>
-            <h1 className="text-2xl font-black tracking-tight text-white sm:text-3xl">今日决策台</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-400">
-              先判断市场环境，再区分可行动机会与待确认候选。没有达到门槛时会明确告诉你在等什么，不再只显示空结果。
-            </p>
-          </div>
-          <div className="grid grid-cols-3 gap-2 text-xs">
-            <div className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-slate-400"><span className="block text-slate-200">01 市场</span>仓位与方向</div>
-            <div className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-slate-400"><span className="block text-slate-200">02 机会</span>行动与观察</div>
-            <div className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-slate-400"><span className="block text-slate-200">03 验证</span>四维与推演</div>
-          </div>
-        </div>
-      </section>
-
       <DailyBriefing onPick={onPick} onSettled={handleBriefingSettled} />
 
       {detailsReady ? (
@@ -71,8 +52,8 @@ export default function DiscoverPanel({ onPick }: Props) {
       )}
 
       <div className="flex items-center gap-2 pt-1 text-sm font-semibold text-slate-300">
-        <Radar className="h-4 w-4 text-brand" /> 候选验证区
-        <span className="text-xs font-normal text-slate-600">严格推荐不足时，用四维评分继续寻找下一批机会</span>
+        <Radar className="h-4 w-4 text-brand" /> 想继续找机会？
+        <span className="text-xs font-normal text-slate-500">下面是模型筛出的备选股票，可进一步分析，但不等于建议买入</span>
       </div>
 
       {detailsReady && (

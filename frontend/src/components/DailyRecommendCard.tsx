@@ -6,6 +6,14 @@ import CollapsiblePanel from "./CollapsiblePanel";
 import WatchStar from "./WatchStar";
 import type { DailyRecommendResult } from "../types";
 
+function plainStatus(status: string): string {
+  return status
+    .replace("风险收益比不足", "上涨空间暂时不够覆盖下跌风险")
+    .replace("策略强度不足", "上涨信号还不够强")
+    .replace("等待趋势确认", "还没形成稳定上涨趋势")
+    .replace("等待动量确认", "上涨力度还需要确认");
+}
+
 interface Props {
   onPick: (codes: string[]) => void;
   /** 折叠态：被外层 CollapsiblePanel 包裹时，不再渲染自身面板头，避免双层标题 */
@@ -159,9 +167,9 @@ export default function DailyRecommendCard({ onPick, collapsed = false }: Props)
           <div className="flex items-center justify-between gap-3">
             <div>
               <div className="flex items-center gap-1.5 text-sm font-semibold text-amber-200">
-                <Eye className="h-4 w-4" /> 条件观察池
+                <Eye className="h-4 w-4" /> 先观察，别急着买
               </div>
-              <p className="mt-0.5 text-xs text-slate-500">不是买入信号；条件满足后才升级为行动候选</p>
+              <p className="mt-0.5 text-xs text-slate-500">这些股票接近条件，但现在买入风险仍偏高</p>
             </div>
             <span className="rounded-full border border-amber-800/60 bg-amber-500/10 px-2.5 py-1 text-xs text-amber-300">
               {data.watchlist.length} 只待确认
@@ -184,7 +192,7 @@ export default function DailyRecommendCard({ onPick, collapsed = false }: Props)
                 </div>
                 <div className="mt-2 flex items-center gap-1.5 text-xs text-slate-400">
                   <ShieldCheck className="h-3.5 w-3.5 text-amber-400" />
-                  <span>{item.status}</span>
+                  <span>{plainStatus(item.status)}</span>
                 </div>
                 <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500 group-hover:text-slate-400">{item.trigger}</p>
               </button>
@@ -210,8 +218,8 @@ export default function DailyRecommendCard({ onPick, collapsed = false }: Props)
   return (
     <CollapsiblePanel
       id="daily_recommend"
-      title={data ? `每日收盘推荐 · ${fmtDate(data.date)}` : "每日收盘推荐"}
-      subtitle="策略扫描 + AI 精选收盘后下一个交易日值得关注的标的"
+      title={data ? `今天可以买什么 · ${fmtDate(data.date)}` : "今天可以买什么"}
+      subtitle="只有同时满足趋势和风险要求的股票，才会出现在这里"
       action={
         <div className="flex items-center gap-2">
           {actions}
