@@ -9,6 +9,7 @@ import BacktestPanel from "./BacktestPanel";
 import MonitorPanel from "./MonitorPanel";
 import WinratePanel from "./WinratePanel";
 import type { OpportunityResult, ScanStock, StrategyDef, StrategyName, StrategyStock } from "../types";
+import { getScanViewAction } from "./scanPanelLogic";
 
 interface Props {
   onPick: (codes: string[]) => void;
@@ -47,6 +48,8 @@ export default function ScanPanel({ onPick }: Props) {
   const [strategyRunning, setStrategyRunning] = useState(false);
   const [strategyResult, setStrategyResult] = useState<StrategyStock[]>([]);
   const [strategySelected, setStrategySelected] = useState<Set<string>>(new Set());
+  const [strategyAttempted, setStrategyAttempted] = useState(false);
+  const [strategyError, setStrategyError] = useState("");
 
   // 全市场扫描状态
   const [scanning, setScanning] = useState(false);
@@ -111,6 +114,8 @@ export default function ScanPanel({ onPick }: Props) {
   const runStrategy = async (s: StrategyName) => {
     setStrategy(s);
     setStrategyRunning(true);
+    setStrategyAttempted(true);
+    setStrategyError("");
     setErr("");
     setStrategyResult([]);
     setStrategySelected(new Set());
@@ -118,9 +123,18 @@ export default function ScanPanel({ onPick }: Props) {
       // 用户手动点击 → 强制拉取最新行情，不走 5 分钟快照缓存
       setStrategyResult(await strategyScan(s, 20, 3, true));
     } catch (e) {
-      toast.error("策略选股失败", { description: (e as Error).message });
+      const message = (e as Error).message || "行情服务暂时不可用，请稍后重试";
+      setStrategyError(message);
+      toast.error("策略选股失败", { description: message });
     } finally {
       setStrategyRunning(false);
+    }
+  };
+
+  const selectScanView = (view: ScanView) => {
+    setScanView(view);
+    if (getScanViewAction(view, strategyResult.length > 0, strategyRunning) === "run-default") {
+      void runStrategy("momentum");
     }
   };
 
@@ -193,9 +207,9 @@ export default function ScanPanel({ onPick }: Props) {
             ["monitor", "看我的盯盘", "检查已有关注标的"],
             ["advanced", "自己设条件", "适合熟悉指标的用户"],
           ] as Array<[ScanView, string, string]>).map(([value, label, desc]) => (
-            <button key={value} onClick={() => setScanView(value)} className={`rounded-lg border p-3 text-left transition ${scanView === value ? "border-brand bg-brand/10" : "border-slate-700 hover:border-slate-500"}`}>
+            <button key={value} onClick={() => selectScanView(value)} disabled={value === "quick" && strategyRunning} aria-busy={value === "quick" && strategyRunning} className={`cursor-pointer rounded-lg border p-3 text-left transition disabled:cursor-wait disabled:opacity-70 ${scanView === value ? "border-brand bg-brand/10" : "border-slate-700 hover:border-slate-500"}`}>
               <div className="text-sm font-semibold text-slate-100">{label}</div>
-              <div className="mt-0.5 text-[11px] text-slate-500">{desc}</div>
+              <div className="mt-0.5 text-[11px] text-slate-500">{value === "quick" && strategyRunning ? "正在筛选今日候选…" : desc}</div>
             </button>
           ))}
         </div>
@@ -421,6 +435,17 @@ export default function ScanPanel({ onPick }: Props) {
           ))}
         </div>
         {strategyRunning && <div className="rounded-lg bg-slate-800/50 px-3 py-2 text-sm text-slate-400">策略扫描中（拉取行情与K线计算指标）...</div>}
+        {!strategyRunning && strategyError && (
+          <div role="alert" className="rounded-lg border border-red-800 bg-red-950/40 px-3 py-2 text-sm text-red-300">
+            今日候选筛选失败：{strategyError}
+            <button onClick={() => void runStrategy(strategy)} className="ml-3 cursor-pointer font-medium text-red-200 underline">重新筛选</button>
+          </div>
+        )}
+        {!strategyRunning && strategyAttempted && !strategyError && strategyResult.length === 0 && (
+          <div role="status" className="rounded-lg border border-slate-700 bg-slate-800/40 px-3 py-3 text-sm text-slate-300">
+            当前条件没有筛出候选。可以换一个策略，或稍后等行情更新后重试。
+          </div>
+        )}
         {!strategyRunning && strategyResult.length > 0 && (
           <div className="max-h-96 overflow-y-auto rounded-lg border border-slate-800">
             <table className="w-full text-sm">
