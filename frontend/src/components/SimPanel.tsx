@@ -209,8 +209,6 @@ export default function SimPanel() {
   // 真实模式但未初始化账户：提示建仓
   const realButUninit = !usingMock && account && !account.initialized;
 
-  const hasData = account && (account.positions_cnt > 0 || account.cash > 0 || (trades?.total ?? 0) > 0);
-
   const summary = useMemo(() => {
     if (!positions || positions.positions.length === 0) return null;
     return positions.positions.reduce((s, p) => s + safeNumber(p.market_value), 0);
@@ -232,9 +230,19 @@ export default function SimPanel() {
         </div>
         <div className="flex items-center gap-2">
           {loading && <span className="text-[11px] text-slate-500">加载中…</span>}
-          {!usingMock && hasData && (
+          {!usingMock && (
             <button
               onClick={async () => {
+                const ok = window.confirm(
+                  "重置模拟盘将清空：\n" +
+                    "· 所有成交流水（sim_trades）\n" +
+                    "· 净值快照（portfolio_snapshots）\n" +
+                    "· 现金归零\n\n" +
+                    "不影响：「总资金」与「我的持仓」配置（user_profiles）。\n" +
+                    "如需调整总资金，请到「我的持仓」面板修改。\n\n" +
+                    "此操作不可恢复，确认重置？"
+                );
+                if (!ok) return;
                 try {
                   await resetSimAccount();
                   toast.success("已重置模拟盘");
@@ -243,7 +251,8 @@ export default function SimPanel() {
                   toast.error((e as Error).message);
                 }
               }}
-              className="rounded border border-slate-600 px-2 py-1 text-[11px] text-slate-400 hover:text-slate-200"
+              className="rounded border border-red-800/60 px-2.5 py-1 text-[11px] text-red-300 hover:border-red-500 hover:bg-red-950/30 hover:text-red-200"
+              title="清空所有成交流水、净值快照、现金归零（不影响总资金与持仓配置）"
             >
               重置
             </button>
