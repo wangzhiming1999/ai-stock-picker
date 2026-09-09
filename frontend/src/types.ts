@@ -253,20 +253,64 @@ export interface QuadRankResult {
   items: QuadStock[];
 }
 
-/** 盯盘监控：实时行情 + 技术信号 → 操作指令 */
+/** 决策周期：1d 日线（战略） / 5m 15m 30m 60m 分钟线（日内战术） */
+export type MonitorInterval = "1d" | "5m" | "15m" | "30m" | "60m";
+
+/** 盯盘监控：实时行情 + 技术信号 → 操作指令
+ *  日线与分钟线的信号字段不同，除公共字段外均为可选 */
 export interface MonitorSignal {
   support: number;
   resistance: number;
-  buy_point: number;
-  sell_point: number;
   stop_loss: number;
-  rr_ratio: number;
   strength: number;
-  ma20: number;
-  ma60: number;
-  high60: number;
-  low60: number;
   volume_ratio: number | null;
+  // —— 日线字段 ——
+  buy_point?: number;
+  sell_point?: number;
+  rr_ratio?: number;
+  ma20?: number;
+  ma60?: number;
+  high60?: number;
+  low60?: number;
+  // —— 分钟线（日内）字段 ——
+  vwap?: number | null;
+  day_open?: number | null;
+  day_high?: number | null;
+  day_low?: number | null;
+  ma_fast?: number | null;
+  ma_slow?: number | null;
+  bb_upper?: number | null;
+  bb_lower?: number | null;
+  trend?: "up" | "down" | "flat";
+  bars?: number;
+  session?: string;
+}
+
+/** 日线战略锚点：用分钟周期决策时也要能看到大方向 */
+export interface MonitorDaily {
+  support: number;
+  resistance: number;
+  buy_point?: number;
+  sell_point?: number;
+  stop_loss: number;
+  strength: number;
+  ma20?: number;
+  ma60?: number;
+}
+
+/** 可执行价位：打开就知道挂多少 */
+export interface MonitorPlan {
+  /** 建议买入/低吸价 */
+  buy: number;
+  /** 建议卖出/止盈价 */
+  sell: number;
+  /** 铁止损价 */
+  stop: number;
+  /** 目标位（压力位） */
+  target: number;
+  /** 建议仓位 % */
+  position_pct: number;
+  urgency: "high" | "mid" | "low";
 }
 
 export interface MonitorAdvice {
@@ -274,7 +318,16 @@ export interface MonitorAdvice {
   label: string;
   tone: "danger" | "warn" | "good" | "neutral";
   hint: string;
+  /** 一句话指令，如「挂 39.80 买入 · 30% 仓」 */
+  do: string;
+  plan: MonitorPlan;
   dist: { to_stop: number; to_support: number; to_resistance: number };
+  /** 传入持仓成本后回带的浮动盈亏 % */
+  pnl_pct?: number | null;
+  /** swing=日线波段 / intraday=日内（分钟周期） */
+  scope?: "swing" | "intraday";
+  period?: MonitorInterval;
+  session_note?: string;
 }
 
 export interface MonitorStock {
@@ -286,6 +339,27 @@ export interface MonitorStock {
   quote_at?: string | null;
   signal: MonitorSignal;
   advice: MonitorAdvice;
+  /** 日线战略锚点（任何周期都返回） */
+  daily: MonitorDaily;
+}
+
+/** 顶层决策摘要 */
+export interface MonitorSummary {
+  total: number;
+  act_now: number;
+  stop: number;
+  sell: number;
+  buy: number;
+  hold: number;
+  top: {
+    code: string;
+    name: string;
+    price: number;
+    action: MonitorAdvice["action"];
+    label: string;
+    tone: MonitorAdvice["tone"];
+    do: string;
+  }[];
 }
 
 export interface MonitorResult {
@@ -297,6 +371,11 @@ export interface MonitorResult {
   poll_interval_seconds?: number;
   count: number;
   missed: string[];
+  /** 本次决策实际使用的周期 */
+  interval: MonitorInterval;
+  /** 分钟数据不可用、已降级为日线决策 */
+  degraded?: boolean;
+  summary?: MonitorSummary;
   items: MonitorStock[];
 }
 
@@ -315,7 +394,7 @@ export interface ParsedImportResult {
 }
 
 /** 价格预警规则 */
-export type AlertType = "stop_loss" | "breakdown" | "price_target";
+export type AlertType = "stop_loss" | "breakdown" | "price_target" | "buy_point" | "sell_point";
 
 export interface AlertRule {
   id: number;

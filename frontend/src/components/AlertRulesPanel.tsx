@@ -9,6 +9,8 @@ const TYPE_LABEL: Record<AlertType, string> = {
   stop_loss: "止损（≤触发）",
   breakdown: "破位（≤触发）",
   price_target: "目标价（≥触发）",
+  buy_point: "回踩到买点（≤触发）",
+  sell_point: "冲高到卖点（≥触发）",
 };
 
 export default function AlertRulesPanel() {

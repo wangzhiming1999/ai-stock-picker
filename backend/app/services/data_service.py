@@ -182,6 +182,118 @@ def get_history(code: str, days: int = 120) -> StockHistory | None:
     return result
 
 
+# ---------------- 分钟 K 线缓存 ----------------
+# 分钟线盘中每根都会变（5 分钟线每 5 分钟新增一根），缓存要远短于日线：
+# 盘中 60s、休市 600s（收盘后当日分钟线不再变化），失败 30s。
+_MIN_TTL_TRADING = 60
+_MIN_TTL_CLOSED = 600
+_MIN_TTL_FAIL = 30
+_min_cache: dict[tuple[str, str, int], tuple[float, StockHistory | None]] = {}
+_MIN_CACHE_MAX = 300
+
+# 前端周期 -> 腾讯 mkline 周期参数
+_QQ_MIN_PERIOD = {"1m": "m1", "5m": "m5", "15m": "m15", "30m": "m30", "60m": "m60"}
+# 各周期 320 根覆盖的跨度：5m≈5天 / 15m≈15天 / 30m≈30天 / 60m≈60天
+_MIN_DEFAULT_LIMIT = 320
+
+
+def _is_trading_now(now: dt.datetime | None = None) -> bool:
+    """是否处于 A 股连续竞价时段（决定分钟线缓存时长）。"""
+    now = now or dt.datetime.now(dt.timezone.utc).astimezone(_CN_TZ)
+    if now.weekday() >= 5:
+        return False
+    t = now.time()
+    return dt.time(9, 30) <= t <= dt.time(11, 30) or dt.time(13, 0) <= t <= dt.time(15, 0)
+
+
+def _parse_qq_min_payload(payload: dict, symbol: str, period: str, limit: int) -> StockHistory | None:
+    """解析腾讯分钟 K 线：行结构 [时间, open, close, high, low, volume, ...]。"""
+    try:
+        node = payload.get("data", {}).get(symbol, {}) or {}
+        rows = node.get(_QQ_MIN_PERIOD.get(period, "m5")) or []
+        if not isinstance(rows, list):
+            return None
+        dates: list[str] = []
+        opens: list[float] = []
+        highs: list[float] = []
+        lows: list[float] = []
+        closes: list[float] = []
+        volumes: list[float] = []
+        for row in rows[-limit:]:
+            if not isinstance(row, list) or len(row) < 6:
+                continue
+            try:
+                o = float(row[1])
+                c = float(row[2])
+                h = float(row[3])
+                lo = float(row[4])
+                v = float(row[5] or 0)
+            except (TypeError, ValueError):
+                continue
+            if c <= 0 or h <= 0 or lo <= 0:
+                continue
+            dates.append(str(row[0]))
+            opens.append(o)
+            closes.append(c)
+            highs.append(h)
+            lows.append(lo)
+            volumes.append(v)
+        if not closes:
+            return None
+        return StockHistory(
+            dates=dates,
+            closes=closes,
+            volumes=volumes,
+            opens=opens,
+            highs=highs,
+            lows=lows,
+        )
+    except (AttributeError, TypeError, ValueError, KeyError, IndexError):
+        return None
+
+
+def _fetch_intraday(code: str, period: str = "5m", limit: int = _MIN_DEFAULT_LIMIT) -> StockHistory | None:
+    """拉取腾讯分钟 K 线（含 OHLC），供日内多周期决策使用。"""
+    symbol = _code_to_symbol(code)
+    qq_period = _QQ_MIN_PERIOD.get(period)
+    if not qq_period:
+        return None
+    url = "https://ifzq.gtimg.cn/appstock/app/kline/mkline"
+    params = {"param": f"{symbol},{qq_period},,{limit}"}
+    try:
+        resp = requests.get(
+            url,
+            params=params,
+            headers={"User-Agent": _UA, "Referer": "https://gu.qq.com/"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        return _parse_qq_min_payload(resp.json(), symbol, period, limit)
+    except (requests.RequestException, ValueError) as e:
+        logger.warning("获取 %s %s 分钟K线失败: %s", code, period, e)
+        return None
+
+
+def get_intraday_history(code: str, period: str = "5m", limit: int = _MIN_DEFAULT_LIMIT) -> StockHistory | None:
+    """获取分钟 K 线（腾讯接口），盘中/休市差异化 TTL 缓存。"""
+    key = (code, period, limit)
+    now = time.time()
+    hit = _min_cache.get(key)
+    if hit:
+        cached_at, cached_val = hit
+        ttl = _MIN_TTL_FAIL if cached_val is None else (_MIN_TTL_TRADING if _is_trading_now() else _MIN_TTL_CLOSED)
+        if now - cached_at < ttl:
+            return cached_val
+
+    result = _fetch_intraday(code, period, limit)
+
+    if len(_min_cache) >= _MIN_CACHE_MAX:
+        for k in sorted(_min_cache, key=lambda k: _min_cache[k][0])[: _MIN_CACHE_MAX // 2]:
+            _min_cache.pop(k, None)
+    _min_cache[key] = (now, result)
+    return result
+
+
 def get_news(code: str, name: str, limit: int = 8) -> list[NewsItem]:
     """获取个股新闻：优先东方财富，失败则用市场快讯过滤兜底。"""
     try:

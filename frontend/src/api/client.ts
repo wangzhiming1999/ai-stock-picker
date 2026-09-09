@@ -11,6 +11,7 @@ import type {
   HoldingsData,
   IndexHistory,
   Industry,
+  MonitorInterval,
   MonitorResult,
   MarketPrediction,
   NewsItem,
@@ -271,11 +272,16 @@ export async function fetchQuadRanking(refresh = false): Promise<QuadRankResult>
   return res.json();
 }
 
-export async function fetchMonitor(codes: string[], force = false): Promise<MonitorResult> {
+export async function fetchMonitor(
+  codes: string[],
+  force = false,
+  costs?: Record<string, number>,
+  interval: MonitorInterval = "1d"
+): Promise<MonitorResult> {
   const res = await fetch(`${API}/market/monitor`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ codes, force }),
+    body: JSON.stringify({ codes, force, costs: costs ?? {}, interval }),
   });
   if (!res.ok) throw new Error(`监控刷新失败: ${res.status}`);
   return res.json();

@@ -1,6 +1,6 @@
 import unittest
 
-from app.routes.monitor import _advice, _projected_volume_ratio
+from app.routes.monitor import _advice, _projected_volume_ratio, _summary, _with_cost
 from app.services.signal_service import compute_signals
 
 
@@ -77,6 +77,73 @@ class MonitorAdviceTests(unittest.TestCase):
         )
 
         self.assertIsNone(ratio)
+
+    def test_advice_carries_an_executable_plan(self) -> None:
+        result = _advice(100.5, self.signal)
+
+        plan = result["plan"]
+        self.assertEqual(plan["stop"], 95.0)
+        self.assertEqual(plan["target"], 110.0)
+        # 回踩买点落在现价下方且不高于支撑之上太远
+        self.assertLessEqual(plan["buy"], 100.5)
+        self.assertGreater(plan["position_pct"], 0)
+        self.assertIn("买入", result["do"])
+
+    def test_breakout_sets_sell_at_the_former_resistance(self) -> None:
+        result = _advice(112.0, self.signal)
+
+        self.assertEqual(result["plan"]["sell"], 110.0)
+
+
+class MonitorCostTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.signal = {
+            "support": 100.0,
+            "resistance": 110.0,
+            "stop_loss": 95.0,
+            "buy_point": 99.5,
+            "sell_point": 101.5,
+            "strength": 7.0,
+        }
+
+    def test_big_profit_turns_hold_into_take_profit(self) -> None:
+        advice = _advice(105.0, self.signal)  # 区间震荡 → hold
+        self.assertEqual(advice["action"], "hold")
+
+        with_cost = _with_cost(advice, 105.0, 90.0, self.signal)  # 浮盈 16.7%
+        self.assertEqual(with_cost["action"], "sell")
+        self.assertEqual(with_cost["label"], "盈利止盈")
+        self.assertAlmostEqual(with_cost["pnl_pct"], 16.67, places=1)
+
+    def test_hard_stop_is_tighter_than_technical_stop(self) -> None:
+        advice = _advice(105.0, self.signal)
+        with_cost = _with_cost(advice, 105.0, 100.0, self.signal)
+
+        # 成本 100 → 硬止损 93；技术止损 95 → 取更紧的 93
+        self.assertAlmostEqual(with_cost["plan"]["stop"], 93.0, places=2)
+
+    def test_deep_loss_flags_stop_risk(self) -> None:
+        advice = _advice(105.0, self.signal)
+        with_cost = _with_cost(advice, 105.0, 118.0, self.signal)  # 浮亏 11%
+
+        self.assertEqual(with_cost["action"], "sell")
+        self.assertEqual(with_cost["label"], "逼近止损")
+
+
+class MonitorSummaryTests(unittest.TestCase):
+    def test_summary_counts_and_orders_actions(self) -> None:
+        items = [
+            {"code": "600519", "name": "A", "price": 1.0, "advice": {"action": "hold", "label": "观望", "tone": "neutral", "do": ""}},
+            {"code": "000858", "name": "B", "price": 2.0, "advice": {"action": "buy", "label": "回踩可买", "tone": "good", "do": "挂 2.00 买入"}},
+            {"code": "601318", "name": "C", "price": 3.0, "advice": {"action": "stop", "label": "止损离场", "tone": "danger", "do": "现价止损"}},
+        ]
+        result = _summary(items)
+
+        self.assertEqual(result["act_now"], 2)
+        self.assertEqual(result["buy"], 1)
+        self.assertEqual(result["stop"], 1)
+        self.assertEqual(result["total"], 3)
+        self.assertEqual([t["code"] for t in result["top"]], ["601318", "000858"])
 
 
 if __name__ == "__main__":

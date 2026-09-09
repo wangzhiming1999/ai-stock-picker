@@ -8,6 +8,8 @@
 - stop_loss:   现价 <= threshold  → 止损提醒
 - breakdown:   现价 <= threshold  → 破位提醒
 - price_target:现价 >= threshold  → 到价/止盈提醒
+- buy_point:   现价 <= threshold  → 回踩到买点提醒
+- sell_point:  现价 >= threshold  → 冲高到卖点提醒
 """
 from __future__ import annotations
 
@@ -16,7 +18,7 @@ import datetime as dt
 
 from app.services import data_service, portfolio_service, supabase_store, watchlist_service
 
-_RULE_TYPES = {"stop_loss", "breakdown", "price_target"}
+_RULE_TYPES = {"stop_loss", "breakdown", "price_target", "buy_point", "sell_point"}
 # 同一规则命中后冷却期（避免盘中反复刷事件）
 _COOLDOWN_HOURS = 24
 _CN_TZ = dt.timezone(dt.timedelta(hours=8))
@@ -187,20 +189,32 @@ async def _collect_codes(user_id: str) -> list[str]:
 
 
 def _should_fire(rtype: str, price: float, threshold: float) -> bool:
-    if rtype in ("stop_loss", "breakdown"):
+    if rtype in ("stop_loss", "breakdown", "buy_point"):
         return price <= threshold
-    if rtype == "price_target":
+    if rtype in ("price_target", "sell_point"):
         return price >= threshold
     return False
 
 
 def _severity_of(rtype: str) -> str:
-    return "danger" if rtype in ("stop_loss", "breakdown") else "warn"
+    if rtype in ("stop_loss", "breakdown"):
+        return "danger"
+    if rtype == "buy_point":
+        return "info"
+    return "warn"
+
+
+_RULE_LABELS = {
+    "stop_loss": "止损触发",
+    "breakdown": "破位触发",
+    "price_target": "目标价到达",
+    "buy_point": "回踩到买点",
+    "sell_point": "冲高到卖点",
+}
 
 
 def _title_of(rtype: str, name: str, code: str) -> str:
-    label = {"stop_loss": "止损触发", "breakdown": "破位触发", "price_target": "目标价到达"}[rtype]
-    return f"{label} · {name or code}"
+    return f"{_RULE_LABELS.get(rtype, '预警触发')} · {name or code}"
 
 
 async def _fire_for_user(user_id: str, codes: list[str]) -> int:

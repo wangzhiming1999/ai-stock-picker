@@ -16,10 +16,34 @@ class StockQuote(BaseModel):
 
 
 class StockHistory(BaseModel):
-    """K 线数据"""
+    """K 线数据（日线只有 closes；分钟线附带 OHLC 供日内决策使用）"""
     dates: list[str]
     closes: list[float]
     volumes: list[float] | None = None
+    opens: list[float] | None = None
+    highs: list[float] | None = None
+    lows: list[float] | None = None
+
+
+class IntradaySignal(BaseModel):
+    """分钟级技术信号（日内战术决策）"""
+    price: float
+    vwap: float | None = None
+    day_open: float | None = None
+    day_high: float | None = None
+    day_low: float | None = None
+    ma_fast: float | None = None
+    ma_slow: float | None = None
+    bb_upper: float | None = None
+    bb_lower: float | None = None
+    volume_ratio: float | None = None
+    trend: str = "flat"                      # up | down | flat
+    support: float | None = None
+    resistance: float | None = None
+    stop_loss: float | None = None
+    strength: float = 5.0
+    bars: int = 0                            # 参与计算的 K 线根数
+    session: str = "unknown"                 # 数据所属交易日
 
 
 class StockInfo(BaseModel):
