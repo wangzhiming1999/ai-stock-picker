@@ -27,6 +27,37 @@ def _is_usable_spot(rows: list | None) -> bool:
     return priced / len(rows) >= 0.5
 
 
+def _rows_from_spot_frame(df) -> list[dict]:
+    rows = []
+    for _, row in df.iterrows():
+        try:
+            rows.append(
+                {
+                    "code": str(row["代码"]),
+                    "name": str(row["名称"]).strip(),
+                    "price": float(row["最新价"]),
+                    "change": float(row["涨跌幅"]),
+                    "amount": float(row["成交额"]),
+                }
+            )
+        except (KeyError, ValueError, TypeError):
+            continue
+    return rows
+
+
+def _fetch_live_spot_rows() -> list[dict]:
+    errors = []
+    for source in (ak.stock_zh_a_spot_em, ak.stock_zh_a_spot):
+        try:
+            rows = _rows_from_spot_frame(akshare_guard.call(source))
+            if _is_usable_spot(rows):
+                return rows
+            errors.append(f"{source.__name__}: 有效价格不足")
+        except Exception as exc:
+            errors.append(f"{source.__name__}: {exc}")
+    raise RuntimeError("；".join(errors))
+
+
 async def _load_spot_db() -> list | None:
     """从 Supabase 读取最近的全市场快照（6h 内有效）。表未建时静默返回 None。"""
     if not supabase_store.is_configured():
@@ -77,23 +108,7 @@ async def _get_spot(force: bool = False) -> list:
     if _is_usable_spot(db_rows):
         _spot_cache = (now, db_rows)
         return db_rows
-    df = await asyncio.to_thread(akshare_guard.call, ak.stock_zh_a_spot)
-    rows = []
-    for _, row in df.iterrows():
-        try:
-            rows.append(
-                {
-                    "code": str(row["代码"]),
-                    "name": str(row["名称"]).strip(),
-                    "price": float(row["最新价"]),
-                    "change": float(row["涨跌幅"]),
-                    "amount": float(row["成交额"]),
-                }
-            )
-        except (ValueError, TypeError):
-            continue
-    if not _is_usable_spot(rows):
-        raise RuntimeError("行情源返回的有效价格不足，请稍后重试")
+    rows = await asyncio.to_thread(_fetch_live_spot_rows)
     _spot_cache = (now, rows)
     await _save_spot_db(rows)
     return rows
