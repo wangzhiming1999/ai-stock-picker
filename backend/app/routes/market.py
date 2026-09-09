@@ -19,6 +19,14 @@ _SPOT_TTL = 300  # 5 分钟
 _SPOT_DB_TTL = 6 * 3600
 
 
+def _is_usable_spot(rows: list | None) -> bool:
+    """Reject incomplete/pre-market snapshots that would make every scanner empty."""
+    if not rows or len(rows) < 100:
+        return False
+    priced = sum(1 for row in rows if float(row.get("price") or 0) > 0)
+    return priced / len(rows) >= 0.5
+
+
 async def _load_spot_db() -> list | None:
     """从 Supabase 读取最近的全市场快照（6h 内有效）。表未建时静默返回 None。"""
     if not supabase_store.is_configured():
@@ -31,7 +39,11 @@ async def _load_spot_db() -> list | None:
             updated = row.get("updated_at")
             if isinstance(updated, str):
                 updated = dt.datetime.fromisoformat(updated.replace("Z", "+00:00"))
-            if updated and (dt.datetime.now(dt.timezone.utc) - updated).total_seconds() < _SPOT_DB_TTL:
+            if (
+                updated
+                and (dt.datetime.now(dt.timezone.utc) - updated).total_seconds() < _SPOT_DB_TTL
+                and _is_usable_spot(row.get("rows"))
+            ):
                 return row["rows"]
     except Exception as e:
         print(f"[spot] db load failed: {e}")
@@ -61,8 +73,8 @@ async def _get_spot(force: bool = False) -> list:
     now = time.monotonic()
     if not force and _spot_cache and now - _spot_cache[0] < _SPOT_TTL:
         return _spot_cache[1]
-    db_rows = await _load_spot_db()
-    if db_rows:
+    db_rows = None if force else await _load_spot_db()
+    if _is_usable_spot(db_rows):
         _spot_cache = (now, db_rows)
         return db_rows
     df = await asyncio.to_thread(akshare_guard.call, ak.stock_zh_a_spot)
@@ -80,6 +92,8 @@ async def _get_spot(force: bool = False) -> list:
             )
         except (ValueError, TypeError):
             continue
+    if not _is_usable_spot(rows):
+        raise RuntimeError("行情源返回的有效价格不足，请稍后重试")
     _spot_cache = (now, rows)
     await _save_spot_db(rows)
     return rows
