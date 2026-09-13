@@ -78,7 +78,7 @@ export default function AuthModal({ open, onClose }: Props) {
               </motion.button>
             </div>
 
-            <div className="mb-4 flex rounded-lg border border-slate-700 bg-slate-800/60 p-1">
+            <div className="mb-4 flex rounded-lg border border-slate-700 bg-slate-800/70 p-1">
               {(["signin", "signup"] as const).map((m) => (
                 <motion.button
                   key={m}
@@ -111,7 +111,7 @@ export default function AuthModal({ open, onClose }: Props) {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com"
-                className="w-full rounded-lg border border-slate-700 bg-slate-800/80 px-3 py-2 text-sm outline-none focus:border-brand"
+                className="w-full rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-2 text-sm outline-none focus:border-brand"
               />
             </label>
             <label className="mb-4 block">
@@ -124,7 +124,7 @@ export default function AuthModal({ open, onClose }: Props) {
                 onChange={(e) => setPassword(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && void submit()}
                 placeholder="至少 6 位"
-                className="w-full rounded-lg border border-slate-700 bg-slate-800/80 px-3 py-2 text-sm outline-none focus:border-brand"
+                className="w-full rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-2 text-sm outline-none focus:border-brand"
               />
             </label>
 

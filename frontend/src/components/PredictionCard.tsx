@@ -4,7 +4,7 @@ import CollapsiblePanel from "./CollapsiblePanel";
 import KLineChart from "./KLineChart";
 import { safeArray, safeObj } from "../lib/safe";
 import type { IndexHistory, MarketPrediction, PredictionRecord, PredictionStats, StockHistory } from "../types";
-import { dirTone, pnlTone } from "../lib/tone";
+import { dirTone, pctTone, pnlTone } from "../lib/tone";
 
 function fmtDate(iso: string): string {
   const d = new Date(iso);
@@ -51,7 +51,7 @@ export default function PredictionCard() {
     void load();
   }, [load]);
 
-  const hitColor = (hit: boolean | undefined) => (hit ? "bg-green-900/40 text-green-300" : "bg-red-900/40 text-red-300");
+  const hitColor = (hit: boolean | undefined) => (hit ? "bg-brand/15 text-brand-light" : "bg-slate-800/40 text-slate-500");
 
   return (
     <CollapsiblePanel
@@ -85,7 +85,7 @@ export default function PredictionCard() {
               </div>
             </div>
             {data.summary.probability && (
-              <div className="rounded-lg bg-slate-800/60 px-3 py-2 text-xs text-slate-300">
+              <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-xs text-slate-300">
                 {data.summary.probability}
               </div>
             )}
@@ -93,16 +93,16 @@ export default function PredictionCard() {
 
           {/* 大盘走势图 */}
           {chartHistory && (
-            <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-2">
+            <div className="rounded-xl border border-slate-800 bg-slate-900 p-2">
               <div className="mb-1 flex items-center justify-between px-1">
-                <span className="text-[11px] text-slate-500">
+                <span className="text-xs text-slate-500">
                   {indexHist?.index ?? "上证指数"} · 近 {indexHist?.days ?? 0} 个交易日
                 </span>
                 {indexHist?.latest != null && (
                   <span className="flex items-baseline gap-1.5">
                     <span className="text-sm font-semibold text-slate-200">{indexHist.latest.toFixed(2)}</span>
                     <span
-                      className={`text-[11px] font-medium ${pnlTone(indexHist.change_pct)}`}
+                      className={`text-xs font-medium ${pnlTone(indexHist.change_pct)}`}
                     >
                       {(indexHist.change_pct ?? 0) >= 0 ? "+" : ""}
                       {indexHist.change_pct?.toFixed(2)}%
@@ -118,8 +118,8 @@ export default function PredictionCard() {
           {data.summary.key_levels && (
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               {Object.entries(safeObj<Record<string, string | number>>(data.summary.key_levels, {})).map(([k, v]) => (
-                <div key={k} className="rounded-lg bg-slate-800/50 px-2 py-1.5 text-center">
-                  <div className="text-[11px] text-slate-500">{k}</div>
+                <div key={k} className="rounded-lg bg-slate-800/70 px-2 py-1.5 text-center">
+                  <div className="text-xs text-slate-500">{k}</div>
                   <div className="text-sm font-semibold text-slate-200">{v ?? "-"}</div>
                 </div>
               ))}
@@ -150,7 +150,7 @@ export default function PredictionCard() {
           )}
 
           {/* 技术基础数据 */}
-          <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-slate-800 pt-2 text-[11px] text-slate-500">
+          <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-slate-800 pt-2 text-xs text-slate-500">
             <span>收盘 {data.technical.price.toFixed(2)}</span>
             <span>当日 {data.technical.day_change > 0 ? "+" : ""}{data.technical.day_change}%</span>
             <span>量比 {data.technical.vol_ratio}</span>
@@ -169,29 +169,29 @@ export default function PredictionCard() {
         <div className="mt-4 border-t border-slate-800 pt-3">
           <div className="mb-2 text-xs font-semibold text-slate-400">预测准确率</div>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <div className="rounded-lg bg-slate-800/50 px-3 py-2 text-center">
+            <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
               <div className="text-lg font-bold text-slate-200">{stats.total}</div>
-              <div className="text-[11px] text-slate-500">已记录</div>
+              <div className="text-xs text-slate-500">已记录</div>
             </div>
-            <div className="rounded-lg bg-slate-800/50 px-3 py-2 text-center">
+            <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
               <div className="text-lg font-bold text-slate-200">{stats.settled}</div>
-              <div className="text-[11px] text-slate-500">已结算</div>
+              <div className="text-xs text-slate-500">已结算</div>
             </div>
-            <div className="rounded-lg bg-slate-800/50 px-3 py-2 text-center">
+            <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
               <div className="text-lg font-bold text-slate-200">{stats.hit}</div>
-              <div className="text-[11px] text-slate-500">命中</div>
+              <div className="text-xs text-slate-500">命中</div>
             </div>
-            <div className="rounded-lg bg-slate-800/50 px-3 py-2 text-center">
-              <div className={`text-lg font-bold ${stats.hit_rate != null && stats.hit_rate >= 50 ? "text-green-400" : stats.hit_rate != null && stats.hit_rate < 50 ? "text-red-400" : "text-slate-200"}`}>
+            <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
+              <div className={`text-lg font-bold ${pctTone(stats.hit_rate)}`}>
                 {stats.hit_rate != null ? `${stats.hit_rate}%` : "-"}
               </div>
-              <div className="text-[11px] text-slate-500">命中率</div>
+              <div className="text-xs text-slate-500">命中率</div>
             </div>
           </div>
           {Object.entries(stats.by_direction).length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+            <div className="mt-2 flex flex-wrap gap-2 text-xs">
               {Object.entries(stats.by_direction).map(([d, b]) => (
-                <span key={d} className="rounded bg-slate-800/60 px-2 py-1 text-slate-400">
+                <span key={d} className="rounded bg-slate-800/70 px-2 py-1 text-slate-400">
                   {d} {b.hit}/{b.total}（{b.hit_rate ?? "-"}%）
                 </span>
               ))}
@@ -204,7 +204,7 @@ export default function PredictionCard() {
       {safeArray(history).length > 0 && (
         <div className="mt-4 border-t border-slate-800 pt-3">
           <div className="mb-2 text-xs font-semibold text-slate-400">历史预测</div>
-          <div className="max-h-64 overflow-y-auto rounded-lg border border-slate-800">
+          <div className="max-h-64 overflow-y-auto rounded-xl border border-slate-800">
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-slate-900 text-left text-xs text-slate-400">
                 <tr>
@@ -217,7 +217,7 @@ export default function PredictionCard() {
               <tbody>
                 {history.map((r) => (
                   <tr key={r.id} className="border-t border-slate-800/60">
-                    <td className="px-2 py-1.5 text-[11px] text-slate-500">{fmtDate(r.created_at)}</td>
+                    <td className="px-2 py-1.5 text-xs text-slate-500">{fmtDate(r.created_at)}</td>
                     <td className="px-2 py-1.5">
                       <span className={`text-xs font-medium ${dirTone(r.direction_raw || r.direction).text}`}>
                         {r.direction_raw || r.direction || "-"}
@@ -234,7 +234,7 @@ export default function PredictionCard() {
                     </td>
                     <td className="px-2 py-1.5 text-center">
                       {r.hit != null ? (
-                        <span className={`rounded px-1.5 py-0.5 text-[11px] ${hitColor(r.hit)}`}>
+                        <span className={`rounded px-1.5 py-0.5 text-xs ${hitColor(r.hit)}`}>
                           {r.hit ? "命中" : "未中"}
                         </span>
                       ) : (

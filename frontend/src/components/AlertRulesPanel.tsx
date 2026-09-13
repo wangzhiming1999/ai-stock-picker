@@ -75,11 +75,11 @@ export default function AlertRulesPanel() {
   };
 
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
+    <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
       <div className="mb-3 flex items-center gap-2">
         <Bell className="h-4 w-4 text-brand" />
         <h3 className="text-sm font-semibold text-slate-200">价格预警</h3>
-        <span className="text-[11px] text-slate-500">持仓止损 / 目标价 / 破位，触发后铃铛提醒</span>
+        <span className="text-xs text-slate-500">持仓止损 / 目标价 / 破位，触发后铃铛提醒</span>
       </div>
 
       {/* 添加表单 */}
@@ -128,11 +128,11 @@ export default function AlertRulesPanel() {
       ) : (
         <div className="space-y-1.5">
           {rules.map((r) => (
-            <div key={r.id} className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2 text-xs">
+            <div key={r.id} className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-800/70 px-3 py-2 text-xs">
               <div className="flex items-center gap-2">
                 <span className="font-mono font-semibold text-slate-200">{r.code}</span>
                 <span className="text-slate-400">{r.name || "-"}</span>
-                <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">{TYPE_LABEL[r.type]}</span>
+                <span className="rounded bg-slate-800 px-1.5 py-0.5 text-xs text-slate-400">{TYPE_LABEL[r.type]}</span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-slate-300">阈值 {r.threshold}</span>

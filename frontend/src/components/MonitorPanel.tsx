@@ -59,7 +59,7 @@ const toneClass: Record<string, string> = {
   danger: "border-red-800/70 bg-red-950/50 text-red-300",
   warn: "border-amber-800/60 bg-amber-950/40 text-amber-300",
   good: "border-green-800/60 bg-green-950/40 text-green-300",
-  neutral: "border-slate-700 bg-slate-800/60 text-slate-300",
+  neutral: "border-slate-700 bg-slate-800/70 text-slate-300",
   info: "border-sky-800/60 bg-sky-950/40 text-sky-300",
 };
 
@@ -466,7 +466,7 @@ export default function MonitorPanel() {
     >
       {/* 今日决策条：一眼知道现在要不要动 */}
       {summary && summary.total > 0 && (
-        <div className="mb-3 rounded-lg border border-slate-800 bg-gradient-to-br from-slate-900 to-slate-950 p-3">
+        <div className="mb-3 rounded-xl border border-slate-800 bg-gradient-to-br from-slate-900 to-slate-950 p-3">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-semibold text-slate-200">现在要不要动</span>
             {summary.act_now === 0 ? (
@@ -477,24 +477,24 @@ export default function MonitorPanel() {
                   共 <b className="text-base text-white">{summary.act_now}</b> 只要操作
                 </span>
                 {summary.stop > 0 && (
-                  <span className="rounded-md border border-red-800/70 bg-red-950/50 px-2 py-0.5 text-[11px] text-red-300">
+                  <span className="rounded-md border border-red-800/70 bg-red-950/50 px-2 py-0.5 text-xs text-red-300">
                     止损 {summary.stop}
                   </span>
                 )}
                 {summary.sell > 0 && (
-                  <span className="rounded-md border border-amber-800/60 bg-amber-950/40 px-2 py-0.5 text-[11px] text-amber-300">
+                  <span className="rounded-md border border-amber-800/60 bg-amber-950/40 px-2 py-0.5 text-xs text-amber-300">
                     卖出/减仓 {summary.sell}
                   </span>
                 )}
                 {summary.buy > 0 && (
-                  <span className="rounded-md border border-green-800/60 bg-green-950/40 px-2 py-0.5 text-[11px] text-green-300">
+                  <span className="rounded-md border border-green-800/60 bg-green-950/40 px-2 py-0.5 text-xs text-green-300">
                     买入 {summary.buy}
                   </span>
                 )}
                 {(summary.tactic_hits ?? 0) > 0 && (
                   <span
                     title="命中实战形态（K 线量价条件全部成立）的只数，名单内每只票的形态标签见股票列"
-                    className="rounded-md border border-sky-800/60 bg-sky-950/40 px-2 py-0.5 text-[11px] text-sky-300"
+                    className="rounded-md border border-sky-800/60 bg-sky-950/40 px-2 py-0.5 text-xs text-sky-300"
                   >
                     形态命中 {summary.tactic_hits}
                   </span>
@@ -503,7 +503,7 @@ export default function MonitorPanel() {
             )}
             <button
               onClick={() => setOnlyAction((v) => !v)}
-              className={`ml-auto rounded-lg border px-2.5 py-1 text-[11px] transition-colors ${
+              className={`ml-auto rounded-lg border px-2.5 py-1 text-xs transition-colors ${
                 onlyAction
                   ? "border-brand bg-brand/10 text-brand"
                   : "border-slate-700 text-slate-400 hover:text-slate-200"
@@ -518,7 +518,7 @@ export default function MonitorPanel() {
                 <span
                   key={t.code}
                   title={t.do}
-                  className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] ${toneClass[t.tone] ?? toneClass.neutral}`}
+                  className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs ${toneClass[t.tone] ?? toneClass.neutral}`}
                 >
                   <span className={`h-1.5 w-1.5 rounded-full ${toneDot[t.tone] ?? toneDot.neutral}`} />
                   <b>{t.name}</b>
@@ -553,13 +553,13 @@ export default function MonitorPanel() {
             </button>
           ))}
         </div>
-        <span className="text-[11px] text-slate-500">
+        <span className="text-xs text-slate-500">
           {INTERVALS.find((i) => i.value === interval)?.hint}
         </span>
       </div>
 
       {interval !== "1d" && (
-        <div className="mb-2 rounded-lg border border-amber-800/50 bg-amber-950/30 px-3 py-1.5 text-[11px] text-amber-300">
+        <div className="mb-2 rounded-lg border border-amber-800/50 bg-amber-950/30 px-3 py-1.5 text-xs text-amber-300">
           日内模式：信号基于当日 VWAP 与 {interval} 均线，止损 1% 上下（最宽 1.5%），<b>仅当日有效</b>，收盘前需了结或改按日线持有。
           {data?.degraded && <span className="text-red-300"> 分钟数据暂不可用，已自动降级为日线决策。</span>}
         </div>
@@ -591,21 +591,21 @@ export default function MonitorPanel() {
           <button
             onClick={() => void importWatchlist()}
             title="把自选股一次性加入监控名单"
-            className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1.5 text-[11px] text-slate-400 hover:text-slate-200"
+            className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-slate-400 hover:text-slate-200"
           >
             <Download className="h-3.5 w-3.5" /> 导入自选
           </button>
           <button
             onClick={() => void importHoldings()}
             title="把持仓加入监控，并带上成本价（指令会显示浮盈浮亏）"
-            className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1.5 text-[11px] text-slate-400 hover:text-slate-200"
+            className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-slate-400 hover:text-slate-200"
           >
             <Download className="h-3.5 w-3.5" /> 导入持仓
           </button>
         </div>
       </div>
 
-      <div className="mb-3 text-[11px] text-slate-500">
+      <div className="mb-3 text-xs text-slate-500">
         {data && (
           <>
             行情时间 <b className="text-slate-300">{fmtTime(data.quote_at || data.updated_at)}</b> ·{" "}
@@ -637,7 +637,7 @@ export default function MonitorPanel() {
       )}
 
       {visibleCodes.length > 0 && (
-        <div className="max-h-[520px] overflow-auto rounded-lg border border-slate-800">
+        <div className="max-h-[520px] overflow-auto rounded-xl border border-slate-800">
           <table className="w-full text-sm" style={{ minWidth: 940 }}>
             <thead className="sticky top-0 z-10 bg-slate-900 text-left text-xs text-slate-400">
               <tr>
@@ -686,14 +686,14 @@ export default function MonitorPanel() {
                     <td className="px-2 py-2 text-xs text-slate-500">{idx + 1}</td>
                     <td className="px-2 py-2">
                       <div className="font-medium text-slate-100">{it.name}</div>
-                      <div className="text-[11px] text-slate-500">{code}</div>
+                      <div className="text-xs text-slate-500">{code}</div>
                       {it.tactics && it.tactics.length > 0 && (
                         <div className="mt-1 flex flex-wrap gap-1">
                           {it.tactics.map((t) => (
                             <span
                               key={t.key}
                               title={t.action}
-                              className={`rounded px-1 py-0.5 text-[10px] ${
+                              className={`rounded px-1 py-0.5 text-xs ${
                                 t.direction === "buy" ? "bg-red-950/60" : "bg-green-950/50"
                               } ${actionTone(t.direction, 300)}`}
                             >
@@ -705,12 +705,12 @@ export default function MonitorPanel() {
                     </td>
                     <td className="px-2 py-2 text-right">
                       <div className="text-slate-200">{num(it.price)}</div>
-                      <div className={`text-[11px] ${pnlTone(it.change_pct)}`}>
+                      <div className={`text-xs ${pnlTone(it.change_pct)}`}>
                         {up ? "+" : ""}
                         {num(it.change_pct, 2)}%
                       </div>
                       {pnl != null && (
-                        <div className={`text-[10px] ${pnlTone(pnl, 500)}`}>
+                        <div className={`text-xs ${pnlTone(pnl, 500)}`}>
                           浮盈 {pnl >= 0 ? "+" : ""}
                           {num(pnl, 1)}%
                         </div>
@@ -720,15 +720,15 @@ export default function MonitorPanel() {
                       {intraday ? (
                         <>
                           <div className="text-slate-200">
-                            <span className="text-[10px] text-slate-500">VWAP </span>
+                            <span className="text-xs text-slate-500">VWAP </span>
                             {num(s?.vwap)}
                           </div>
-                          <div className="text-[11px]">
-                            <span className="text-green-400/80">高 {num(s?.day_high)}</span>
+                          <div className="text-xs">
+                            <span className="text-slate-400/80">高 {num(s?.day_high)}</span>
                             <span className="text-slate-600"> / </span>
-                            <span className="text-red-400/80">低 {num(s?.day_low)}</span>
+                            <span className="text-slate-400/80">低 {num(s?.day_low)}</span>
                           </div>
-                          <div className="text-[10px] text-slate-600">
+                          <div className="text-xs text-slate-600">
                             {trendMark} 强度 {num(s?.strength, 1)}
                             {s?.volume_ratio != null ? ` · 量比 ${num(s.volume_ratio, 2)}x` : ""}
                           </div>
@@ -736,8 +736,8 @@ export default function MonitorPanel() {
                       ) : (
                         <>
                           <div className="text-slate-300">{num(s?.support)}</div>
-                          <div className="text-[11px] text-slate-500">{num(s?.resistance)}</div>
-                          <div className="text-[10px] text-slate-600">
+                          <div className="text-xs text-slate-500">{num(s?.resistance)}</div>
+                          <div className="text-xs text-slate-600">
                             强度 {num(s?.strength, 1)}
                             {s?.volume_ratio != null ? ` · 量比 ${num(s.volume_ratio, 2)}x` : ""}
                           </div>
@@ -752,26 +752,26 @@ export default function MonitorPanel() {
                         <span className={`h-1.5 w-1.5 rounded-full ${toneDot[a?.tone ?? "neutral"]}`} />
                         {a?.label ?? "等待信号"}
                       </span>
-                      <div className="mt-0.5 max-w-[240px] truncate text-[10px] text-slate-500" title={a?.hint}>
+                      <div className="mt-0.5 max-w-[240px] truncate text-xs text-slate-500" title={a?.hint}>
                         {a?.hint ?? " "}
                       </div>
                     </td>
                     <td className="px-2 py-2">
                       <div className="text-xs font-medium text-slate-100">{a?.do ?? "—"}</div>
-                      <div className="mt-0.5 flex flex-wrap gap-x-2 text-[10px] text-slate-500">
+                      <div className="mt-0.5 flex flex-wrap gap-x-2 text-xs text-slate-500">
                         <span>
-                          买 <b className="text-green-400/90">{num(plan?.buy)}</b>
+                          买 <b className="text-red-400/90">{num(plan?.buy)}</b>
                         </span>
                         <span>
                           卖 <b className="text-amber-400/90">{num(plan?.sell)}</b>
                         </span>
                         <span>
-                          止损 <b className="text-red-400/90">{num(plan?.stop)}</b>
+                          止损 <b className="text-amber-400/90">{num(plan?.stop)}</b>
                         </span>
                         {plan?.position_pct ? <span>仓位 {plan.position_pct}%</span> : null}
                       </div>
                       {intraday && it.daily && (
-                        <div className="mt-0.5 text-[10px] text-slate-600">
+                        <div className="mt-0.5 text-xs text-slate-600">
                           日线 支撑 {num(it.daily.support)} · 压力 {num(it.daily.resistance)}
                         </div>
                       )}
@@ -807,7 +807,7 @@ export default function MonitorPanel() {
         </div>
       )}
 
-      <p className="mt-2 text-[10px] text-slate-600">
+      <p className="mt-2 text-xs text-slate-600">
         {interval === "1d" ? (
           <>
             日线档：挂单计划由日 K 布林带/均线/斐波那契回撤推导（买入=回踩支撑、卖出=压力位、止损=支撑下方 3%），

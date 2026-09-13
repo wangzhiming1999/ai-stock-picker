@@ -212,7 +212,7 @@ export default function ScanPanel({ onPick }: Props) {
           ] as Array<[ScanView, string, string]>).map(([value, label, desc]) => (
             <button key={value} onClick={() => selectScanView(value)} disabled={value === "quick" && strategyRunning} aria-busy={value === "quick" && strategyRunning} className={`cursor-pointer rounded-lg border p-3 text-left transition disabled:cursor-wait disabled:opacity-70 ${scanView === value ? "border-brand bg-brand/10" : "border-slate-700 hover:border-slate-500"}`}>
               <div className="text-sm font-semibold text-slate-100">{label}</div>
-              <div className="mt-0.5 text-[11px] text-slate-500">{value === "quick" && strategyRunning ? "正在筛选今日候选…" : desc}</div>
+              <div className="mt-0.5 text-xs text-slate-500">{value === "quick" && strategyRunning ? "正在筛选今日候选…" : desc}</div>
             </button>
           ))}
         </div>
@@ -245,7 +245,7 @@ export default function ScanPanel({ onPick }: Props) {
               <button
                 onClick={pickOpportunitySelected}
                 disabled={opportunitySelected.size === 0}
-                className="rounded-lg bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-500 disabled:opacity-40"
+                className="rounded-lg bg-brand px-3 py-1 text-xs font-medium text-white hover:bg-brand-dark disabled:opacity-40"
               >
                 勾选 {opportunitySelected.size} 只去分析 →
               </button>
@@ -261,7 +261,7 @@ export default function ScanPanel({ onPick }: Props) {
           {auctionLoading ? "扫描中..." : auctionResult?.cached ? "刷新缓存（强制重跑）" : "扫描早盘竞价（9:15-9:30）"}
         </button>
         {auctionResult?.cached && auctionResult.trade_date && (
-          <div className="mt-2 text-[11px] text-slate-500">
+          <div className="mt-2 text-xs text-slate-500">
             缓存 {auctionResult.trade_date} ·{" "}
             {auctionResult.generated_at ? new Date(auctionResult.generated_at).toLocaleTimeString() : "-"} 生成
           </div>
@@ -272,7 +272,7 @@ export default function ScanPanel({ onPick }: Props) {
           </div>
         )}
         {auctionResult?.items?.length ? (
-          <div className="mt-4 max-h-96 overflow-y-auto rounded-lg border border-slate-800">
+          <div className="mt-4 max-h-96 overflow-y-auto rounded-xl border border-slate-800">
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-slate-900 text-left text-xs text-slate-400">
                 <tr>
@@ -329,7 +329,7 @@ export default function ScanPanel({ onPick }: Props) {
               <button
                 onClick={pickOpportunitySelected}
                 disabled={opportunitySelected.size === 0}
-                className="rounded-lg bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-500 disabled:opacity-40"
+                className="rounded-lg bg-brand px-3 py-1 text-xs font-medium text-white hover:bg-brand-dark disabled:opacity-40"
               >
                 勾选 {opportunitySelected.size} 只去分析 →
               </button>
@@ -345,7 +345,7 @@ export default function ScanPanel({ onPick }: Props) {
           {closingLoading ? "扫描中..." : closingResult?.cached ? "刷新缓存（强制重跑）" : "扫描尾盘机会（14:45-15:00）"}
         </button>
         {closingResult?.cached && closingResult.trade_date && (
-          <div className="mt-2 text-[11px] text-slate-500">
+          <div className="mt-2 text-xs text-slate-500">
             缓存 {closingResult.trade_date} ·{" "}
             {closingResult.generated_at ? new Date(closingResult.generated_at).toLocaleTimeString() : "-"} 生成
           </div>
@@ -356,7 +356,7 @@ export default function ScanPanel({ onPick }: Props) {
           </div>
         )}
         {closingResult?.items?.length ? (
-          <div className="mt-4 max-h-96 overflow-y-auto rounded-lg border border-slate-800">
+          <div className="mt-4 max-h-96 overflow-y-auto rounded-xl border border-slate-800">
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-slate-900 text-left text-xs text-slate-400">
                 <tr>
@@ -386,7 +386,7 @@ export default function ScanPanel({ onPick }: Props) {
                       {s.change_pct >= 0 ? "+" : ""}
                       {fmtNum(s.change_pct)}%
                     </td>
-                    <td className="px-3 py-1.5 text-right text-emerald-400 font-semibold">
+                    <td className={`px-3 py-1.5 text-right font-semibold ${pnlTone(s.change_5min)}`}>
                       {s.change_5min >= 0 ? "+" : ""}
                       {fmtNum(s.change_5min)}%
                     </td>
@@ -419,7 +419,7 @@ export default function ScanPanel({ onPick }: Props) {
               <button
                 onClick={pickStrategySelected}
                 disabled={strategySelected.size === 0}
-                className="rounded-lg bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-500 disabled:opacity-40"
+                className="rounded-lg bg-brand px-3 py-1 text-xs font-medium text-white hover:bg-brand-dark disabled:opacity-40"
               >
                 勾选 {strategySelected.size} 只去分析 →
               </button>
@@ -444,7 +444,7 @@ export default function ScanPanel({ onPick }: Props) {
             </button>
           ))}
         </div>
-        {strategyRunning && <div className="rounded-lg bg-slate-800/50 px-3 py-2 text-sm text-slate-400">策略扫描中（拉取行情与K线计算指标）...</div>}
+        {strategyRunning && <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-sm text-slate-400">策略扫描中（拉取行情与K线计算指标）...</div>}
         {!strategyRunning && strategyError && (
           <div role="alert" className="rounded-lg border border-red-800 bg-red-950/40 px-3 py-2 text-sm text-red-300">
             今日候选筛选失败：{strategyError}
@@ -457,7 +457,7 @@ export default function ScanPanel({ onPick }: Props) {
           </div>
         )}
         {!strategyRunning && strategyResult.length > 0 && (
-          <div className="max-h-96 overflow-y-auto rounded-lg border border-slate-800">
+          <div className="max-h-96 overflow-y-auto rounded-xl border border-slate-800">
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-slate-900 text-left text-xs text-slate-400">
                 <tr>
@@ -493,7 +493,7 @@ export default function ScanPanel({ onPick }: Props) {
                     <td className="px-3 py-1.5">
                       <div className="flex flex-wrap gap-1">
                         {s.tags.map((t, i) => (
-                          <span key={i} className="rounded bg-slate-800 px-1.5 py-0.5 text-[11px] text-slate-300">
+                          <span key={i} className="rounded bg-slate-800 px-1.5 py-0.5 text-xs text-slate-300">
                             {t}
                           </span>
                         ))}
@@ -517,23 +517,23 @@ export default function ScanPanel({ onPick }: Props) {
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           <label className="block">
             <span className="mb-1 block text-xs text-slate-500">最低涨幅 %</span>
-            <input value={minChange} onChange={(e) => setMinChange(e.target.value)} className="w-full rounded-lg border border-slate-700 bg-slate-800/80 px-3 py-1.5 text-sm outline-none focus:border-brand" />
+            <input value={minChange} onChange={(e) => setMinChange(e.target.value)} className="w-full rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-1.5 text-sm outline-none focus:border-brand" />
           </label>
           <label className="block">
             <span className="mb-1 block text-xs text-slate-500">最低成交额(亿)</span>
-            <input value={minAmount} onChange={(e) => setMinAmount(e.target.value)} className="w-full rounded-lg border border-slate-700 bg-slate-800/80 px-3 py-1.5 text-sm outline-none focus:border-brand" />
+            <input value={minAmount} onChange={(e) => setMinAmount(e.target.value)} className="w-full rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-1.5 text-sm outline-none focus:border-brand" />
           </label>
           <label className="block">
             <span className="mb-1 block text-xs text-slate-500">最低股价</span>
-            <input value={minPrice} onChange={(e) => setMinPrice(e.target.value)} className="w-full rounded-lg border border-slate-700 bg-slate-800/80 px-3 py-1.5 text-sm outline-none focus:border-brand" />
+            <input value={minPrice} onChange={(e) => setMinPrice(e.target.value)} className="w-full rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-1.5 text-sm outline-none focus:border-brand" />
           </label>
           <label className="block">
             <span className="mb-1 block text-xs text-slate-500">最高股价</span>
-            <input value={maxPrice} onChange={(e) => setMaxPrice(e.target.value)} className="w-full rounded-lg border border-slate-700 bg-slate-800/80 px-3 py-1.5 text-sm outline-none focus:border-brand" />
+            <input value={maxPrice} onChange={(e) => setMaxPrice(e.target.value)} className="w-full rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-1.5 text-sm outline-none focus:border-brand" />
           </label>
           <label className="block">
             <span className="mb-1 block text-xs text-slate-500">数量上限</span>
-            <input value={limit} onChange={(e) => setLimit(e.target.value)} className="w-full rounded-lg border border-slate-700 bg-slate-800/80 px-3 py-1.5 text-sm outline-none focus:border-brand" />
+            <input value={limit} onChange={(e) => setLimit(e.target.value)} className="w-full rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-1.5 text-sm outline-none focus:border-brand" />
           </label>
         </div>
         <button
@@ -560,13 +560,13 @@ export default function ScanPanel({ onPick }: Props) {
                 <button
                   onClick={pickSelected}
                   disabled={selected.size === 0}
-                  className="rounded-lg bg-green-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-green-500 disabled:opacity-40"
+                  className="rounded-lg bg-brand px-4 py-1.5 text-xs font-medium text-white hover:bg-brand-dark disabled:opacity-40"
                 >
                   勾选 {selected.size} 只去分析 →
                 </button>
               </div>
             </div>
-            <div className="max-h-96 overflow-y-auto rounded-lg border border-slate-800">
+            <div className="max-h-96 overflow-y-auto rounded-xl border border-slate-800">
               <table className="w-full text-sm">
                 <thead className="sticky top-0 bg-slate-900 text-left text-xs text-slate-400">
                   <tr>

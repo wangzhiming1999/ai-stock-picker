@@ -81,7 +81,7 @@ export default function DiscoverPanel({ onPick }: Props) {
           </button>
         }
       >
-        <div className="max-h-80 overflow-y-auto rounded-lg border border-slate-800">
+        <div className="max-h-80 overflow-y-auto rounded-xl border border-slate-800">
           {err && <div className="p-3 text-xs text-red-300">{err}</div>}
           {!indLoading && industries.length === 0 && !err && (
             <div className="p-4 text-sm text-slate-500">暂无数据，点击"刷新"重试</div>
@@ -119,7 +119,7 @@ export default function DiscoverPanel({ onPick }: Props) {
 
 function PanelSkeleton({ label }: { label: string }) {
   return (
-    <div aria-busy="true" aria-label={label} className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
+    <div aria-busy="true" aria-label={label} className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
       <div className="h-4 w-32 animate-pulse rounded bg-slate-800" />
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <div className="h-24 animate-pulse rounded-lg bg-slate-800/70" />

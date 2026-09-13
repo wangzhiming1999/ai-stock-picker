@@ -3,7 +3,8 @@ import { motion } from "framer-motion";
 import KLineChart from "./KLineChart";
 import ScoreBar from "./ScoreBar";
 import { fmtNum, safeArray } from "../lib/safe";
-import { pnlTone } from "../lib/tone";
+import { actionTone, CHIP, pnlTone, rrTone, scoreTone } from "../lib/tone";
+import { SUB } from "../lib/ui";
 
 interface Props {
   analysis: StockAnalysis;
@@ -21,7 +22,7 @@ export default function StockCard({ analysis, info }: Props) {
     <motion.div
       whileHover={{ y: -3 }}
       transition={{ duration: 0.2 }}
-      className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 backdrop-blur hover:border-slate-700"
+      className="rounded-2xl border border-slate-800 bg-slate-900 p-5 backdrop-blur hover:border-slate-700"
     >
       {/* 头部 */}
       <div className="flex items-start justify-between">
@@ -56,15 +57,15 @@ export default function StockCard({ analysis, info }: Props) {
       <p className="mt-4 text-sm leading-relaxed text-slate-300">{analysis.summary ?? ""}</p>
 
       {analysis.strategy && (
-        <div className="mt-4 rounded-lg border border-slate-700 bg-slate-950/45 p-3">
+        <div className={`mt-4 ${SUB} p-3`}>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <div className="text-xs font-semibold text-white">趋势是否合格</div>
-              <div className="mt-0.5 text-[11px] text-slate-500">公开规则逐项检查，不由 AI 猜测</div>
+              <div className="mt-0.5 text-xs text-slate-500">公开规则逐项检查，不由 AI 猜测</div>
             </div>
             <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
               analysis.strategy.status === "passed"
-                ? "bg-emerald-500/15 text-emerald-300"
+                ? "bg-brand/15 text-brand-light"
                 : analysis.strategy.status === "watch"
                   ? "bg-amber-500/15 text-amber-300"
                   : "bg-slate-700 text-slate-300"
@@ -76,7 +77,12 @@ export default function StockCard({ analysis, info }: Props) {
           {analysis.strategy.conditions.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1.5">
               {analysis.strategy.conditions.map((condition) => (
-                <span key={condition.label} className={`rounded px-2 py-1 text-[11px] ${condition.passed ? "bg-emerald-950/60 text-emerald-300" : "bg-red-950/40 text-red-300"}`}>
+                <span
+                  key={condition.label}
+                  className={`rounded-lg px-2 py-1 text-xs ${
+                    condition.passed ? "bg-brand/10 text-brand-light" : "bg-slate-800/40 text-slate-500"
+                  }`}
+                >
                   {condition.passed ? "✓" : "×"} {condition.label}
                 </span>
               ))}
@@ -87,9 +93,9 @@ export default function StockCard({ analysis, info }: Props) {
 
       {/* 实战形态命中：K 线量价条件逐条核对，全部成立才算命中 */}
       {analysis.tactics && analysis.tactics.length > 0 && (
-        <div className="mt-4 rounded-lg border border-slate-700 bg-slate-950/45 p-3">
+        <div className={`mt-4 ${SUB} p-3`}>
           <div className="text-xs font-semibold text-white">形态命中</div>
-          <div className="mt-0.5 text-[11px] text-slate-500">
+          <div className="mt-0.5 text-xs text-slate-500">
             K 线量价条件逐条核对，全部成立才算命中 · 算法推导
           </div>
           <ul className="mt-2 space-y-2">
@@ -97,16 +103,14 @@ export default function StockCard({ analysis, info }: Props) {
               <li key={t.key}>
                 <div className="flex flex-wrap items-center gap-2">
                   <span
-                    className={`rounded px-1.5 py-0.5 text-[11px] ${
-                      t.direction === "buy"
-                        ? "bg-green-600/20 text-green-300"
-                        : "bg-red-600/20 text-red-300"
-                    }`}
+                    className={`rounded-lg px-1.5 py-0.5 text-xs ${
+                      t.direction === "buy" ? "bg-red-600/20" : "bg-green-600/20"
+                    } ${actionTone(t.direction, 300)}`}
                   >
                     {t.direction === "buy" ? "买点" : "卖点"}
                   </span>
                   <span className="text-xs font-semibold text-slate-200">{t.name}</span>
-                  <span className="text-[11px] text-slate-500">
+                  <span className="text-xs text-slate-500">
                     {t.passed}/{t.total} 条件
                   </span>
                 </div>
@@ -119,42 +123,42 @@ export default function StockCard({ analysis, info }: Props) {
 
       {/* 技术信号（压力位/买卖点/止损） */}
       {analysis.signal && (
-        <div className="mt-4 rounded-lg border border-amber-900/40 bg-amber-950/20 p-3">
+        <div className="mt-4 rounded-xl border border-amber-900/40 bg-amber-950/20 p-3">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-xs font-semibold text-amber-400">技术信号</span>
             <span className="flex items-center gap-1">
-              <span className="text-[11px] text-slate-500">强度</span>
-              <span className={`text-sm font-bold ${analysis.signal.strength >= 6 ? "text-green-400" : analysis.signal.strength >= 4 ? "text-yellow-400" : "text-red-400"}`}>
+              <span className="text-xs text-slate-500">强度</span>
+              <span className={`text-sm font-bold ${scoreTone(analysis.signal.strength)}`}>
                 {fmtNum(analysis.signal.strength, 1)}
               </span>
-              <span className="text-[11px] text-slate-500">风报比</span>
-              <span className={`text-sm font-bold ${analysis.signal.rr_ratio >= 2 ? "text-green-400" : analysis.signal.rr_ratio >= 1 ? "text-yellow-400" : "text-red-400"}`}>
+              <span className="text-xs text-slate-500">风报比</span>
+              <span className={`text-sm font-bold ${rrTone(analysis.signal.rr_ratio)}`}>
                 {fmtNum(analysis.signal.rr_ratio, 2)}
               </span>
             </span>
           </div>
           <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs sm:grid-cols-3">
-            <div className="flex justify-between rounded bg-slate-800/50 px-2 py-1">
+            <div className="flex justify-between rounded-lg bg-slate-800/70 px-2 py-1">
               <span className="text-slate-500">支撑位</span>
               <span className="font-medium text-slate-200">{fmtNum(analysis.signal.support)}</span>
             </div>
-            <div className="flex justify-between rounded bg-slate-800/50 px-2 py-1">
+            <div className="flex justify-between rounded-lg bg-slate-800/70 px-2 py-1">
               <span className="text-slate-500">压力位</span>
               <span className="font-medium text-slate-200">{fmtNum(analysis.signal.resistance)}</span>
             </div>
-            <div className="flex justify-between rounded bg-green-900/30 px-2 py-1">
+            <div className={`flex justify-between rounded-lg px-2 py-1 ${CHIP.buy.bg}`}>
               <span className="text-slate-400">买入区</span>
-              <span className="font-medium text-green-400">{fmtNum(analysis.signal.buy_point)}</span>
+              <span className={`font-medium ${CHIP.buy.text}`}>{fmtNum(analysis.signal.buy_point)}</span>
             </div>
-            <div className="flex justify-between rounded bg-red-900/30 px-2 py-1">
+            <div className={`flex justify-between rounded-lg px-2 py-1 ${CHIP.sell.bg}`}>
               <span className="text-slate-400">卖出区</span>
-              <span className="font-medium text-red-400">{fmtNum(analysis.signal.sell_point)}</span>
+              <span className={`font-medium ${CHIP.sell.text}`}>{fmtNum(analysis.signal.sell_point)}</span>
             </div>
-            <div className="flex justify-between rounded bg-slate-800/50 px-2 py-1">
-              <span className="text-slate-500">止损位</span>
-              <span className="font-medium text-orange-400">{fmtNum(analysis.signal.stop_loss)}</span>
+            <div className={`flex justify-between rounded-lg px-2 py-1 ${CHIP.risk.bg}`}>
+              <span className="text-slate-400">止损位</span>
+              <span className={`font-medium ${CHIP.risk.text}`}>{fmtNum(analysis.signal.stop_loss)}</span>
             </div>
-            <div className="flex justify-between rounded bg-slate-800/50 px-2 py-1">
+            <div className="flex justify-between rounded-lg bg-slate-800/70 px-2 py-1">
               <span className="text-slate-500">现价</span>
               <span className="font-medium text-slate-200">{fmtNum(analysis.signal.price)}</span>
             </div>
@@ -164,9 +168,9 @@ export default function StockCard({ analysis, info }: Props) {
 
       {/* 持有建议 */}
       {analysis.holding_advice && (
-        <div className="mt-3 rounded-lg border border-blue-900/40 bg-blue-950/20 p-3">
-          <div className="mb-1 text-xs font-semibold text-blue-400">持有建议</div>
-          <p className="text-xs leading-relaxed text-blue-200/80">{analysis.holding_advice}</p>
+        <div className={`mt-3 ${SUB} p-3`}>
+          <div className="mb-1 text-xs font-semibold text-slate-300">持有建议</div>
+          <p className="text-xs leading-relaxed text-slate-400">{analysis.holding_advice}</p>
         </div>
       )}
 
@@ -179,7 +183,7 @@ export default function StockCard({ analysis, info }: Props) {
 
       {/* 风险 */}
       {risks.length > 0 && (
-        <div className="mt-4 rounded-lg bg-red-950/40 border border-red-900/50 p-3">
+        <div className="mt-4 rounded-xl border border-red-900/50 bg-red-950/40 p-3">
           <div className="mb-1 text-xs font-semibold text-red-400">风险提示</div>
           <ul className="list-disc pl-4 text-xs text-red-300/80 space-y-0.5">
             {risks.map((r, i) => (
@@ -191,7 +195,7 @@ export default function StockCard({ analysis, info }: Props) {
 
       {/* 建议 */}
       {suggestions.length > 0 && (
-        <div className="mt-3 rounded-lg bg-slate-800/60 p-3">
+        <div className={`mt-3 ${SUB} p-3`}>
           <div className="mb-1 text-xs font-semibold text-slate-400">操作建议</div>
           <ul className="list-disc pl-4 text-xs text-slate-300 space-y-0.5">
             {suggestions.map((s, i) => (

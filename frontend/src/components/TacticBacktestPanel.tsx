@@ -16,7 +16,7 @@ function statusBadge(item: TacticBacktestItem) {
 /** 超额着色：edge 已在后端按方向调整（买入看涨、卖出看跌），正数即形态优于基准 */
 function edgeClass(v?: number | null): string {
   if (v == null) return "text-slate-500";
-  return v > 0 ? "text-green-400" : v < 0 ? "text-red-400" : "text-slate-400";
+  return v > 0 ? "text-red-400" : v < 0 ? "text-green-400" : "text-slate-400";
 }
 
 function signed(v?: number | null, digits = 2): string {
@@ -89,7 +89,7 @@ export default function TacticBacktestPanel() {
       </div>
 
       {running && (
-        <div role="status" className="rounded-lg bg-slate-800/50 px-3 py-2 text-sm text-slate-400">
+        <div role="status" className="rounded-lg bg-slate-800/70 px-3 py-2 text-sm text-slate-400">
           正在多只票上逐日重放形态判定（walk-forward），多周期共振需要 900+ 根日线，耗时较久...
         </div>
       )}
@@ -111,11 +111,11 @@ export default function TacticBacktestPanel() {
 
       {!running && items.length > 0 && (
         <>
-          <div className="mb-2 text-[11px] text-slate-500">
+          <div className="mb-2 text-xs text-slate-500">
             股票池 {result?.pool_size} 只 · 每只评估最近 {result?.eval_bars} 个交易日 · 持有期{" "}
             {result?.horizon_days} 个交易日 · 命中去重（同一波行情只计一次）
           </div>
-          <div className="overflow-x-auto rounded-lg border border-slate-800">
+          <div className="overflow-x-auto rounded-xl border border-slate-800">
             <table className="w-full text-sm" style={{ minWidth: 860 }}>
               <caption className="sr-only">形态回测验证结果</caption>
               <thead className="bg-slate-900 text-left text-xs text-slate-400">
@@ -142,10 +142,10 @@ export default function TacticBacktestPanel() {
                           <div className="flex flex-wrap items-center gap-1.5">
                             <span className="text-slate-200">{it.name}</span>
                             <span
-                              className={`rounded px-1.5 py-0.5 text-[10px] ${
+                              className={`rounded px-1.5 py-0.5 text-xs ${
                                 it.direction === "buy"
-                                  ? "bg-green-600/20 text-green-300"
-                                  : "bg-red-600/20 text-red-300"
+                                  ? "bg-red-600/20 text-red-300"
+                                  : "bg-green-600/20 text-green-300"
                               }`}
                             >
                               {it.direction === "buy" ? "买点" : "卖点"}
@@ -154,14 +154,14 @@ export default function TacticBacktestPanel() {
                               <button
                                 onClick={() => toggle(it.key)}
                                 aria-expanded={expanded.has(it.key)}
-                                className="cursor-pointer text-[11px] text-slate-400 underline hover:text-slate-200"
+                                className="cursor-pointer text-xs text-slate-400 underline hover:text-slate-200"
                               >
                                 {expanded.has(it.key) ? "收起" : "明细"}
                               </button>
                             )}
                           </div>
                           {!measurable && it.note && (
-                            <div className="mt-0.5 text-[11px] text-slate-500">{it.note}</div>
+                            <div className="mt-0.5 text-xs text-slate-500">{it.note}</div>
                           )}
                         </td>
                         <td className="px-3 py-2 text-right text-slate-300">
@@ -186,13 +186,13 @@ export default function TacticBacktestPanel() {
                           {it.edge_return == null ? "—" : `${signed(it.edge_return)}%`}
                         </td>
                         <td className="px-3 py-2">
-                          <span className={`rounded px-1.5 py-0.5 text-[10px] ${badge.cls}`}>{badge.text}</span>
+                          <span className={`rounded px-1.5 py-0.5 text-xs ${badge.cls}`}>{badge.text}</span>
                         </td>
                       </tr>
                       {expanded.has(it.key) && (
-                        <tr className="border-t border-slate-800/60 bg-slate-900/60">
+                        <tr className="border-t border-slate-800/60 bg-slate-900">
                           <td colSpan={9} className="px-3 py-2">
-                            <div className="space-y-1.5 text-[11px] text-slate-400">
+                            <div className="space-y-1.5 text-xs text-slate-400">
                               {it.win_definition && <div>胜率口径：{it.win_definition}</div>}
                               {it.note && <div>说明：{it.note}</div>}
                               {measurable && (
@@ -223,7 +223,7 @@ export default function TacticBacktestPanel() {
         </>
       )}
 
-      <p className="mt-3 text-[11px] leading-relaxed text-slate-500">
+      <p className="mt-3 text-xs leading-relaxed text-slate-500">
         口径说明：walk-forward 只用「截至当日」的 K 线判定，命中后按当日收盘价入场；胜率按方向定义（买入形态看涨、卖出形态看跌）；
         必须与同区间同持有期的<strong className="text-slate-400">基准</strong>对比才有意义——牛市里任何买入信号胜率都高。
         分时背离需要分钟级历史，当前数据源无法回测；天量见天价的「换手率 &gt;30%」缺历史换手率，回测中按数据缺失处理。

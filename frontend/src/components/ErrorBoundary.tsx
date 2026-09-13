@@ -30,7 +30,7 @@ export default class ErrorBoundary extends Component<Props, State> {
             <p className="mt-2 text-sm text-slate-300">
               某个组件渲染失败，已被错误边界拦截，避免整个页面崩溃。
             </p>
-            <pre className="mt-3 max-h-48 overflow-auto rounded-lg bg-slate-950/60 p-3 text-[11px] text-slate-400">
+            <pre className="mt-3 max-h-48 overflow-auto rounded-lg bg-slate-950/60 p-3 text-xs text-slate-400">
               {String(this.state.error?.stack ?? this.state.error?.message ?? this.state.error)}
             </pre>
             <button

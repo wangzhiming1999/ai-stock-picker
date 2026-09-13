@@ -14,7 +14,7 @@ import AlertRulesPanel from "./AlertRulesPanel";
 import type { HoldingsData, PortfolioAdvice, UserProfile } from "../types";
 import { useAuth } from "../auth/AuthContext";
 import { fmtPct, safeNumber } from "../lib/safe";
-import { actionTone, pnlTone } from "../lib/tone";
+import { actionTone, pnlTone, scoreChip } from "../lib/tone";
 
 const RISK_LEVELS = [
   { name: "保守", desc: "低波动优先，严格控制仓位" },
@@ -65,7 +65,7 @@ export default function PortfolioPanel() {
 
   if (!user) {
     return (
-      <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 text-sm text-slate-400">
+      <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5 text-sm text-slate-400">
         请先登录后使用持仓管理（持仓数据按用户存储）。
       </div>
     );
@@ -120,11 +120,11 @@ export default function PortfolioPanel() {
   };
 
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
+    <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h3 className="text-sm font-semibold text-slate-200">我的持仓</h3>
-          <p className="mt-0.5 text-[11px] text-slate-500">按用户存储，建议根据你的风险等级生成</p>
+          <p className="mt-0.5 text-xs text-slate-500">按用户存储，建议根据你的风险等级生成</p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -148,7 +148,7 @@ export default function PortfolioPanel() {
         <div className="mb-4">
           <div className="mb-1.5 flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-400">风险等级</span>
-            <label className="flex items-center gap-2 text-[11px] text-slate-500">
+            <label className="flex items-center gap-2 text-xs text-slate-500">
               总资金
               <input
                 type="number"
@@ -181,13 +181,13 @@ export default function PortfolioPanel() {
               </button>
             ))}
           </div>
-          {advice && <p className="mt-1.5 text-[11px] text-slate-500">{advice.risk_desc}</p>}
+          {advice && <p className="mt-1.5 text-xs text-slate-500">{advice.risk_desc}</p>}
         </div>
       )}
 
       {/* 添加表单 */}
       {showAdd && (
-        <div className="mb-4 rounded-lg border border-slate-700 bg-slate-800/50 p-4">
+        <div className="mb-4 rounded-lg border border-slate-700 bg-slate-800/70 p-4">
           <div className="mb-3 text-xs font-semibold text-slate-300">添加持仓</div>
           <div className="flex flex-col gap-3">
             <StockSearchInput
@@ -198,16 +198,16 @@ export default function PortfolioPanel() {
             <div className="grid grid-cols-2 gap-3">
               <label className="block">
                 <span className="mb-1 block text-xs text-slate-500">成本价</span>
-                <input value={costPrice} onChange={(e) => setCostPrice(e.target.value)} type="number" step="0.01" placeholder="如 1250.00" className="w-full rounded-lg border border-slate-700 bg-slate-800/80 px-3 py-1.5 text-sm" />
+                <input value={costPrice} onChange={(e) => setCostPrice(e.target.value)} type="number" step="0.01" placeholder="如 1250.00" className="w-full rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-1.5 text-sm" />
               </label>
               <label className="block">
                 <span className="mb-1 block text-xs text-slate-500">数量(股)</span>
-                <input value={shares} onChange={(e) => setShares(e.target.value)} type="number" placeholder="如 100" className="w-full rounded-lg border border-slate-700 bg-slate-800/80 px-3 py-1.5 text-sm" />
+                <input value={shares} onChange={(e) => setShares(e.target.value)} type="number" placeholder="如 100" className="w-full rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-1.5 text-sm" />
               </label>
             </div>
             <label className="block">
               <span className="mb-1 block text-xs text-slate-500">备注（可选）</span>
-              <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="如：核心持仓" className="w-full rounded-lg border border-slate-700 bg-slate-800/80 px-3 py-1.5 text-sm" />
+              <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="如：核心持仓" className="w-full rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-1.5 text-sm" />
             </label>
             <div className="flex gap-2">
               <button onClick={() => void submitAdd()} className="rounded-lg bg-brand px-4 py-1.5 text-xs font-medium text-white hover:bg-brand-dark">
@@ -224,22 +224,22 @@ export default function PortfolioPanel() {
       {/* 汇总 */}
       {holdings && holdings.holdings.length > 0 && (
         <div className="mb-4 grid grid-cols-3 gap-2">
-          <div className="rounded-lg bg-slate-800/50 px-3 py-2 text-center">
+          <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
             <div className="text-lg font-bold text-slate-200">{safeNumber(holdings.total_value).toLocaleString()}</div>
-            <div className="text-[11px] text-slate-500">市值</div>
+            <div className="text-xs text-slate-500">市值</div>
           </div>
-          <div className="rounded-lg bg-slate-800/50 px-3 py-2 text-center">
+          <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
             <div className={`text-lg font-bold ${pnlTone(holdings.total_pnl)}`}>
               {holdings.total_pnl >= 0 ? "+" : ""}
               {safeNumber(holdings.total_pnl).toLocaleString()}
             </div>
-            <div className="text-[11px] text-slate-500">总盈亏</div>
+            <div className="text-xs text-slate-500">总盈亏</div>
           </div>
-          <div className="rounded-lg bg-slate-800/50 px-3 py-2 text-center">
+          <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
             <div className={`text-lg font-bold ${pnlTone(holdings.total_pnl_pct)}`}>
               {fmtPct(holdings.total_pnl_pct)}
             </div>
-            <div className="text-[11px] text-slate-500">盈亏率</div>
+            <div className="text-xs text-slate-500">盈亏率</div>
           </div>
         </div>
       )}
@@ -264,7 +264,7 @@ export default function PortfolioPanel() {
                 <tr key={h.id} className="border-t border-slate-800/60">
                   <td className="px-2 py-2">
                     <div className="font-medium text-slate-200">{h.name || h.code}</div>
-                    <div className="text-[11px] text-slate-500">{h.code}</div>
+                    <div className="text-xs text-slate-500">{h.code}</div>
                   </td>
                   <td className="px-2 py-2 text-right text-slate-300">{h.current_price?.toFixed(2) ?? "-"}</td>
                   <td className="px-2 py-2 text-right text-slate-400">{h.cost_price.toFixed(2)}</td>
@@ -274,7 +274,7 @@ export default function PortfolioPanel() {
                   </td>
                   <td className="px-2 py-2">
                     {h.signal ? (
-                      <span className={`rounded px-1.5 py-0.5 text-[11px] ${h.signal.strength >= 6 ? "bg-green-900/40 text-green-300" : h.signal.strength >= 4 ? "bg-yellow-900/40 text-yellow-300" : "bg-red-900/40 text-red-300"}`}>
+                      <span className={`rounded px-1.5 py-0.5 text-xs ${scoreChip(h.signal.strength)}`}>
                         强度 {h.signal.strength.toFixed(1)}
                       </span>
                     ) : (
@@ -302,7 +302,7 @@ export default function PortfolioPanel() {
         <div className="mt-5 border-t border-slate-800 pt-4">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-400">持仓建议（{advice.risk_level}型）</span>
-            <button onClick={() => void load()} className="text-[11px] text-slate-500 hover:text-slate-300">
+            <button onClick={() => void load()} className="text-xs text-slate-500 hover:text-slate-300">
               刷新建议
             </button>
           </div>
@@ -313,12 +313,12 @@ export default function PortfolioPanel() {
           </div>
           <div className="space-y-2">
             {advice.holdings_advice.map((a) => (
-              <div key={a.code} className="rounded-lg border border-slate-800 p-3">
+              <div key={a.code} className="rounded-xl border border-slate-800 p-3">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium text-slate-200">{a.name} <span className="text-xs text-slate-500">{a.code}</span></span>
                   <span className={`text-xs font-semibold ${actionTone(a.action)}`}>{a.action}</span>
                 </div>
-                <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-[11px] text-slate-500">
+                <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-slate-500">
                   <span>仓位 {a.position_pct}%</span>
                   {a.support != null && <span>支撑 {a.support}</span>}
                   {a.resistance != null && <span>压力 {a.resistance}</span>}

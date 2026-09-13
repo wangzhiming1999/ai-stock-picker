@@ -49,7 +49,7 @@ export default function WatchStar({ code, size = "sm" }: Props) {
         whileTap={{ scale: 0.85 }}
         onClick={(e) => void handle(e)}
         title={active ? "已在自选" : "加入自选"}
-        className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] transition-colors ${
+        className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs transition-colors ${
           active
             ? "text-amber-400"
             : "text-slate-500 hover:bg-slate-700/50 hover:text-amber-300"
@@ -59,7 +59,7 @@ export default function WatchStar({ code, size = "sm" }: Props) {
         {size === "md" && (active ? "已加" : "加自选")}
       </motion.button>
       {msg && (
-        <span className={`absolute left-0 top-full z-10 whitespace-nowrap rounded bg-slate-800 px-1.5 py-0.5 text-[10px] ${msg.includes("已") ? "text-amber-300" : "text-red-300"}`}>
+        <span className={`absolute left-0 top-full z-10 whitespace-nowrap rounded bg-slate-800 px-1.5 py-0.5 text-xs ${msg.includes("已") ? "text-amber-300" : "text-red-300"}`}>
           {msg}
         </span>
       )}

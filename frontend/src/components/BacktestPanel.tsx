@@ -3,7 +3,7 @@ import * as echarts from "echarts";
 import { runBacktest } from "../api/client";
 import CollapsiblePanel from "./CollapsiblePanel";
 import { safeArray, safeNumber } from "../lib/safe";
-import { pnlTone } from "../lib/tone";
+import { pctTone, pnlTone } from "../lib/tone";
 import type { BacktestResult } from "../types";
 
 const STRATEGIES = [
@@ -121,7 +121,7 @@ export default function BacktestPanel() {
       <div className="mb-4 flex flex-wrap items-end gap-4">
         <div>
           <span className="mb-1 block text-xs text-slate-500">策略</span>
-          <div className="flex gap-1 rounded-lg border border-slate-700 bg-slate-800/60 p-1">
+          <div className="flex gap-1 rounded-lg border border-slate-700 bg-slate-800/70 p-1">
             {STRATEGIES.map((s) => (
               <button
                 key={s.name}
@@ -136,62 +136,62 @@ export default function BacktestPanel() {
         </div>
         <label className="block">
           <span className="mb-1 block text-xs text-slate-500">开始日期</span>
-          <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="rounded-lg border border-slate-700 bg-slate-800/80 px-2 py-1.5 text-xs text-slate-200" />
+          <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="rounded-lg border border-slate-700 bg-slate-800/70 px-2 py-1.5 text-xs text-slate-200" />
         </label>
         <label className="block">
           <span className="mb-1 block text-xs text-slate-500">每期持仓数</span>
-          <input value={topN} onChange={(e) => setTopN(e.target.value)} className="w-16 rounded-lg border border-slate-700 bg-slate-800/80 px-2 py-1.5 text-xs text-slate-200" />
+          <input value={topN} onChange={(e) => setTopN(e.target.value)} className="w-16 rounded-lg border border-slate-700 bg-slate-800/70 px-2 py-1.5 text-xs text-slate-200" />
         </label>
         <label className="block">
           <span className="mb-1 block text-xs text-slate-500">调仓周期(交易日)</span>
-          <input value={rebalance} onChange={(e) => setRebalance(e.target.value)} className="w-16 rounded-lg border border-slate-700 bg-slate-800/80 px-2 py-1.5 text-xs text-slate-200" />
+          <input value={rebalance} onChange={(e) => setRebalance(e.target.value)} className="w-16 rounded-lg border border-slate-700 bg-slate-800/70 px-2 py-1.5 text-xs text-slate-200" />
         </label>
       </div>
 
       {err && <div className="mb-3 rounded-lg border border-red-800 bg-red-950/40 px-3 py-2 text-sm text-red-300">{err}</div>}
 
-      {running && <div className="rounded-lg bg-slate-800/50 px-3 py-2 text-sm text-slate-400">回测运行中（拉取历史K线 + 模拟调仓）...</div>}
+      {running && <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-sm text-slate-400">回测运行中（拉取历史K线 + 模拟调仓）...</div>}
 
       {result && (
         <div className="space-y-4">
           {/* 指标卡片 */}
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-            <div className="rounded-lg bg-slate-800/50 px-2 py-2 text-center">
+            <div className="rounded-lg bg-slate-800/70 px-2 py-2 text-center">
               <div className={`text-base font-bold ${pnlTone(result.total_return)}`}>
                 {result.total_return >= 0 ? "+" : ""}
                 {result.total_return.toFixed(2)}%
               </div>
-              <div className="text-[10px] text-slate-500">总收益</div>
+              <div className="text-xs text-slate-500">总收益</div>
             </div>
-            <div className="rounded-lg bg-slate-800/50 px-2 py-2 text-center">
+            <div className="rounded-lg bg-slate-800/70 px-2 py-2 text-center">
               <div className={`text-base font-bold ${pnlTone(result.annual_return)}`}>
                 {result.annual_return >= 0 ? "+" : ""}
                 {result.annual_return.toFixed(2)}%
               </div>
-              <div className="text-[10px] text-slate-500">年化</div>
+              <div className="text-xs text-slate-500">年化</div>
             </div>
-            <div className="rounded-lg bg-slate-800/50 px-2 py-2 text-center">
-              <div className="text-base font-bold text-red-400">-{result.max_drawdown.toFixed(2)}%</div>
-              <div className="text-[10px] text-slate-500">最大回撤</div>
+            <div className="rounded-lg bg-slate-800/70 px-2 py-2 text-center">
+              <div className="text-base font-bold text-amber-400">-{result.max_drawdown.toFixed(2)}%</div>
+              <div className="text-xs text-slate-500">最大回撤</div>
             </div>
-            <div className="rounded-lg bg-slate-800/50 px-2 py-2 text-center">
-              <div className={`text-base font-bold ${result.sharpe >= 1 ? "text-green-400" : "text-slate-200"}`}>{fmt(result.sharpe)}</div>
-              <div className="text-[10px] text-slate-500">夏普</div>
+            <div className="rounded-lg bg-slate-800/70 px-2 py-2 text-center">
+              <div className={`text-base font-bold ${result.sharpe >= 1 ? "text-brand-light" : "text-slate-400"}`}>{fmt(result.sharpe)}</div>
+              <div className="text-xs text-slate-500">夏普</div>
             </div>
-            <div className="rounded-lg bg-slate-800/50 px-2 py-2 text-center">
-              <div className={`text-base font-bold ${result.win_rate >= 50 ? "text-green-400" : "text-slate-200"}`}>{result.win_rate.toFixed(1)}%</div>
-              <div className="text-[10px] text-slate-500">胜率</div>
+            <div className="rounded-lg bg-slate-800/70 px-2 py-2 text-center">
+              <div className={`text-base font-bold ${pctTone(result.win_rate)}`}>{result.win_rate.toFixed(1)}%</div>
+              <div className="text-xs text-slate-500">胜率</div>
             </div>
-            <div className="rounded-lg bg-slate-800/50 px-2 py-2 text-center">
+            <div className="rounded-lg bg-slate-800/70 px-2 py-2 text-center">
               <div className="text-base font-bold text-slate-200">{result.benchmark_return != null ? `${result.benchmark_return >= 0 ? "+" : ""}${result.benchmark_return.toFixed(2)}%` : "-"}</div>
-              <div className="text-[10px] text-slate-500">基准(沪深300)</div>
+              <div className="text-xs text-slate-500">基准(沪深300)</div>
             </div>
           </div>
 
           {/* 收益曲线 */}
           <div ref={chartRef} style={{ height: 280 }} className="w-full" />
 
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-500">
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
             <span>区间 {result.start} ~ {result.end}</span>
             <span>股票池 {result.pool_size} 只</span>
             <span>调仓 {result.periods} 期</span>

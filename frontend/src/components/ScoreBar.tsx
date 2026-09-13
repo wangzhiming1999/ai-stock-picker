@@ -1,13 +1,8 @@
+import { scoreBg } from "../lib/tone";
+
 interface Props {
   label: string;
   score: number;
-}
-
-function scoreColor(score: number): string {
-  if (score >= 7) return "bg-green-500";
-  if (score >= 5) return "bg-yellow-500";
-  if (score >= 3) return "bg-orange-500";
-  return "bg-red-500";
 }
 
 export default function ScoreBar({ label, score }: Props) {
@@ -17,7 +12,7 @@ export default function ScoreBar({ label, score }: Props) {
       <span className="w-14 shrink-0 text-sm text-slate-400">{label}</span>
       <div className="h-2 flex-1 rounded-full bg-slate-800 overflow-hidden">
         <div
-          className={`h-full rounded-full ${scoreColor(score)} transition-all duration-700`}
+          className={`h-full rounded-full ${scoreBg(score)} transition-all duration-700`}
           style={{ width: `${pct}%` }}
         />
       </div>

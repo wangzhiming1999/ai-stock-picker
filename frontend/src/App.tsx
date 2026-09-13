@@ -267,7 +267,7 @@ export default function App() {
 
       <main className="mx-auto max-w-6xl px-4 pb-20 pt-4 sm:px-6 sm:pt-6">
         {/* Tab 导航（桌面横向排列 / 移动横向滚动） */}
-        <nav aria-label="主要功能" className="relative mb-5 hidden grid-cols-4 gap-1 rounded-xl border border-slate-800 bg-slate-900/60 p-1 sm:grid">
+        <nav aria-label="主要功能" className="relative mb-5 hidden grid-cols-4 gap-1 rounded-2xl border border-slate-800 bg-slate-900 p-1 sm:grid">
           {TAB_LIST.map((t) => {
             const Icon = t.icon;
             const active = tab === t.key;
@@ -277,7 +277,7 @@ export default function App() {
                 onClick={() => changeTab(t.key)}
                 aria-current={active ? "page" : undefined}
                 className={`relative flex min-w-0 flex-col items-center gap-1 rounded-lg px-2 py-2.5 text-sm font-medium transition-colors ${
-                  active ? "text-white" : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
+                  active ? "text-white" : "text-slate-400 hover:bg-slate-800/70 hover:text-slate-200"
                 }`}
               >
                 {active && (
@@ -291,7 +291,7 @@ export default function App() {
                   <Icon className={`h-4 w-4 ${active ? "text-white" : ""}`} strokeWidth={2.2} />
                   {t.label}
                 </span>
-                <span className={`relative hidden text-[10px] font-normal sm:block ${active ? "text-white/70" : "text-slate-500"}`}>
+                <span className={`relative hidden text-xs font-normal sm:block ${active ? "text-white/70" : "text-slate-500"}`}>
                   {t.desc}
                 </span>
               </button>
@@ -303,7 +303,7 @@ export default function App() {
           {/* 深度分析：常驻 DOM，切走仅隐藏（保留结果，避免重复加载） */}
         <div className={isTabVisible("analyze")}>
             {/* 输入区 */}
-            <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 sm:p-5">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4 sm:p-5">
               <label className="mb-2 block text-sm font-medium text-slate-300">
                 股票搜索 <span className="ml-1 text-xs font-normal text-slate-500">（代码/名称 · 支持多只）</span>
               </label>
@@ -341,7 +341,7 @@ export default function App() {
 
             {/* 状态 */}
             {(phase === "running" || phase === "done") && status && (
-              <div className="mt-4 flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/60 px-4 py-3 text-sm text-slate-300">
+              <div className="mt-4 flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900 px-4 py-3 text-sm text-slate-300">
                 {phase === "running" ? (
                   <>
                     <span className="relative flex h-2.5 w-2.5">
@@ -365,25 +365,27 @@ export default function App() {
             )}
 
             {/* 结果列表 */}
-            {items.length > 0 && (
+            {items.length > 0 && (() => {
+              const totalScore = items.reduce((s, i) => s + Math.max(i.analysis.overall_score, 0), 0) || 1;
+              const avgScore = items.reduce((s, i) => s + i.analysis.overall_score, 0) / items.length;
+              return (
               <div className="mt-8">
                 <div className="mb-4 flex items-center justify-between">
                   <h2 className="text-lg font-bold text-white">分析结果</h2>
                   <div className="flex items-center gap-4 text-sm">
                     <span className="text-slate-400">平均分</span>
-                    <span className="text-xl font-bold text-brand">
-                      {(items.reduce((s, i) => s + i.analysis.overall_score, 0) / items.length).toFixed(1)}
-                    </span>
+                    <span className="text-xl font-bold text-brand tabular-nums">{avgScore.toFixed(1)}</span>
                   </div>
                 </div>
-                <div className="mb-6 flex h-8 w-full overflow-hidden rounded-lg border border-slate-800">
+                {/* 分数占比条：每段宽度 = 该股得分 / 总分，整条铺满，越宽代表分越高 */}
+                <div className="mb-6 flex h-8 w-full overflow-hidden rounded-xl border border-slate-800 bg-slate-900">
                   {items.map((item, idx) => (
                     <div
                       key={item.analysis.code + idx}
-                      className="flex items-center justify-center overflow-hidden border-r border-slate-800 last:border-r-0 text-xs font-medium"
+                      className="flex items-center justify-center overflow-hidden border-r border-slate-900 last:border-r-0 text-xs font-medium text-white/90"
                       style={{
-                        width: `${(item.analysis.overall_score / Math.max(...items.map((i) => i.analysis.overall_score), 1)) * (100 / items.length)}%`,
-                        background: `linear-gradient(to top, rgba(37,99,235,0.85), rgba(37,99,235,0.45))`,
+                        width: `${(Math.max(item.analysis.overall_score, 0) / totalScore) * 100}%`,
+                        background: "linear-gradient(to top, rgba(37,99,235,0.85), rgba(37,99,235,0.45))",
                       }}
                       title={`${item.analysis.name} ${item.analysis.overall_score.toFixed(1)}`}
                     >
@@ -399,7 +401,8 @@ export default function App() {
                   ))}
                 </motion.div>
               </div>
-            )}
+              );
+            })()}
 
             {/* 空状态 */}
             {phase === "idle" && (
@@ -440,7 +443,7 @@ export default function App() {
           <div className={isTabVisible("mine")}>
             <div className="space-y-5">
               {!user ? (
-                <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-8 text-center">
+                <div className="rounded-2xl border border-slate-800 bg-slate-900 p-8 text-center">
                   <motion.div
                     initial={{ opacity: 0, scale: 0.9 }}
                     animate={{ opacity: 1, scale: 1 }}
@@ -486,7 +489,7 @@ export default function App() {
                 onClick={() => changeTab(t.key)}
                 aria-current={active ? "page" : undefined}
                 whileTap={{ scale: 0.92 }}
-                className={`flex flex-col items-center gap-0.5 py-2.5 text-[11px] font-medium transition-colors ${
+                className={`flex flex-col items-center gap-0.5 py-2.5 text-xs font-medium transition-colors ${
                   active ? "text-brand" : "text-slate-500"
                 }`}
               >
@@ -508,10 +511,10 @@ export default function App() {
 function PageSkeleton() {
   return (
     <div aria-busy="true" aria-label="正在加载页面" className="space-y-4">
-      <div className="h-28 animate-pulse rounded-xl border border-slate-800 bg-slate-900/60" />
+      <div className="h-28 animate-pulse rounded-2xl border border-slate-800 bg-slate-900" />
       <div className="grid gap-4 sm:grid-cols-2">
-        <div className="h-48 animate-pulse rounded-xl border border-slate-800 bg-slate-900/60" />
-        <div className="h-48 animate-pulse rounded-xl border border-slate-800 bg-slate-900/60" />
+        <div className="h-48 animate-pulse rounded-2xl border border-slate-800 bg-slate-900" />
+        <div className="h-48 animate-pulse rounded-2xl border border-slate-800 bg-slate-900" />
       </div>
     </div>
   );

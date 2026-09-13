@@ -88,3 +88,76 @@ export function actionBadge(action: string | null | undefined): ActionBadge {
   if (/加仓|买入|建仓|buy/i.test(a)) return { label: "可加仓", text: UP_TEXT[300], bg: "bg-red-500/10" };
   return { label: "持有", text: NEUTRAL_TEXT[300], bg: "bg-slate-500/10" };
 }
+
+/**
+ * 质量评分色（0–10 分制）。
+ *
+ * 质量（信号强度 / 胜率 / 条件通过项）表达的是「好不好」，与「价格往哪走」无关，
+ * 所以不占红绿 —— 否则同一张卡里「强度 8」是绿、「今日涨 2%」是红，
+ * 读者得为每个数字重新建立一次颜色映射。
+ *
+ * 高 = 主色浅档（达标）／ 中 = 琥珀（一般）／ 低 = 中性灰（不达标）
+ */
+export function scoreTone(v: number | null | undefined): string {
+  if (v == null || Number.isNaN(v)) return "text-slate-400";
+  if (v >= 6) return "text-brand-light";
+  if (v >= 4) return "text-amber-400";
+  return "text-slate-500";
+}
+
+/** 质量评分底色芯片（0–10 分制）。 */
+export function scoreChip(v: number | null | undefined): string {
+  if (v == null || Number.isNaN(v)) return "bg-slate-800/40 text-slate-400";
+  if (v >= 6) return "bg-brand/15 text-brand-light";
+  if (v >= 4) return "bg-amber-500/15 text-amber-300";
+  return "bg-slate-800/40 text-slate-400";
+}
+
+/**
+ * 百分制质量评分色（0–100）。命中率 / 胜率这类以 % 展示的指标走这里，
+ * 内部折算到十分制复用 scoreTone，保证 60% 与 6 分同色。
+ */
+export function pctTone(v: number | null | undefined): string {
+  if (v == null || Number.isNaN(v)) return "text-slate-400";
+  return scoreTone(v / 10);
+}
+
+/** 质量评分的纯底色（用于进度条填充等只需背景色的场景，0–10 分制）。 */
+export function scoreBg(v: number | null | undefined): string {
+  if (v == null || Number.isNaN(v)) return "bg-slate-600";
+  if (v >= 6) return "bg-brand";
+  if (v >= 4) return "bg-amber-400";
+  return "bg-slate-600";
+}
+
+/**
+ * 风报比配色（不是 0–10 分制，是倍率）。>=2 达标，>=1 一般，其余偏低。
+ * 同样属于质量而非方向，所以不用红绿。
+ */
+export function rrTone(v: number | null | undefined): string {
+  if (v == null || Number.isNaN(v)) return "text-slate-400";
+  if (v >= 2) return "text-brand-light";
+  if (v >= 1) return "text-amber-400";
+  return "text-slate-500";
+}
+
+/**
+ * 固定语义芯片色（底色 + 文字），用于买点 / 卖出区 / 止损这类标签块。
+ *
+ * 这里需要区分两种"颜色语义"，不要混用：
+ *   方向色（pnlTone / dirTone）：价格会往哪走
+ *   动作色（actionTone / CHIP）：我打算做什么
+ *
+ * 止损之所以是琥珀而不是红或绿 —— 它是风控阈值，既不预判上涨也不预判下跌，
+ * 用红会被读成"又要跌了"，用绿会被读成"好事"，只有琥珀能表达"警戒线"。
+ */
+export const CHIP = {
+  /** 买点 / 买入区：做多的价位锚点 */
+  buy: { bg: "bg-red-500/10", text: "text-red-300" },
+  /** 卖出区：离场的价位 */
+  sell: { bg: "bg-green-500/10", text: "text-green-300" },
+  /** 止损等风控阈值 */
+  risk: { bg: "bg-amber-500/10", text: "text-amber-300" },
+  /** 中性价位：支撑 / 压力 / 现价 */
+  neutral: { bg: "bg-slate-800/40", text: "text-slate-200" },
+} as const;

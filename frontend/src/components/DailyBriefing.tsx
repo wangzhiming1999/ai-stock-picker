@@ -1,11 +1,36 @@
-import { type MouseEvent, useCallback, useEffect, useState } from "react";
+import { type MouseEvent, type ReactNode, useCallback, useEffect, useState } from "react";
 import { ArrowDownRight, ArrowUpRight, Bell, ClipboardCheck, Plus, RefreshCw, ShieldCheck, Sunrise, Target } from "lucide-react";
 import { addToWatchlist, fetchBriefing, getAuthToken, simTrade } from "../api/client";
 import type { Briefing, BriefingHolding, BriefingStock, BriefingTactics } from "../types";
-import { actionBadge, actionTone, dirTone, downTone, pnlTone, upTone } from "../lib/tone";
+import { actionBadge, actionTone, CHIP, dirTone, downTone, pnlTone, upTone } from "../lib/tone";
+import { CARD, DIVIDER, SECTION, SUB, SUB_QUIET, TEXT } from "../lib/ui";
 import { toast } from "sonner";
 
-/** 当日复盘块：持仓盈亏快照 + 今日触发预警（登录用户） */
+/** ③ 分区：不套容器，只用一条分隔线 + 留白切分主卡内部主题 */
+function Section({
+  icon,
+  title,
+  hint,
+  children,
+}: {
+  icon: ReactNode;
+  title: string;
+  hint?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div className={`mt-4 ${DIVIDER} pt-4`}>
+      <div className={SECTION}>
+        {icon}
+        {title}
+        {hint}
+      </div>
+      <div className="mt-2.5">{children}</div>
+    </div>
+  );
+}
+
+/** 当日复盘内容（标题由 ③ 分区提供）：持仓盈亏快照 + 今日触发预警 */
 function ReviewBlock({ review }: { review: NonNullable<Briefing["review"]> }) {
   const hp = review.holdings_pnl;
   const fmt = (v?: number | null, pct = false) => {
@@ -14,30 +39,26 @@ function ReviewBlock({ review }: { review: NonNullable<Briefing["review"]> }) {
     return pct ? `${s}%` : s;
   };
   return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-3">
-      <div className="flex items-center gap-2 text-sm font-medium text-slate-200">
-        <ClipboardCheck className="h-4 w-4 text-brand" />
-        当日复盘
-      </div>
-      {review.summary && <p className="mt-1.5 text-xs text-slate-300">{review.summary}</p>}
+    <>
+      {review.summary && <p className="text-xs leading-relaxed text-slate-300">{review.summary}</p>}
       {hp && (hp.total_pnl != null || hp.count) && (
-        <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
-          <div className="rounded bg-slate-800/60 px-2 py-1.5">
-            <div className="text-slate-500">持仓总盈亏</div>
-            <div className={pnlTone(hp.total_pnl, 300)}>
+        <div className="mt-2 grid grid-cols-3 gap-2">
+          <div className={`${SUB_QUIET} px-2 py-1.5`}>
+            <div className={TEXT.meta}>持仓总盈亏</div>
+            <div className={`text-sm font-semibold ${pnlTone(hp.total_pnl, 300)}`}>
               {fmt(hp.total_pnl)}
-              {hp.total_pnl_pct != null && <span className="ml-1">({fmt(hp.total_pnl_pct, true)})</span>}
+              {hp.total_pnl_pct != null && <span className="ml-1 text-xs font-normal">({fmt(hp.total_pnl_pct, true)})</span>}
             </div>
           </div>
-          <div className="rounded bg-slate-800/60 px-2 py-1.5">
-            <div className="text-slate-500">最强</div>
-            <div className={upTone(300)}>
+          <div className={`${SUB_QUIET} px-2 py-1.5`}>
+            <div className={TEXT.meta}>最强</div>
+            <div className={`truncate text-sm font-semibold ${upTone(300)}`}>
               {hp.best?.name ?? "—"} {hp.best?.pnl_pct != null && fmt(hp.best.pnl_pct, true)}
             </div>
           </div>
-          <div className="rounded bg-slate-800/60 px-2 py-1.5">
-            <div className="text-slate-500">最弱</div>
-            <div className={downTone(300)}>
+          <div className={`${SUB_QUIET} px-2 py-1.5`}>
+            <div className={TEXT.meta}>最弱</div>
+            <div className={`truncate text-sm font-semibold ${downTone(300)}`}>
               {hp.worst?.name ?? "—"} {hp.worst?.pnl_pct != null && fmt(hp.worst.pnl_pct, true)}
             </div>
           </div>
@@ -57,7 +78,7 @@ function ReviewBlock({ review }: { review: NonNullable<Briefing["review"]> }) {
           ))}
         </div>
       )}
-    </div>
+    </>
   );
 }
 
@@ -68,13 +89,10 @@ function simErrMsg(e: unknown): string {
   return msg;
 }
 
-/** 技术位由规则推导的标识，避免误当确定性建议 */
+/** 算法推导标识：不预判确定性，整卡只出现一次（放在卡片页脚），避免每个数字都挂标签 */
 function AlgoTag() {
   return (
-    <span
-      className="rounded bg-slate-700/40 px-1 text-[9px] leading-none text-slate-400"
-      title="该价位/手数由技术位规则推导，非确定性建议"
-    >
+    <span className="text-slate-600" title="买点 / 止损 / 手数由技术位规则推导，非确定性建议">
       算法推导
     </span>
   );
@@ -86,10 +104,11 @@ interface Props {
 }
 
 function Money({ v }: { v?: number | null }) {
-  if (v == null) return <span className="text-slate-600">—</span>;
+  if (v == null) return <span className="text-slate-500">—</span>;
   return <span>{v.toFixed(2)}</span>;
 }
 
+/** 关注池股票卡：主数字只留 3 个（买点 / 止损 / 建议手数），现价并入头部 */
 function MorningStockCard({ s, onPick }: { s: BriefingStock; onPick: (c: string) => void }) {
   const [added, setAdded] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -153,100 +172,137 @@ function MorningStockCard({ s, onPick }: { s: BriefingStock; onPick: (c: string)
   return (
     <div
       onClick={() => onPick(s.code)}
-      className="cursor-pointer rounded-lg border border-slate-800 bg-slate-900/60 p-3 transition-colors hover:border-brand/50 hover:bg-slate-900"
+      className={`${SUB} cursor-pointer p-3 transition-colors hover:bg-slate-800`}
     >
+      {/* 头部：名称 + 现价涨跌 + 操作 */}
       <div className="flex items-start justify-between gap-2">
-        <div className="flex items-baseline gap-2">
-          <span className="font-semibold text-slate-100">{s.name}</span>
-          <span className="text-xs text-slate-500">{s.code}</span>
+        <div className="min-w-0">
+          <div className="flex items-baseline gap-2">
+            <span className="text-sm font-semibold text-white">{s.name}</span>
+            <span className={TEXT.meta}>{s.code}</span>
+          </div>
+          <div className="mt-0.5 flex items-baseline gap-2">
+            <span className={TEXT.num}>
+              <Money v={s.price} />
+            </span>
+            {s.change_pct != null && (
+              <span className={`text-xs font-medium ${pnlTone(s.change_pct, 300)}`}>
+                {s.change_pct >= 0 ? "+" : ""}
+                {s.change_pct.toFixed(2)}%
+              </span>
+            )}
+          </div>
         </div>
-        <button
-          onClick={addWatch}
-          disabled={added}
-          className={`flex shrink-0 items-center gap-1 rounded border px-2 py-0.5 text-[11px] transition-colors ${
-            added
-              ? "border-green-700 text-green-400"
-              : "border-slate-700 text-slate-300 hover:border-brand hover:text-brand"
-          }`}
-        >
-          <Plus className="h-3 w-3" />
-          {added ? "已自选" : busy ? "..." : "加自选"}
-        </button>
-        <button
-          onClick={simBuy}
-          disabled={simBusy}
-          className="flex shrink-0 items-center gap-1 rounded border border-red-800/60 bg-red-500/10 px-2 py-0.5 text-[11px] text-red-300 transition-colors hover:bg-red-500/20"
-          title="用虚拟资金按建议手数一键模拟买入"
-        >
-          {simBusy ? "..." : "模拟买"}
-        </button>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button
+            onClick={simBuy}
+            disabled={simBusy}
+            className={`rounded-lg border border-red-800/60 px-2 py-1 text-xs transition-colors hover:bg-red-500/20 ${CHIP.buy.bg} ${CHIP.buy.text}`}
+            title="用虚拟资金按建议手数一键模拟买入"
+          >
+            {simBusy ? "..." : "模拟买"}
+          </button>
+          <button
+            onClick={addWatch}
+            disabled={added}
+            className={`flex items-center gap-1 rounded-lg border px-2 py-1 text-xs transition-colors ${
+              added
+                ? "border-slate-700 text-slate-500"
+                : "border-slate-700 text-slate-300 hover:border-brand hover:text-brand"
+            }`}
+          >
+            <Plus className="h-3 w-3" />
+            {added ? "已自选" : busy ? "..." : "自选"}
+          </button>
+        </div>
       </div>
 
-      <div className="mt-1 flex items-center gap-1 text-xs text-slate-400">
-        置信 <span className="font-semibold text-brand">{s.confidence ?? "—"}</span>
-        {tip && <span className="ml-1 text-[11px] text-amber-300">{tip}</span>}
-      </div>
+      {/* 置信度：给数值一个标尺，否则「置信 7」没有任何参照 */}
+      {s.confidence != null && (
+        <div className="mt-2 flex items-center gap-2">
+          <span className={TEXT.meta}>置信</span>
+          <span className="text-xs font-semibold text-slate-200">{s.confidence}</span>
+          <span className="h-1 w-16 overflow-hidden rounded-full bg-slate-800/40">
+            <span
+              className="block h-full rounded-full bg-brand"
+              style={{ width: `${Math.max(0, Math.min(10, s.confidence)) * 10}%` }}
+            />
+          </span>
+          <span className="text-xs text-slate-600">/ 10</span>
+          {tip && <span className="ml-auto text-xs text-amber-300">{tip}</span>}
+        </div>
+      )}
+      {s.confidence == null && tip && <div className="mt-1 text-xs text-amber-300">{tip}</div>}
 
-      <div className="mt-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
-        <div className="rounded bg-slate-800/60 px-2 py-1">
-          <div className="text-slate-500">现价</div>
-          <div className="text-slate-200"><Money v={s.price} /></div>
+      {/* 三个关键数字 */}
+      <div className="mt-2 grid grid-cols-3 gap-2">
+        <div className={`${CHIP.buy.bg} rounded-lg px-2 py-1.5`}>
+          <div className={TEXT.meta}>买点</div>
+          <div className={`text-sm font-semibold ${CHIP.buy.text}`}>
+            <Money v={s.buy_point} />
+          </div>
         </div>
-        <div className="rounded bg-green-500/10 px-2 py-1">
-          <div className="flex items-center gap-1 text-green-500/70">买点 <AlgoTag /></div>
-          <div className="text-green-300"><Money v={s.buy_point} /></div>
+        <div className={`${CHIP.risk.bg} rounded-lg px-2 py-1.5`}>
+          <div className={TEXT.meta}>止损</div>
+          <div className={`text-sm font-semibold ${CHIP.risk.text}`}>
+            <Money v={s.stop_loss} />
+          </div>
         </div>
-        <div className="rounded bg-red-500/10 px-2 py-1">
-          <div className="flex items-center gap-1 text-red-500/70">止损 <AlgoTag /></div>
-          <div className="text-red-300"><Money v={s.stop_loss} /></div>
-        </div>
-        <div className="rounded bg-slate-800/60 px-2 py-1">
-          <div className="flex items-center gap-1 text-slate-500">建议 <AlgoTag /></div>
-          <div className="text-slate-200">
+        <div className={`${CHIP.neutral.bg} rounded-lg px-2 py-1.5`}>
+          <div className={TEXT.meta}>建议</div>
+          <div className={`text-sm font-semibold ${CHIP.neutral.text}`}>
             {s.suggest_shares ? `${s.suggest_shares}股` : "—"}
           </div>
         </div>
       </div>
 
       <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-slate-400">{s.reason}</p>
+
       {(s.trigger || s.invalidation) && (
-        <div className="mt-2 space-y-1 rounded-md border border-slate-800 bg-slate-950/50 p-2 text-[11px]">
-          <div><span className="text-slate-500">满足才关注：</span><span className="text-green-300">{s.trigger}</span></div>
-          <div><span className="text-slate-500">出现即放弃：</span><span className="text-red-300">{s.invalidation}</span></div>
+        <div className={`mt-2 space-y-1 ${DIVIDER} pt-2 text-xs`}>
+          <div>
+            <span className={TEXT.meta}>满足才关注　</span>
+            <span className="text-slate-200">{s.trigger}</span>
+          </div>
+          <div>
+            <span className={TEXT.meta}>出现即放弃　</span>
+            <span className="text-slate-400">{s.invalidation}</span>
+          </div>
         </div>
       )}
+
+      <div className="mt-2 text-xs">
+        <AlgoTag />
+      </div>
     </div>
   );
 }
 
+/** 盘前预读内容（标题由 ③ 分区提供）：仅盘前时段 9:00–9:25 展示 */
 function PreMarketBlock({ data }: { data: Briefing }) {
   const m = data.market;
   const tone = dirTone(m.direction ?? "");
   const overseas = m.pre_market?.overseas;
   return (
-    <div className="rounded-lg border border-amber-800/40 bg-amber-500/5 p-3">
-      <div className="flex items-center gap-2 text-sm font-medium text-amber-200/90">
-        <Sunrise className="h-4 w-4" />
-        盘前预读 · 今日大方向
-      </div>
-      <div className="mt-2 flex flex-wrap items-end gap-x-4 gap-y-1">
+    <>
+      <div className="flex flex-wrap items-end gap-x-5 gap-y-1">
         <div className="flex items-baseline gap-2">
-          <span className="text-xs text-slate-500">大方向</span>
+          <span className={TEXT.meta}>大方向</span>
           <span className={`text-xl font-bold ${tone.text}`}>{m.direction || "—"}</span>
         </div>
         <div className="flex items-baseline gap-2">
-          <span className="text-xs text-slate-500">建议仓位</span>
-          <span className="text-base font-semibold text-slate-100">{m.position_suggestion || "—"}</span>
+          <span className={TEXT.meta}>建议仓位</span>
+          <span className={TEXT.num}>{m.position_suggestion || "—"}</span>
         </div>
       </div>
       <div className="mt-3">
-        <div className="text-xs text-slate-500">隔夜外盘</div>
+        <div className={TEXT.meta}>隔夜外盘</div>
         {overseas && overseas.length > 0 ? (
-          <div className="mt-1 grid grid-cols-3 gap-2">
+          <div className="mt-1.5 grid grid-cols-3 gap-2">
             {overseas.map((o) => (
-              <div key={o.name} className="rounded bg-slate-800/60 px-2 py-1 text-xs">
-                <div className="truncate text-slate-400">{o.name}</div>
-                <div className={pnlTone(o.change_pct, 300)}>
+              <div key={o.name} className={`${SUB_QUIET} px-2 py-1.5`}>
+                <div className="truncate text-xs text-slate-400">{o.name}</div>
+                <div className={`text-sm font-semibold ${pnlTone(o.change_pct, 300)}`}>
                   {o.change_pct >= 0 ? "+" : ""}
                   {o.change_pct.toFixed(2)}%
                 </div>
@@ -254,10 +310,10 @@ function PreMarketBlock({ data }: { data: Briefing }) {
             ))}
           </div>
         ) : (
-          <div className="mt-1 text-xs text-slate-500">{m.pre_market?.note || "外盘数据暂不可用"}</div>
+          <div className={`mt-1 ${TEXT.meta}`}>{m.pre_market?.note || "外盘数据暂不可用"}</div>
         )}
       </div>
-    </div>
+    </>
   );
 }
 
@@ -313,18 +369,31 @@ function TailHoldingCard({ h }: { h: BriefingHolding }) {
   };
 
   return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-3">
+    <div className={`${SUB} p-3`}>
       <div className="flex items-start justify-between gap-2">
-        <div className="flex items-baseline gap-2">
-          <span className="font-semibold text-slate-100">{h.name}</span>
-          <span className="text-xs text-slate-500">{h.code}</span>
+        <div className="min-w-0">
+          <div className="flex items-baseline gap-2">
+            <span className="text-sm font-semibold text-white">{h.name}</span>
+            <span className={TEXT.meta}>{h.code}</span>
+          </div>
+          <div className="mt-0.5 flex items-baseline gap-2">
+            <span className={TEXT.num}>
+              <Money v={h.price} />
+            </span>
+            {h.pnl_pct != null && (
+              <span className={`text-xs font-medium ${pnlTone(h.pnl_pct, 300)}`}>
+                {h.pnl_pct >= 0 ? "+" : ""}
+                {h.pnl_pct.toFixed(1)}%
+              </span>
+            )}
+          </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <span className={`rounded px-2 py-0.5 text-xs font-medium ${tone.bg} ${tone.text}`}>{tone.label}</span>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <span className={`rounded-lg px-2 py-1 text-xs font-medium ${tone.bg} ${tone.text}`}>{tone.label}</span>
           <button
             onClick={() => void simOrder("sell")}
             disabled={simBusy}
-            className="rounded border border-green-700/60 bg-green-500/10 px-2 py-0.5 text-[11px] text-green-300 transition-colors hover:bg-green-500/20"
+            className={`rounded-lg border border-green-700/60 px-2 py-1 text-xs transition-colors hover:bg-green-500/20 ${CHIP.sell.bg} ${CHIP.sell.text}`}
             title="用虚拟资金模拟卖出（实时价）"
           >
             {simBusy ? "..." : "模拟卖"}
@@ -332,7 +401,7 @@ function TailHoldingCard({ h }: { h: BriefingHolding }) {
           <button
             onClick={setReminder}
             disabled={watching}
-            className={`rounded border px-2 py-0.5 text-[11px] transition-colors ${
+            className={`rounded-lg border px-2 py-1 text-xs transition-colors ${
               watching
                 ? "border-brand/50 text-brand"
                 : "border-slate-700 text-slate-300 hover:border-brand hover:text-brand"
@@ -343,21 +412,24 @@ function TailHoldingCard({ h }: { h: BriefingHolding }) {
         </div>
       </div>
 
-      <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
-        <div className="rounded bg-slate-800/60 px-2 py-1">
-          <div className="text-slate-500">现价/盈亏</div>
-          <div className={pnlTone(h.pnl_pct, 300)}>
-            <Money v={h.price} />
-            {h.pnl_pct != null && <span className="ml-1">{h.pnl_pct >= 0 ? "+" : ""}{h.pnl_pct.toFixed(1)}%</span>}
+      <div className="mt-2 grid grid-cols-3 gap-2">
+        <div className={`${CHIP.risk.bg} rounded-lg px-2 py-1.5`}>
+          <div className={TEXT.meta}>止损</div>
+          <div className={`text-sm font-semibold ${CHIP.risk.text}`}>
+            <Money v={h.stop_loss} />
           </div>
         </div>
-        <div className="rounded bg-red-500/10 px-2 py-1">
-          <div className="flex items-center gap-1 text-red-500/70">止损 <AlgoTag /></div>
-          <div className="text-red-300"><Money v={h.stop_loss} /></div>
+        <div className={`${SUB_QUIET} px-2 py-1.5`}>
+          <div className={TEXT.meta}>仓位</div>
+          <div className={`text-sm font-semibold ${CHIP.neutral.text}`}>
+            {h.position_pct != null ? `${h.position_pct}%` : "—"}
+          </div>
         </div>
-        <div className="rounded bg-slate-800/60 px-2 py-1">
-          <div className="text-slate-500">仓位</div>
-          <div className="text-slate-200">{h.position_pct != null ? `${h.position_pct}%` : "—"}</div>
+        <div className={`${SUB_QUIET} px-2 py-1.5`}>
+          <div className={TEXT.meta}>成本</div>
+          <div className={`text-sm font-semibold ${CHIP.neutral.text}`}>
+            {h.cost_price != null ? h.cost_price.toFixed(2) : "—"}
+          </div>
         </div>
       </div>
 
@@ -374,7 +446,7 @@ function TailHoldingCard({ h }: { h: BriefingHolding }) {
 
       {(h.order_action || h.limit_price != null) && (
         <div
-          className={`mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border px-2 py-1.5 text-xs ${
+          className={`mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border px-2 py-1.5 text-xs ${
             h.order_action === "卖出"
               ? "border-green-800/40 bg-green-500/5"
               : "border-red-800/40 bg-red-500/5"
@@ -388,12 +460,13 @@ function TailHoldingCard({ h }: { h: BriefingHolding }) {
               价 ≈ <Money v={h.limit_price} />
             </span>
           )}
-          <span className="text-slate-400">
-            <AlgoTag /> {h.order_hint}
-          </span>
+          <span className="text-slate-400">{h.order_hint}</span>
         </div>
       )}
-      {tip && <div className="mt-2 text-[11px] text-amber-300">{tip}</div>}
+      {tip && <div className="mt-2 text-xs text-amber-300">{tip}</div>}
+      <div className="mt-2 text-xs">
+        <AlgoTag />
+      </div>
     </div>
   );
 }
@@ -408,17 +481,12 @@ function TacticsBlock({ tactics, onPick }: { tactics: BriefingTactics; onPick: (
   if (groups.length === 0) return null;
 
   return (
-    <div className="mb-3 rounded-lg border border-sky-900/40 bg-sky-500/5 p-3">
-      <div className="flex items-center gap-2 text-sm font-medium text-slate-200">
-        <Target className="h-4 w-4 text-sky-400" />
-        形态命中
-        <AlgoTag />
-      </div>
-      {tactics.summary && <p className="mt-1 text-xs text-slate-400">{tactics.summary}</p>}
+    <>
+      {tactics.summary && <p className="text-xs leading-relaxed text-slate-400">{tactics.summary}</p>}
       <div className="mt-2 space-y-2">
         {groups.map((g) => (
           <div key={g.key}>
-            <div className="text-[11px] text-slate-500">
+            <div className={TEXT.meta}>
               {g.label} · {g.hint}
             </div>
             <div className="mt-1 space-y-1">
@@ -426,26 +494,24 @@ function TacticsBlock({ tactics, onPick }: { tactics: BriefingTactics; onPick: (
                 <button
                   key={it.code}
                   onClick={() => onPick([it.code])}
-                  className="w-full rounded border border-slate-800 bg-slate-900/60 px-2 py-1.5 text-left transition-colors hover:border-brand/50"
+                  className={`${SUB_QUIET} w-full px-2 py-1.5 text-left transition-colors hover:bg-slate-800/70`}
                 >
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs font-medium text-slate-100">{it.name}</span>
-                    <span className="text-[11px] text-slate-500">{it.code}</span>
+                    <span className={TEXT.meta}>{it.code}</span>
                     {it.tactics.map((t) => (
                       <span
                         key={t.key}
                         title={t.action}
-                        className={`rounded px-1.5 py-0.5 text-[10px] ${
-                          t.direction === "buy"
-                            ? "bg-green-600/20 text-green-300"
-                            : "bg-red-600/20 text-red-300"
-                        }`}
+                        className={`rounded-lg px-1.5 py-0.5 text-xs ${
+                          t.direction === "buy" ? "bg-red-600/20" : "bg-green-600/20"
+                        } ${actionTone(t.direction, 300)}`}
                       >
                         {t.name}
                       </span>
                     ))}
                   </div>
-                  <div className="mt-0.5 text-[11px] leading-relaxed text-slate-400">
+                  <div className="mt-0.5 text-xs leading-relaxed text-slate-400">
                     {it.tactics.map((t) => t.action).join("；")}
                   </div>
                 </button>
@@ -454,7 +520,7 @@ function TacticsBlock({ tactics, onPick }: { tactics: BriefingTactics; onPick: (
           </div>
         ))}
       </div>
-    </div>
+    </>
   );
 }
 
@@ -483,131 +549,162 @@ export default function DailyBriefing({ onPick, onSettled }: Props) {
   const m = data?.market;
   const tone = dirTone(m?.direction ?? "");
   const phase = data?.phase ?? "morning";
-  const hasPicks = (data?.morning.stocks.length ?? 0) > 0;
-  const hasHoldings = (data?.tail.holdings.length ?? 0) > 0;
+  const picks = data?.morning.stocks ?? [];
+  const hasPicks = picks.length > 0;
+  const holdingCount = data?.tail.holdings.length ?? 0;
+  const needLogin = Boolean(data?.tail.need_login);
   const positionText = m?.position_suggestion?.match(/(\d+(?:\.\d+)?)成/)?.[1]
     ? `总仓位最多 ${Number(m.position_suggestion.match(/(\d+(?:\.\d+)?)成/)?.[1]) * 10}%`
     : m?.position_suggestion || "等待数据";
   const mainAction = hasPicks
-    ? `今天有 ${data?.morning.stocks.length} 只股票值得等买点`
+    ? `今天有 ${picks.length} 只股票值得等买点`
     : "今天先不买，耐心等信号";
+  /** 三格关键数之三：今天要不要动持仓 */
+  const holdingAction = holdingCount > 0 ? `${holdingCount} 只待处理` : needLogin ? "登录后查看" : "无需操作";
+  const reviewReady = Boolean(data?.review && (data.review.summary || data.review.alerts_today));
+  const tacticsReady = Boolean(
+    data?.tactics && (data.tactics.holdings.length > 0 || data.tactics.morning.length > 0)
+  );
 
   return (
-    <section className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950">
-      {/* 总览条 */}
-      <div className={`border-b border-slate-800 px-4 py-3 ${tone.bg}`}>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <Target className="h-4 w-4 text-brand" />
-            <h1 className="text-base font-semibold text-white">今天怎么做</h1>
-          </div>
-          <button
-            onClick={() => void load()}
-            disabled={loading}
-            className="flex items-center gap-1 rounded-lg border border-slate-700 px-2 py-1 text-xs text-slate-400 hover:text-slate-200"
-          >
-            <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
-            刷新
-          </button>
+    <section className={CARD}>
+      {/* 卡片头：不套容器，靠字号与留白成层 */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Target className="h-4 w-4 text-brand" />
+          <h1 className={TEXT.title}>今天怎么做</h1>
+          {data && <span className={TEXT.meta}>· {data.target_date ?? "下一个交易日"}</span>}
         </div>
-
-        {data ? (
-          <div className="mt-3">
-            <div className={`text-2xl font-bold ${hasPicks ? upTone(300) : "text-amber-300"}`}>{mainAction}</div>
-            <div className="mt-3 flex flex-wrap gap-2 text-sm">
-              <span className="rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-slate-300">
-                大盘预计：<b className={tone.text}>{m?.direction || "等待数据"}</b>
-              </span>
-              <span className="rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-slate-300">
-                资金安排：<b className="text-white">{positionText}</b>
-              </span>
-              {!hasHoldings && !data.tail.need_login && (
-                <span className="rounded-md border border-slate-800 px-3 py-1.5 text-slate-500">你没有持仓，今天无需卖出操作</span>
-              )}
-            </div>
-            <p className="mt-2 text-xs text-slate-500">这份判断用于 {data.target_date ?? "下一个交易日"}，数据来自最近收盘行情。</p>
-          </div>
-        ) : (
-          <div className="mt-2 text-sm text-slate-500">加载中…</div>
-        )}
-
-        {m?.trading_advice && <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-slate-400">原因：{m.trading_advice}</p>}
+        <button
+          onClick={() => void load()}
+          disabled={loading}
+          className="flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1 text-xs text-slate-400 transition-colors hover:text-slate-200 disabled:opacity-50"
+        >
+          <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
+          刷新
+        </button>
       </div>
 
-      <div className="p-4">
-        {err && <div className="mb-3 rounded-lg border border-red-800 bg-red-950/40 px-3 py-2 text-xs text-red-300">{err}</div>}
+      {err && (
+        <div className="mt-3 rounded-xl border border-red-800/70 bg-red-950/40 px-3 py-2 text-xs text-red-300">{err}</div>
+      )}
 
-        {/* 盘前预读（仅盘前时段 9:00–9:25） */}
-        {data?.is_premarket && <PreMarketBlock data={data} />}
+      {!data ? (
+        <div className="mt-4 text-sm text-slate-500">加载中…</div>
+      ) : (
+        <>
+          {/* ① 主结论：全屏唯一一处 24px，视线第一落点 */}
+          <div className={`mt-4 ${TEXT.hero} ${hasPicks ? upTone(300) : "text-amber-300"}`}>{mainAction}</div>
+          {m?.trading_advice && (
+            <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-400">{m.trading_advice}</p>
+          )}
 
-        {/* 形态命中：持仓风险优先，其次关注池买点 */}
-        {data?.tactics && <TacticsBlock tactics={data.tactics} onPick={onPick} />}
-
-        {/* 主区：按交易时段切换 */}
-        {phase === "closed" && (
-          <div className="rounded-lg border border-amber-800/40 bg-amber-500/5 px-4 py-3 text-sm text-amber-200/90">
-            今日非交易日，下方为下一交易日关注池，开盘前可据此准备。
-          </div>
-        )}
-
-        {/* 当日复盘（登录 + 有数据时展示：昨日操作结果与今日预警） */}
-        {data?.review && (data.review.summary || data.review.alerts_today) && (
-          <ReviewBlock review={data.review} />
-        )}
-
-        {phase === "tail" && (hasHoldings || data?.tail.need_login) && (
-          <div className="space-y-3">
-            {data?.is_tail_urgent && (
-              <div className="flex items-center gap-2 rounded-lg border border-red-800/50 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-200">
-                <Bell className="h-4 w-4 animate-pulse" />
-                尾盘窗口（14:45–15:00）：收盘前必须完成挂单，否则今日无法操作
-              </div>
-            )}
-            <div className="flex items-center gap-2 text-sm font-medium text-slate-200">
-              <Bell className="h-4 w-4 text-brand" />
-              尾盘操作（{data?.tail.summary ?? "持仓决策"}）
+          {/* ② 三格关键数：方向 / 资金 / 持仓动作 */}
+          <div className="mt-4 grid gap-2 sm:grid-cols-3">
+            <div className={`${SUB} px-3 py-2.5`}>
+              <div className={TEXT.meta}>大盘方向</div>
+              <div className={`mt-0.5 text-lg font-semibold ${tone.text}`}>{m?.direction || "等待数据"}</div>
             </div>
-            {data?.tail.need_login ? (
-              <div className="rounded-lg border border-slate-800 bg-slate-900/60 px-4 py-6 text-center text-sm text-slate-400">
-                登录后查看你的持仓尾盘操作建议
-              </div>
-            ) : data && data.tail.holdings.length > 0 ? (
-              data.tail.holdings.map((h) => <TailHoldingCard key={h.code} h={h} />)
-            ) : null}
-          </div>
-        )}
-
-        {/* 早盘关注池（任何时段都展示，作为今日清单） */}
-        <div className="space-y-3">
-          <div className="flex items-center gap-2 text-sm font-medium text-slate-200">
-            {phase === "morning" ? (
-              <ArrowUpRight className={`h-4 w-4 ${upTone(400)}`} />
-            ) : (
-              <ArrowDownRight className="h-4 w-4 text-slate-400" />
-            )}
-            {hasPicks ? "今天关注这几只" : "为什么今天没有推荐"}
-          </div>
-          {data && data.morning.stocks.length > 0 ? (
-            <div className="grid gap-2 sm:grid-cols-2">
-              {data.morning.stocks.map((s) => (
-                <MorningStockCard key={s.code} s={s} onPick={(c) => onPick([c])} />
-              ))}
+            <div className={`${SUB} px-3 py-2.5`}>
+              <div className={TEXT.meta}>资金安排</div>
+              <div className={`mt-0.5 ${TEXT.num}`}>{positionText}</div>
             </div>
-          ) : (
-            <div role="status" className="flex items-start gap-3 rounded-lg border border-amber-900/40 bg-amber-500/5 px-4 py-3 text-sm text-slate-300">
-              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
-              <div>
-                <div className="font-medium text-amber-200">没有股票同时满足上涨趋势和风险控制要求</div>
-                <p className="mt-1 text-xs leading-relaxed text-slate-500">先不新开仓。下方“先观察，别急着买”会列出接近条件的股票，以及还要等待什么。</p>
-              </div>
+            <div className={`${SUB} px-3 py-2.5`}>
+              <div className={TEXT.meta}>持仓动作</div>
+              <div className={`mt-0.5 ${TEXT.num}`}>{holdingAction}</div>
+            </div>
+          </div>
+
+          {/* 时段性提示：只在真的需要动手时出现 */}
+          {data.is_tail_urgent && (
+            <div className="mt-3 flex items-center gap-2 rounded-xl border border-red-800/50 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-200">
+              <Bell className="h-4 w-4 animate-pulse" />
+              尾盘窗口（14:45–15:00）：收盘前必须完成挂单，否则今日无法操作
             </div>
           )}
-        </div>
+          {phase === "closed" && (
+            <div className="mt-3 rounded-xl border border-amber-800/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-200/90">
+              今日非交易日，下方为下一交易日关注池，开盘前可据此准备。
+            </div>
+          )}
 
-        <p className="mt-3 text-center text-[11px] leading-relaxed text-slate-600">
-          买点 / 止损 / 手数均为<span className="text-slate-500">算法推导</span>，仅供参考，不构成投资建议；据此操作风险自担。
-        </p>
-      </div>
+          {/* ③ 分区：尾盘操作（有持仓才出现，避免空段占位） */}
+          {phase === "tail" && (holdingCount > 0 || needLogin) && (
+            <Section icon={<Bell className="h-4 w-4 text-brand" />} title={`尾盘操作（${data.tail.summary ?? "持仓决策"}）`}>
+              {needLogin ? (
+                <div className={`${SUB} px-4 py-6 text-center text-sm text-slate-400`}>
+                  登录后查看你的持仓尾盘操作建议
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {data.tail.holdings.map((h) => (
+                    <TailHoldingCard key={h.code} h={h} />
+                  ))}
+                </div>
+              )}
+            </Section>
+          )}
+
+          {/* ③ 分区：今天关注这几只（任何时段都作为今日清单） */}
+          <Section
+            icon={
+              phase === "morning" ? (
+                <ArrowUpRight className={`h-4 w-4 ${upTone(400)}`} />
+              ) : (
+                <ArrowDownRight className="h-4 w-4 text-slate-400" />
+              )
+            }
+            title={hasPicks ? "今天关注这几只" : "为什么今天没有推荐"}
+            hint={hasPicks ? <span className={TEXT.meta}>共 {picks.length} 只</span> : undefined}
+          >
+            {hasPicks ? (
+              <div className="grid gap-2 sm:grid-cols-2">
+                {picks.map((s) => (
+                  <MorningStockCard key={s.code} s={s} onPick={(c) => onPick([c])} />
+                ))}
+              </div>
+            ) : (
+              <div
+                role="status"
+                className="flex items-start gap-3 rounded-xl border border-amber-900/40 bg-amber-500/5 px-3 py-3"
+              >
+                <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+                <div>
+                  <div className="text-sm font-medium text-amber-200">没有股票同时满足上涨趋势和风险控制要求</div>
+                  <p className="mt-1 text-xs leading-relaxed text-slate-400">
+                    先不新开仓。下方"先观察，别急着买"会列出接近条件的股票，以及还要等待什么。
+                  </p>
+                </div>
+              </div>
+            )}
+          </Section>
+
+          {/* ③ 分区：盘前预读（仅 9:00–9:25） */}
+          {data.is_premarket && (
+            <Section icon={<Sunrise className="h-4 w-4 text-amber-400" />} title="盘前预读">
+              <PreMarketBlock data={data} />
+            </Section>
+          )}
+
+          {/* ③ 分区：当日复盘 */}
+          {reviewReady && data.review && (
+            <Section icon={<ClipboardCheck className="h-4 w-4 text-brand" />} title="当日复盘">
+              <ReviewBlock review={data.review} />
+            </Section>
+          )}
+
+          {/* ③ 分区：形态命中（附加信息，放最后） */}
+          {tacticsReady && data.tactics && (
+            <Section icon={<Target className="h-4 w-4 text-sky-400" />} title="形态命中">
+              <TacticsBlock tactics={data.tactics} onPick={onPick} />
+            </Section>
+          )}
+
+          <p className={`mt-4 ${DIVIDER} pt-3 text-center text-xs leading-relaxed text-slate-600`}>
+            买点 / 止损 / 手数均为算法推导，仅供参考，不构成投资建议；据此操作风险自担。
+          </p>
+        </>
+      )}
     </section>
   );
 }

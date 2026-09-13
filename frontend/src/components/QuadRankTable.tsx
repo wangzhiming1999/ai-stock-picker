@@ -3,19 +3,11 @@ import { fetchQuadRanking } from "../api/client";
 import CollapsiblePanel from "./CollapsiblePanel";
 import WatchStar from "./WatchStar";
 import { safeArray } from "../lib/safe";
+import { pnlTone, scoreChip } from "../lib/tone";
 import type { QuadRankResult, QuadStock } from "../types";
 
 interface Props {
   onPick: (codes: string[]) => void;
-}
-
-/** 分数 chip 颜色：>=7 绿 / 6 档黄 / 5 中性灰 / <5 红橙 */
-function chipClass(v: number): string {
-  if (v >= 8.5) return "bg-green-500/20 text-green-300";
-  if (v >= 7) return "bg-emerald-500/15 text-emerald-300";
-  if (v >= 6) return "bg-yellow-500/10 text-yellow-200";
-  if (v >= 5) return "bg-slate-500/10 text-slate-400";
-  return "bg-orange-500/10 text-orange-300";
 }
 
 function fmtScore(v: number | undefined): string {
@@ -25,7 +17,7 @@ function fmtScore(v: number | undefined): string {
 function ScoreCell({ v, title }: { v: number | undefined; title: string }) {
   return (
     <td className="px-2 py-2">
-      <span title={title} className={`inline-block min-w-[2.2rem] rounded px-1.5 py-0.5 text-center text-xs font-semibold ${chipClass(v ?? 0)}`}>
+      <span title={title} className={`inline-block min-w-[2.2rem] rounded px-1.5 py-0.5 text-center text-xs font-semibold ${scoreChip(v ?? 0)}`}>
         {fmtScore(v)}
       </span>
     </td>
@@ -85,7 +77,7 @@ export default function QuadRankTable({ onPick }: Props) {
           {selected.size > 0 && (
             <button
               onClick={pickSelected}
-              className="rounded-lg bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-500"
+              className="rounded-lg bg-brand px-3 py-1 text-xs font-medium text-white hover:bg-brand-dark"
             >
               勾选 {selected.size} 只去分析 →
             </button>
@@ -108,17 +100,17 @@ export default function QuadRankTable({ onPick }: Props) {
 
       {data && items.length > 0 && (
         <div>
-          <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
+          <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
             <span>
               候选池 <b className="text-slate-300">{data.pool_size}</b> 只
             </span>
             <span>
-              四维全优(各面≥7) <b className={data.strict_count > 0 ? "text-green-400" : "text-slate-400"}>{data.strict_count}</b> 只
+              四维全优(各面≥7) <b className={data.strict_count > 0 ? "text-brand-light" : "text-slate-400"}>{data.strict_count}</b> 只
             </span>
             <span className="text-slate-600">评分口径：估值+趋势+量能+消息情绪，规则模型每日更新</span>
           </div>
 
-          <div className="max-h-[560px] overflow-auto rounded-lg border border-slate-800">
+          <div className="max-h-[560px] overflow-auto rounded-xl border border-slate-800">
             <table className="w-full text-sm" style={{ minWidth: 760 }}>
               <thead className="sticky top-0 z-10 bg-slate-900 text-left text-xs text-slate-400">
                 <tr>
@@ -143,7 +135,7 @@ export default function QuadRankTable({ onPick }: Props) {
                       key={it.code}
                       onClick={() => toggle(it.code)}
                       className={`cursor-pointer border-t border-slate-800/60 transition-colors ${
-                        isSel ? "bg-green-900/20" : "hover:bg-slate-800/40"
+                        isSel ? "bg-brand/10" : "hover:bg-slate-800/40"
                       }`}
                     >
                       <td className="px-2 py-2">
@@ -163,17 +155,17 @@ export default function QuadRankTable({ onPick }: Props) {
                           {it.tags.map((t) => (
                             <span
                               key={t}
-                              className="rounded bg-purple-900/40 px-1 py-0.5 text-[10px] leading-none text-purple-300"
+                              className="rounded bg-purple-900/40 px-1 py-0.5 text-xs leading-none text-purple-300"
                             >
                               {t}
                             </span>
                           ))}
                         </div>
-                        <div className="text-[11px] text-slate-500">{it.code}</div>
+                        <div className="text-xs text-slate-500">{it.code}</div>
                       </td>
                       <td className="px-2 py-2 text-right">
                         <div className="text-slate-200">{it.price.toFixed(2)}</div>
-                        <div className={`text-[11px] ${up ? "text-green-400" : "text-red-400"}`}>
+                        <div className={`text-xs ${pnlTone(it.change_pct)}`}>
                           {up ? "+" : ""}
                           {it.change_pct.toFixed(2)}%
                         </div>

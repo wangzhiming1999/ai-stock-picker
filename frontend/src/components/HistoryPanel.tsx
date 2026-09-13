@@ -46,7 +46,7 @@ export default function HistoryPanel({ refreshKey }: Props) {
 
   return (
     <div className="space-y-5">
-      <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
+      <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-slate-200">分析历史记录</h3>
           <button onClick={() => void load()} className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-slate-400 hover:text-slate-200">
@@ -57,7 +57,7 @@ export default function HistoryPanel({ refreshKey }: Props) {
         {err && <div className="rounded-lg border border-red-800 bg-red-950/40 px-3 py-2 text-sm text-red-300">{err}</div>}
         {!loading && batches.length === 0 && <div className="p-3 text-sm text-slate-500">暂无历史记录，先运行一次分析吧</div>}
         {batches.length > 0 && (
-          <div className="overflow-hidden rounded-lg border border-slate-800">
+          <div className="overflow-hidden rounded-xl border border-slate-800">
             <table className="w-full text-sm">
               <thead className="bg-slate-900 text-left text-xs text-slate-400">
                 <tr>
@@ -79,7 +79,7 @@ export default function HistoryPanel({ refreshKey }: Props) {
                           <div className="truncate text-slate-200" title={b.names}>
                             {b.names}
                           </div>
-                          <div className="truncate text-[11px] text-slate-500" title={b.codes}>
+                          <div className="truncate text-xs text-slate-500" title={b.codes}>
                             {b.codes}
                           </div>
                         </div>

@@ -159,7 +159,7 @@ export default function ImportHoldingsModal({ open, onClose, onImported }: Props
             </div>
 
             {/* 模式切换 */}
-            <div className="mb-4 flex rounded-lg border border-slate-700 bg-slate-800/60 p-1">
+            <div className="mb-4 flex rounded-lg border border-slate-700 bg-slate-800/70 p-1">
               {(
                 [
                   { key: "image", label: "截图识别", icon: ImageUp },
@@ -218,7 +218,7 @@ export default function ImportHoldingsModal({ open, onClose, onImported }: Props
                         "上传券商 App 持仓页截图"
                       )}
                     </p>
-                    <p className="mt-1 text-[11px] text-slate-500">点击选择 / 拖入 / 直接 Ctrl+V 粘贴截图</p>
+                    <p className="mt-1 text-xs text-slate-500">点击选择 / 拖入 / 直接 Ctrl+V 粘贴截图</p>
                     <button
                       onClick={() => fileRef.current?.click()}
                       className="mt-3 rounded-lg bg-brand px-4 py-1.5 text-xs font-medium text-white hover:bg-brand-dark"
@@ -238,7 +238,7 @@ export default function ImportHoldingsModal({ open, onClose, onImported }: Props
                   className="w-full resize-y rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-200 placeholder:text-slate-600 focus:border-brand focus:outline-none"
                 />
                 <div className="mt-2 flex items-center justify-between">
-                  <span className="text-[11px] text-slate-500">支持 名称+代码+成本+数量 的任意组合顺序</span>
+                  <span className="text-xs text-slate-500">支持 名称+代码+成本+数量 的任意组合顺序</span>
                   <button
                     onClick={() => void parseText()}
                     disabled={parsing || !text.trim()}
@@ -254,7 +254,7 @@ export default function ImportHoldingsModal({ open, onClose, onImported }: Props
             {warnings.length > 0 && (
               <div className="mb-3 space-y-1 rounded-lg border border-amber-800/60 bg-amber-950/30 px-3 py-2">
                 {warnings.slice(0, 5).map((w, i) => (
-                  <p key={i} className="text-[11px] text-amber-300">
+                  <p key={i} className="text-xs text-amber-300">
                     ⚠ {w}
                   </p>
                 ))}
@@ -263,7 +263,7 @@ export default function ImportHoldingsModal({ open, onClose, onImported }: Props
 
             {/* 预览编辑表 */}
             {rows.length > 0 && (
-              <div className="mb-4 min-h-0 flex-1 overflow-auto rounded-lg border border-slate-800">
+              <div className="mb-4 min-h-0 flex-1 overflow-auto rounded-xl border border-slate-800">
                 <table className="w-full text-sm" style={{ minWidth: 520 }}>
                   <thead className="sticky top-0 z-10 bg-slate-900 text-left text-xs text-slate-400">
                     <tr>

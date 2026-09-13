@@ -64,7 +64,7 @@ export default function StockSearchInput({ value, onChange, onPickCode, disabled
         onChange={(e) => onChange(e.target.value)}
         placeholder="输入 6 位代码或股票名称，如 600519 / 茅台"
         disabled={disabled}
-        className="w-full rounded-lg border border-slate-700 bg-slate-800/80 py-2.5 pl-9 pr-8 text-sm outline-none placeholder:text-slate-500 focus:border-brand disabled:opacity-50"
+        className="w-full rounded-lg border border-slate-700 bg-slate-800/70 py-2.5 pl-9 pr-8 text-sm outline-none placeholder:text-slate-500 focus:border-brand disabled:opacity-50"
       />
       {loading && (
         <span className="absolute right-3 top-1/2 -translate-y-1/2">

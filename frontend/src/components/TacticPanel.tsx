@@ -15,16 +15,16 @@ const DIRECTION_LABEL: Record<TacticDef["direction"], string> = { buy: "买点",
 
 function buttonClass(direction: TacticDef["direction"], active: boolean): string {
   if (direction === "buy") {
-    return active ? "border-green-500 bg-green-600/15" : "border-slate-700 hover:border-green-600/70";
+    return active ? "border-red-500 bg-red-600/15" : "border-slate-700 hover:border-red-600/70";
   }
-  return active ? "border-red-500 bg-red-600/15" : "border-slate-700 hover:border-red-600/70";
+  return active ? "border-green-500 bg-green-600/15" : "border-slate-700 hover:border-green-600/70";
 }
 
 function DirectionTag({ direction }: { direction: TacticDef["direction"] }) {
   return (
     <span
-      className={`rounded px-1.5 py-0.5 text-[11px] ${
-        direction === "buy" ? "bg-green-600/20 text-green-300" : "bg-red-600/20 text-red-300"
+      className={`rounded px-1.5 py-0.5 text-xs ${
+        direction === "buy" ? "bg-red-600/20 text-red-300" : "bg-green-600/20 text-green-300"
       }`}
     >
       {DIRECTION_LABEL[direction]}
@@ -115,7 +115,7 @@ export default function TacticPanel({ onPick, onImport }: Props) {
             <button
               onClick={() => onPick(Array.from(selected))}
               disabled={selected.size === 0}
-              className="rounded-lg bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-500 disabled:opacity-40"
+              className="rounded-lg bg-brand px-3 py-1 text-xs font-medium text-white hover:bg-brand-dark disabled:opacity-40"
             >
               勾选 {selected.size} 只去分析 →
             </button>
@@ -133,13 +133,13 @@ export default function TacticPanel({ onPick, onImport }: Props) {
           }`}
         >
           全部技巧
-          <span className="ml-2 text-[11px] text-slate-500">{tactics.length || 6} 条一起查</span>
+          <span className="ml-2 text-xs text-slate-500">{tactics.length || 6} 条一起查</span>
         </button>
       </div>
 
       {categories.map((cat) => (
         <div key={cat} className="mb-3">
-          <p className="mb-1 text-[11px] font-semibold tracking-wide text-slate-500">{cat}</p>
+          <p className="mb-1 text-xs font-semibold tracking-wide text-slate-500">{cat}</p>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {tactics
               .filter((t) => t.category === cat)
@@ -155,7 +155,7 @@ export default function TacticPanel({ onPick, onImport }: Props) {
                     <span className="text-sm font-medium text-slate-100">{t.name}</span>
                     <DirectionTag direction={t.direction} />
                   </div>
-                  <div className="mt-0.5 text-[11px] text-slate-500">{t.desc}</div>
+                  <div className="mt-0.5 text-xs text-slate-500">{t.desc}</div>
                 </button>
               ))}
           </div>
@@ -163,7 +163,7 @@ export default function TacticPanel({ onPick, onImport }: Props) {
       ))}
 
       {running && (
-        <div role="status" className="rounded-lg bg-slate-800/50 px-3 py-2 text-sm text-slate-400">
+        <div role="status" className="rounded-lg bg-slate-800/70 px-3 py-2 text-sm text-slate-400">
           形态扫描中（拉取行情与 K 线；多周期共振需约 900 根日线，耗时更久）...
         </div>
       )}
@@ -184,7 +184,7 @@ export default function TacticPanel({ onPick, onImport }: Props) {
       )}
 
       {!running && items.length > 0 && (
-        <div className="max-h-[28rem] overflow-y-auto rounded-lg border border-slate-800">
+        <div className="max-h-[28rem] overflow-y-auto rounded-xl border border-slate-800">
           <table className="w-full text-sm">
             <caption className="sr-only">实战形态扫描结果</caption>
             <thead className="sticky top-0 bg-slate-900 text-left text-xs text-slate-400">
@@ -226,7 +226,7 @@ export default function TacticPanel({ onPick, onImport }: Props) {
                     <td className="px-3 py-1.5">
                       <div className="flex flex-wrap items-center gap-1">
                         {s.tactics.map((t: TacticResult) => (
-                          <span key={t.key} className="rounded bg-slate-800 px-1.5 py-0.5 text-[11px] text-slate-300">
+                          <span key={t.key} className="rounded bg-slate-800 px-1.5 py-0.5 text-xs text-slate-300">
                             {t.name}
                           </span>
                         ))}
@@ -236,7 +236,7 @@ export default function TacticPanel({ onPick, onImport }: Props) {
                             toggleExpand(s.code);
                           }}
                           aria-expanded={expanded.has(s.code)}
-                          className="cursor-pointer text-[11px] text-slate-400 underline hover:text-slate-200"
+                          className="cursor-pointer text-xs text-slate-400 underline hover:text-slate-200"
                         >
                           {expanded.has(s.code) ? "收起条件" : "看条件"}
                         </button>
@@ -245,7 +245,7 @@ export default function TacticPanel({ onPick, onImport }: Props) {
                     <td className="px-3 py-1.5 text-slate-300">{s.best_action ?? s.tactics[0]?.action}</td>
                   </tr>
                   {expanded.has(s.code) && (
-                    <tr className="border-t border-slate-800/60 bg-slate-900/60">
+                    <tr className="border-t border-slate-800/60 bg-slate-900">
                       <td colSpan={6} className="px-3 py-2">
                         <div className="space-y-2">
                           {s.tactics.map((t: TacticResult) => (
@@ -253,13 +253,13 @@ export default function TacticPanel({ onPick, onImport }: Props) {
                               <div className="flex items-center gap-2">
                                 <span className="text-xs font-semibold text-slate-200">{t.name}</span>
                                 <DirectionTag direction={t.direction} />
-                                <span className="text-[11px] text-slate-500">
+                                <span className="text-xs text-slate-500">
                                   {t.passed}/{t.total} 条件成立
                                 </span>
                               </div>
                               <ul className="mt-1 space-y-0.5">
                                 {t.conditions.map((cond, i) => (
-                                  <li key={i} className="flex items-start gap-2 text-[11px]">
+                                  <li key={i} className="flex items-start gap-2 text-xs">
                                     <span className={cond.passed ? "text-green-400" : "text-slate-500"}>
                                       {cond.passed ? "✓" : "✗"}
                                     </span>
@@ -281,7 +281,7 @@ export default function TacticPanel({ onPick, onImport }: Props) {
         </div>
       )}
 
-      <p className="mt-3 text-[11px] text-slate-500">
+      <p className="mt-3 text-xs text-slate-500">
         形态由 K 线量价条件确定性推导，标注「算法推导」，不构成投资建议；命中不代表必然上涨，实盘请自行判断。
       </p>
     </CollapsiblePanel>

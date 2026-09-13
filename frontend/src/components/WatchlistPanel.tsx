@@ -93,11 +93,11 @@ export default function WatchlistPanel({ onAnalyze }: Props) {
   const s = data?.summary;
 
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
+    <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h3 className="text-sm font-semibold text-slate-200">我的自选</h3>
-          <p className="mt-0.5 text-[11px] text-slate-500">从推荐/扫描一键导入，跟踪自选股实时涨跌</p>
+          <p className="mt-0.5 text-xs text-slate-500">从推荐/扫描一键导入，跟踪自选股实时涨跌</p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -114,7 +114,7 @@ export default function WatchlistPanel({ onAnalyze }: Props) {
       </div>
 
       {daily?.date && daily.recommendations.length > 0 && (
-        <div className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-slate-800 bg-slate-800/40 px-3 py-2 text-xs text-slate-400">
+        <div className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-slate-800 bg-slate-800/40 px-3 py-2 text-xs text-slate-400">
           <CalendarDays className="h-3.5 w-3.5 shrink-0 text-slate-500" />
           <span>
             可导入推荐基于 <span className="font-medium text-slate-200">{fmtDayLabel(daily.date)}</span> 收盘
@@ -126,9 +126,9 @@ export default function WatchlistPanel({ onAnalyze }: Props) {
             )}
           </span>
           {isTodayCN(daily.date) ? (
-            <span className="rounded bg-green-500/10 px-1.5 py-0.5 text-[11px] text-green-400">当日收盘</span>
+            <span className="rounded bg-brand/10 px-1.5 py-0.5 text-xs text-brand-light">当日收盘</span>
           ) : (
-            <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[11px] text-amber-400">最近交易日</span>
+            <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-xs text-amber-400">最近交易日</span>
           )}
         </div>
       )}
@@ -139,23 +139,23 @@ export default function WatchlistPanel({ onAnalyze }: Props) {
       {/* 汇总 */}
       {s && s.total > 0 && (
         <div className="mb-4 grid grid-cols-4 gap-2">
-          <div className="rounded-lg bg-slate-800/50 px-2 py-2 text-center">
+          <div className="rounded-lg bg-slate-800/70 px-2 py-2 text-center">
             <div className="text-lg font-bold text-slate-200">{s.total}</div>
-            <div className="text-[11px] text-slate-500">自选</div>
+            <div className="text-xs text-slate-500">自选</div>
           </div>
-          <div className="rounded-lg bg-slate-800/50 px-2 py-2 text-center">
+          <div className="rounded-lg bg-slate-800/70 px-2 py-2 text-center">
             <div className={`text-lg font-bold ${upTone()}`}>{s.up}</div>
-            <div className="text-[11px] text-slate-500">上涨</div>
+            <div className="text-xs text-slate-500">上涨</div>
           </div>
-          <div className="rounded-lg bg-slate-800/50 px-2 py-2 text-center">
+          <div className="rounded-lg bg-slate-800/70 px-2 py-2 text-center">
             <div className={`text-lg font-bold ${downTone()}`}>{s.down}</div>
-            <div className="text-[11px] text-slate-500">下跌</div>
+            <div className="text-xs text-slate-500">下跌</div>
           </div>
-          <div className="rounded-lg bg-slate-800/50 px-2 py-2 text-center">
+          <div className="rounded-lg bg-slate-800/70 px-2 py-2 text-center">
             <div className={`text-lg font-bold ${pnlTone(s.avg_change)}`}>
               {s.avg_change != null ? fmtPct(s.avg_change) : "-"}
             </div>
-            <div className="text-[11px] text-slate-500">平均涨跌</div>
+            <div className="text-xs text-slate-500">平均涨跌</div>
           </div>
         </div>
       )}
@@ -180,7 +180,7 @@ export default function WatchlistPanel({ onAnalyze }: Props) {
                   <td className="px-2 py-2">
                     <button onClick={() => onAnalyze(w.code)} className="text-left hover:text-brand">
                       <div className="font-medium text-slate-200">{w.name || w.code}</div>
-                      <div className="text-[11px] text-slate-500">{w.code}</div>
+                      <div className="text-xs text-slate-500">{w.code}</div>
                     </button>
                   </td>
                   <td className={`px-2 py-2 text-right ${pnlTone(w.change_pct)}`}>{fmtNum(w.price)}</td>
@@ -192,11 +192,11 @@ export default function WatchlistPanel({ onAnalyze }: Props) {
                   </td>
                   <td className="px-2 py-2">
                     {w.offline ? (
-                      <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[11px] text-slate-500">停牌/无数据</span>
+                      <span className="rounded bg-slate-800 px-1.5 py-0.5 text-xs text-slate-500">停牌/无数据</span>
                     ) : w.change_pct != null && w.change_pct > 5 ? (
-                      <span className="rounded bg-red-900/40 px-1.5 py-0.5 text-[11px] text-red-300">大涨</span>
+                      <span className="rounded bg-red-900/40 px-1.5 py-0.5 text-xs text-red-300">大涨</span>
                     ) : w.change_pct != null && w.change_pct < -5 ? (
-                      <span className="rounded bg-green-900/40 px-1.5 py-0.5 text-[11px] text-green-300">大跌</span>
+                      <span className="rounded bg-green-900/40 px-1.5 py-0.5 text-xs text-green-300">大跌</span>
                     ) : (
                       <span className="text-slate-600">-</span>
                     )}
@@ -216,7 +216,7 @@ export default function WatchlistPanel({ onAnalyze }: Props) {
           暂无自选股。点击"导入每日推荐"一键添加，或在下方扫描结果中加星。
         </div>
       )}
-      <p className="mt-2 text-right text-[11px] text-slate-600">行情为实时快照，仅供研究参考</p>
+      <p className="mt-2 text-right text-xs text-slate-600">行情为实时快照，仅供研究参考</p>
     </div>
   );
 }

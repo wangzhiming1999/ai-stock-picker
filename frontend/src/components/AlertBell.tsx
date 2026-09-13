@@ -94,7 +94,7 @@ export default function AlertBell() {
       >
         {unread > 0 ? <BellRing className="h-5 w-5 text-amber-400" /> : <Bell className="h-5 w-5" />}
         {unread > 0 && (
-          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-xs font-bold text-white">
             {unread > 99 ? "99+" : unread}
           </span>
         )}
@@ -113,7 +113,7 @@ export default function AlertBell() {
             >
               <div className="flex items-center justify-between border-b border-slate-800 px-4 py-2.5">
                 <span className="text-sm font-semibold text-slate-100">价格预警</span>
-                <button onClick={readAll} className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-brand">
+                <button onClick={readAll} className="flex items-center gap-1 text-xs text-slate-400 hover:text-brand">
                   <CheckCheck className="h-3.5 w-3.5" />
                   全部已读
                 </button>
@@ -131,9 +131,9 @@ export default function AlertBell() {
                     >
                       <div className="flex items-center justify-between">
                         <span className={`text-xs font-semibold ${sevStyle[e.severity] ?? "text-slate-200"}`}>{e.title}</span>
-                        <span className="text-[10px] text-slate-500">{timeAgo(e.created_at)}</span>
+                        <span className="text-xs text-slate-500">{timeAgo(e.created_at)}</span>
                       </div>
-                      <p className="mt-0.5 text-[11px] text-slate-400">{e.message}</p>
+                      <p className="mt-0.5 text-xs text-slate-400">{e.message}</p>
                     </div>
                   ))
                 )}

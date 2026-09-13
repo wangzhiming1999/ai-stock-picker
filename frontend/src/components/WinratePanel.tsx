@@ -2,14 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { fetchWinrate } from "../api/client";
 import CollapsiblePanel from "./CollapsiblePanel";
 import { safeObj } from "../lib/safe";
+import { pctTone } from "../lib/tone";
 import type { WinrateStats } from "../types";
-
-function rateColor(rate: number | null | undefined): string {
-  if (rate == null) return "text-slate-200";
-  if (rate >= 50) return "text-green-400";
-  if (rate >= 40) return "text-yellow-400";
-  return "text-red-400";
-}
 
 export default function WinratePanel() {
   const [data, setData] = useState<WinrateStats | null>(null);
@@ -51,8 +45,8 @@ export default function WinratePanel() {
         <div className="space-y-4">
           {/* 数据积累徽标：让用户看见闭环在跑 */}
           {(data.prediction?.total ?? 0) + (data.recommendation?.total ?? 0) > 0 ? (
-            <div className="flex items-center gap-2 rounded-lg border border-green-800/40 bg-green-500/5 px-3 py-2 text-xs text-green-300">
-              <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-green-400" />
+            <div className="flex items-center gap-2 rounded-lg border border-brand/30 bg-brand/5 px-3 py-2 text-xs text-brand-light">
+              <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-brand-light" />
               闭环运行中 · 已结算 {data.prediction?.total ?? 0} 次预测 + {data.recommendation?.total ?? 0} 只推荐
             </div>
           ) : (
@@ -66,19 +60,19 @@ export default function WinratePanel() {
             <div className="mb-1.5 text-xs font-semibold text-slate-400">大盘推衍命中率</div>
             {data.prediction && data.prediction.total > 0 ? (
               <div className="grid grid-cols-3 gap-2">
-                <div className="rounded-lg bg-slate-800/50 px-3 py-2 text-center">
+                <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
                   <div className="text-lg font-bold text-slate-200">{data.prediction.total}</div>
-                  <div className="text-[11px] text-slate-500">已结算</div>
+                  <div className="text-xs text-slate-500">已结算</div>
                 </div>
-                <div className="rounded-lg bg-slate-800/50 px-3 py-2 text-center">
+                <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
                   <div className="text-lg font-bold text-slate-200">{data.prediction.hit}</div>
-                  <div className="text-[11px] text-slate-500">命中</div>
+                  <div className="text-xs text-slate-500">命中</div>
                 </div>
-                <div className="rounded-lg bg-slate-800/50 px-3 py-2 text-center">
-                  <div className={`text-lg font-bold ${rateColor(data.prediction.hit_rate)}`}>
+                <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
+                  <div className={`text-lg font-bold ${pctTone(data.prediction.hit_rate)}`}>
                     {data.prediction.hit_rate != null ? `${data.prediction.hit_rate}%` : "-"}
                   </div>
-                  <div className="text-[11px] text-slate-500">命中率</div>
+                  <div className="text-xs text-slate-500">命中率</div>
                 </div>
               </div>
             ) : (
@@ -87,16 +81,16 @@ export default function WinratePanel() {
               </div>
             )}
             {data.prediction && Object.keys(data.prediction.by_direction || {}).length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+              <div className="mt-2 flex flex-wrap gap-2 text-xs">
                 {Object.entries(safeObj<Record<string, { hit?: number; total?: number; hit_rate?: number }>>(data.prediction.by_direction, {})).map(([d, b]) => (
-                  <span key={d} className="rounded bg-slate-800/60 px-2 py-1 text-slate-400">
+                  <span key={d} className="rounded bg-slate-800/70 px-2 py-1 text-slate-400">
                     {d} {b.hit}/{b.total}（{b.hit_rate ?? "-"}%）
                   </span>
                 ))}
               </div>
             )}
             {data.prediction?.sample_status === "insufficient" && data.prediction.total > 0 && (
-              <p className="mt-2 text-[11px] text-amber-400">样本不足 30 次，当前命中率只用于观察，不代表稳定能力。</p>
+              <p className="mt-2 text-xs text-amber-400">样本不足 30 次，当前命中率只用于观察，不代表稳定能力。</p>
             )}
           </div>
 
@@ -105,19 +99,19 @@ export default function WinratePanel() {
             <div className="mb-1.5 text-xs font-semibold text-slate-400">每日推荐次日胜率</div>
             {data.recommendation && data.recommendation.total > 0 ? (
               <div className="grid grid-cols-3 gap-2">
-                <div className="rounded-lg bg-slate-800/50 px-3 py-2 text-center">
+                <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
                   <div className="text-lg font-bold text-slate-200">{data.recommendation.total}</div>
-                  <div className="text-[11px] text-slate-500">已结算</div>
+                  <div className="text-xs text-slate-500">已结算</div>
                 </div>
-                <div className="rounded-lg bg-slate-800/50 px-3 py-2 text-center">
+                <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
                   <div className="text-lg font-bold text-slate-200">{data.recommendation.hit}</div>
-                  <div className="text-[11px] text-slate-500">次日上涨</div>
+                  <div className="text-xs text-slate-500">次日上涨</div>
                 </div>
-                <div className="rounded-lg bg-slate-800/50 px-3 py-2 text-center">
-                  <div className={`text-lg font-bold ${rateColor(data.recommendation.hit_rate)}`}>
+                <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
+                  <div className={`text-lg font-bold ${pctTone(data.recommendation.hit_rate)}`}>
                     {data.recommendation.hit_rate != null ? `${data.recommendation.hit_rate}%` : "-"}
                   </div>
-                  <div className="text-[11px] text-slate-500">次日胜率</div>
+                  <div className="text-xs text-slate-500">次日胜率</div>
                 </div>
               </div>
             ) : (
@@ -126,11 +120,11 @@ export default function WinratePanel() {
               </div>
             )}
             {data.recommendation?.sample_status === "insufficient" && data.recommendation.total > 0 && (
-              <p className="mt-2 text-[11px] text-amber-400">样本不足 30 只，暂不据此判断策略有效性。</p>
+              <p className="mt-2 text-xs text-amber-400">样本不足 30 只，暂不据此判断策略有效性。</p>
             )}
           </div>
 
-          <p className="text-[11px] text-slate-600">
+          <p className="text-xs text-slate-600">
             数据由每日收盘后的定时任务自动结算。数据积累越多，胜率越有参考价值。
           </p>
         </div>
