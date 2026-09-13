@@ -7,9 +7,11 @@ import { fmtNum } from "../lib/safe";
 import CollapsiblePanel from "./CollapsiblePanel";
 import BacktestPanel from "./BacktestPanel";
 import MonitorPanel from "./MonitorPanel";
+import TacticPanel from "./TacticPanel";
 import WinratePanel from "./WinratePanel";
 import type { OpportunityResult, ScanStock, StrategyDef, StrategyName, StrategyStock } from "../types";
 import { getScanViewAction } from "./scanPanelLogic";
+import type { ScanView } from "./scanPanelLogic";
 
 interface Props {
   onPick: (codes: string[]) => void;
@@ -21,8 +23,6 @@ const STRATEGIES: StrategyDef[] = [
   { name: "momentum", label: "强势延续", desc: "找近期较强但不过热的候选" },
   { name: "value", label: "估值观察", desc: "找估值克制、交投正常的候选" },
 ];
-
-type ScanView = "quick" | "timing" | "monitor" | "advanced";
 
 export default function ScanPanel({ onPick }: Props) {
   const { user } = useAuth();
@@ -200,11 +200,12 @@ export default function ScanPanel({ onPick }: Props) {
         <p className="text-xs font-semibold text-brand">选股扫描</p>
         <h2 className="mt-1 text-xl font-bold text-white">你今天想找什么？</h2>
         <p className="mt-1 text-sm text-slate-400">先选一个目标。扫描结果只是候选池，进入深度分析确认后再决定是否操作。</p>
-        <div className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
+        <div className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-5">
           {([
             ["quick", "找今日候选", "新手建议从这里开始"],
             ["timing", "看早盘/尾盘", "只在对应时段使用"],
             ["monitor", "看我的盯盘", "检查已有关注标的"],
+            ["tactics", "看实战形态", "按技巧找买卖点"],
             ["advanced", "自己设条件", "适合熟悉指标的用户"],
           ] as Array<[ScanView, string, string]>).map(([value, label, desc]) => (
             <button key={value} onClick={() => selectScanView(value)} disabled={value === "quick" && strategyRunning} aria-busy={value === "quick" && strategyRunning} className={`cursor-pointer rounded-lg border p-3 text-left transition disabled:cursor-wait disabled:opacity-70 ${scanView === value ? "border-brand bg-brand/10" : "border-slate-700 hover:border-slate-500"}`}>
@@ -216,6 +217,8 @@ export default function ScanPanel({ onPick }: Props) {
       </section>
 
       {scanView === "monitor" && <MonitorPanel />}
+
+      {scanView === "tactics" && <TacticPanel onPick={onPick} onImport={importCodes} />}
 
       {/* 早盘竞价机会（9:15-9:30） */}
       {scanView === "timing" && <>

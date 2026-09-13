@@ -7,7 +7,7 @@ import akshare as ak
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from app.services import akshare_guard, data_service, market_prediction, opportunity_service, recommend_service, spot_service, supabase_store, winrate_service
+from app.services import akshare_guard, data_service, market_prediction, opportunity_service, pattern_service, recommend_service, spot_service, supabase_store, winrate_service
 
 router = APIRouter(prefix="/api/market", tags=["market"])
 
@@ -409,6 +409,100 @@ async def strategy_scan(req: StrategyScanRequest):
 
     results = await _apply_strategy(codes, req.strategy)
     return results[: req.limit]
+
+
+# 多周期共振需拉 ~900 根日线，候选池必须更小，否则 Serverless 会超时。
+_TACTIC_CAP_LONG = 12
+_TACTIC_CAP_SHORT = 20
+
+
+class TacticScanRequest(BaseModel):
+    """实战形态扫描请求"""
+    tactic: str | None = Field(None, description="技巧 key（见 /api/market/tactics），不传=全部 6 条")
+    codes: list[str] | None = Field(None, description="指定股票池；不传则全市场按成交额预筛")
+    limit: int = Field(20, ge=1, le=50, description="返回数量上限")
+    min_amount_yi: float = Field(3, ge=0, description="最低成交额（亿元），过滤冷门股")
+    force: bool = Field(False, description="强制刷新：忽略行情快照缓存")
+
+
+def _tactic_candidates(keys: list[str]) -> int:
+    longest = max(pattern_service.TACTIC_MAP[k]["history_days"] for k in keys)
+    return _TACTIC_CAP_LONG if longest >= 600 else _TACTIC_CAP_SHORT
+
+
+@router.get("/tactics")
+async def list_tactics_endpoint():
+    """实战形态清单：6 条可复核技巧的定义（分类 / 买卖方向 / 说明）。"""
+    return pattern_service.list_tactics()
+
+
+@router.post("/tactic-scan")
+async def tactic_scan_endpoint(req: TacticScanRequest):
+    """实战形态扫描：按技巧在全市场（或指定股票池）中筛选命中标的。
+
+    - 形态判定全部由确定性条件得出，结果仅供筛选，不构成买卖建议。
+    - 只有「全部条件成立」才会进入 matched 结果；待确认（少一条）不会返回。
+    """
+    keys: list[str] | None = None
+    if req.tactic:
+        if req.tactic not in pattern_service.TACTIC_MAP:
+            raise HTTPException(
+                status_code=400,
+                detail=f"未知技巧 {req.tactic}，可选: {list(pattern_service.TACTIC_MAP)}",
+            )
+        keys = [req.tactic]
+    active = keys or list(pattern_service.DETECTORS)
+
+    if req.codes:
+        codes = [c.strip() for c in req.codes if c and c.strip()][:30]
+    else:
+        try:
+            spot = await _get_spot(force=req.force)
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"获取全市场行情失败: {e}")
+        candidates = []
+        for row in spot:
+            if not _is_tradable(row):
+                continue
+            if row["amount"] / 1e8 < req.min_amount_yi:
+                continue
+            code = row["code"].replace("sh", "").replace("sz", "").replace("bj", "")
+            candidates.append((code, row["amount"]))
+        candidates.sort(key=lambda x: x[1], reverse=True)
+        codes = [c for c, _ in candidates[: _tactic_candidates(active)]]
+
+    if not codes:
+        return {"count": 0, "checked": 0, "items": []}
+
+    try:
+        rows = await pattern_service.check_codes(codes, keys)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"形态计算失败: {e}")
+
+    matched = []
+    for row in rows:
+        hits = [t for t in row["tactics"] if t["matched"]]
+        if not hits:
+            continue
+        best = max(hits, key=lambda t: t["score"])
+        matched.append({**row, "tactics": hits, "best_score": best["score"], "best_action": best["action"]})
+    matched.sort(key=lambda x: x["best_score"], reverse=True)
+    return {"count": len(matched), "checked": len(codes), "items": matched[: req.limit]}
+
+
+@router.get("/tactic-check")
+async def tactic_check_endpoint(code: str):
+    """单票实战形态体检：返回全部技巧的逐条条件（含未命中），供深度分析复用。"""
+    code = (code or "").strip()
+    if not code:
+        raise HTTPException(status_code=400, detail="缺少 code")
+    try:
+        rows = await pattern_service.check_codes([code])
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"形态计算失败: {e}")
+    if not rows or rows[0].get("price") is None:
+        raise HTTPException(status_code=404, detail=f"未获取到 {code} 的行情数据")
+    return rows[0]
 
 
 @router.get("/search")

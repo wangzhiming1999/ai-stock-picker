@@ -822,3 +822,73 @@ export interface Briefing {
     summary?: string | null;
   } | null;
 }
+
+// ---------- 实战形态（pattern_service） ----------
+
+/** 技巧分类 */
+export type TacticCategory = "周期共振" | "K线组合" | "量价关系";
+
+/** 技巧方向：buy=买点 / sell=卖点或止损 */
+export type TacticDirection = "buy" | "sell";
+
+/** 技巧定义（GET /api/market/tactics） */
+export interface TacticDef {
+  key: string;
+  name: string;
+  category: TacticCategory;
+  direction: TacticDirection;
+  desc: string;
+  /** daily=日线判定 / intraday=分钟线判定 */
+  source: "daily" | "intraday";
+  /** 判定所需的最少日线根数 */
+  history_days: number;
+}
+
+/** 单条形态条件（逐条可复核） */
+export interface TacticCondition {
+  name: string;
+  passed: boolean;
+  detail: string;
+  /** false 表示数据缺失、无法判定，不应视为通过 */
+  available?: boolean;
+}
+
+/** 单只票在某个技巧上的判定结果 */
+export interface TacticResult {
+  key: string;
+  name: string;
+  category: TacticCategory;
+  direction: TacticDirection;
+  desc: string;
+  /** 全部条件成立才为 true */
+  matched: boolean;
+  status: "matched" | "watch" | "failed" | "insufficient_data";
+  score: number;
+  passed: number;
+  total: number;
+  /** 一句话操作提示（算法推导，非投资建议） */
+  action: string;
+  conditions: TacticCondition[];
+  metrics?: Record<string, number | string | null>;
+}
+
+/** 单只票的形态体检结果（GET /api/market/tactic-check） */
+export interface TacticStock {
+  code: string;
+  name: string;
+  price: number | null;
+  change_pct: number | null;
+  turnover?: number | null;
+  tactics: TacticResult[];
+  /** 扫描结果附带：命中技巧中的最高分 */
+  best_score?: number;
+  best_action?: string;
+}
+
+/** 形态扫描结果（POST /api/market/tactic-scan） */
+export interface TacticScanResult {
+  count: number;
+  /** 本次实际检查的候选只数 */
+  checked: number;
+  items: TacticStock[];
+}

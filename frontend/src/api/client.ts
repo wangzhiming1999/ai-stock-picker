@@ -31,6 +31,9 @@ import type {
   StrategyName,
   StrategyStock,
   SSEEvent,
+  TacticDef,
+  TacticScanResult,
+  TacticStock,
   UserProfile,
   WatchImportResult,
   WatchlistData,
@@ -131,6 +134,49 @@ export async function strategyScan(
     body: JSON.stringify({ strategy, limit, min_amount_yi: minAmountYi, force }),
   });
   if (!res.ok) throw new Error(`策略扫描失败: ${res.status}`);
+  return res.json();
+}
+
+/** 实战形态：技巧清单（分类 / 买卖方向 / 说明） */
+export async function listTactics(): Promise<TacticDef[]> {
+  const res = await fetch(`${API}/market/tactics`);
+  if (!res.ok) throw new Error(`获取形态清单失败: ${res.status}`);
+  return res.json();
+}
+
+/** 实战形态扫描：按技巧找命中标的（不区分买卖方向，由调用方按 direction 展示） */
+export async function tacticScan(params: {
+  tactic?: string;
+  codes?: string[];
+  limit?: number;
+  minAmountYi?: number;
+  force?: boolean;
+}): Promise<TacticScanResult> {
+  const res = await fetch(`${API}/market/tactic-scan`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      tactic: params.tactic,
+      codes: params.codes,
+      limit: params.limit ?? 20,
+      min_amount_yi: params.minAmountYi ?? 3,
+      force: params.force ?? false,
+    }),
+  });
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(d.detail || `形态扫描失败: ${res.status}`);
+  }
+  return res.json();
+}
+
+/** 单票形态体检：返回全部技巧的逐条条件（含未命中） */
+export async function tacticCheck(code: string): Promise<TacticStock> {
+  const res = await fetch(`${API}/market/tactic-check?code=${encodeURIComponent(code)}`);
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(d.detail || `形态体检失败: ${res.status}`);
+  }
   return res.json();
 }
 

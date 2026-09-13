@@ -14,6 +14,7 @@ AI 选股分析工具用 AI 结合实时行情、K 线趋势与最新新闻，�
 - **双模式**：配置 DeepSeek API Key 走 LLM 深度分析；未配置自动降级为本地规则评分
 - **市场扫描**：49 个行业板块列表 + 全市场条件扫描（价格 / 涨幅 / 成交额过滤），一键送入分析
 - **策略选股**：动量 / 趋势 / 低估值 / 放量 / 综合 五种策略一键扫描
+- **实战形态**：多周期共振 / 揉搓线 / 断头铡刀 / 地量见地价 / 天量见天价 / 分时顶背离 六条可复核技巧，逐条条件展示（全部成立才命中）
 - **技术信号**：压力位 / 支撑位 / 买入点 / 卖出点 / 止损位 / 风险收益比 / 信号强度
 - **明日大盘推衍**：上证指数技术信号 + LLM 次日走势预测，卡片内嵌指数走势图
 
@@ -141,7 +142,7 @@ ai-stock-picker/
 `stock`（行情 / K 线 / 新闻）· `analysis`（选股分析 SSE）· `market`（板块 / 扫描 / 推荐 / 大盘推衍 / 机会）· `history`（历史批次）· `auth`（登录注册）· `cron`（每日结算 / 扫描）· `alerts`（预警中心）· `backtest`（回测）· `portfolio`（持仓）· `sim`（模拟盘）· `watchlist`（自选股）· `briefing`（今日简报）· `quad`（榜单）· `monitor`（监控）
 
 **后端服务**（`app/services`）：
-`data_service`（akshare 行情 / 新闻）· `llm_service`（DeepSeek + 规则兜底）· `signal_service`（技术信号）· `market_prediction`（大盘推衍）· `recommend_service`（每日推荐）· `backtest_service` · `portfolio_service` · `sim_service`（交易引擎）· `watchlist_service` · `alert_service` · `winrate_service`（胜率）· `trade_calendar_service`（交易日历）· `opportunity_service`（盘前 / 尾盘机会）· `quad_service` · `briefing_service` · `import_service`（持仓截图 / 文本导入）· `supabase_store`（Supabase 持久化）
+`data_service`（akshare 行情 / 新闻）· `llm_service`（DeepSeek + 规则兜底）· `signal_service`（技术信号）· `market_prediction`（大盘推衍）· `recommend_service`（每日推荐）· `backtest_service` · `portfolio_service` · `sim_service`（交易引擎）· `watchlist_service` · `alert_service` · `winrate_service`（胜率）· `trade_calendar_service`（交易日历）· `opportunity_service`（盘前 / 尾盘机会）· `pattern_service`（实战形态）· `quad_service` · `briefing_service` · `import_service`（持仓截图 / 文本导入）· `supabase_store`（Supabase 持久化）
 
 ---
 
@@ -158,6 +159,9 @@ ai-stock-picker/
 | 市场 | GET | `/api/market/industries` | 行业板块列表 |
 | 市场 | POST | `/api/market/scan` | 全市场扫描选股 |
 | 市场 | POST | `/api/market/strategy-scan` | 策略选股 |
+| 市场 | GET | `/api/market/tactics` | 实战形态技巧清单 |
+| 市场 | POST | `/api/market/tactic-scan` | 实战形态扫描（六条可复核技巧） |
+| 市场 | GET | `/api/market/tactic-check` | 单票实战形态逐条体检 |
 | 市场 | GET | `/api/market/daily-recommend` | 每日收盘推荐 |
 | 市场 | GET | `/api/market/prediction` | 明日大盘推衍 |
 | 市场 | GET | `/api/market/winrate` | 胜率看板 |

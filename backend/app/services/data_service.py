@@ -126,18 +126,34 @@ def _parse_qq_history_payload(payload: dict, symbol: str, days: int) -> StockHis
         for row in rows[-days:]:
             if not isinstance(row, list) or len(row) < 6:
                 continue
-            date = str(row[0])[:10]
-            close = float(row[2])
-            volume = float(row[5])
+            try:
+                date = str(row[0])[:10]
+                open_p = float(row[1]) if row[1] not in (None, "") else 0.0
+                close = float(row[2])
+                high = float(row[3]) if row[3] not in (None, "") else 0.0
+                low = float(row[4]) if row[4] not in (None, "") else 0.0
+                volume = float(row[5])
+            except (TypeError, ValueError):
+                continue
             if close <= 0:
                 continue
-            valid.append((date, close, volume))
+            # 腾讯偶发缺失/异常 OHLC：回退为收盘价，并夹逼保证 high >= max(open, close)
+            # >= min(open, close) >= low，否则形态类计算（揉搓线/断头铡刀）会算出负影线。
+            open_p = open_p if open_p > 0 else close
+            high = high if high > 0 else close
+            low = low if low > 0 else close
+            high = max(high, open_p, close)
+            low = min(low, open_p, close)
+            valid.append((date, open_p, close, high, low, volume))
         if not valid:
             return None
         return StockHistory(
             dates=[row[0] for row in valid],
-            closes=[row[1] for row in valid],
-            volumes=[row[2] for row in valid],
+            closes=[row[2] for row in valid],
+            volumes=[row[5] for row in valid],
+            opens=[row[1] for row in valid],
+            highs=[row[3] for row in valid],
+            lows=[row[4] for row in valid],
         )
     except (AttributeError, TypeError, ValueError, KeyError, IndexError):
         return None
