@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Search } from "lucide-react";
 import { searchStocks } from "../api/client";
 import type { StockSearchResult } from "../types";
+import { pnlTone } from "../lib/tone";
 
 interface Props {
   value: string;
@@ -82,7 +83,7 @@ export default function StockSearchInput({ value, onChange, onPickCode, disabled
               <span className="ml-3 flex items-center gap-3 text-xs">
                 <span className="text-slate-500">{s.code}</span>
                 <span className="text-slate-400">{s.price.toFixed(2)}</span>
-                <span className={s.change_pct >= 0 ? "text-green-400" : "text-red-400"}>
+                <span className={pnlTone(s.change_pct)}>
                   {s.change_pct >= 0 ? "+" : ""}
                   {s.change_pct.toFixed(2)}%
                 </span>

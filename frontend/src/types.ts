@@ -75,6 +75,8 @@ export interface StockAnalysis {
   suggestions: string[];
   signal?: TradeSignal;
   strategy?: StrategyAssessment;
+  /** 命中的实战形态（全部条件成立才算命中） */
+  tactics?: TacticResult[];
   holding_advice?: string;
 }
 
@@ -341,12 +343,16 @@ export interface MonitorStock {
   advice: MonitorAdvice;
   /** 日线战略锚点（任何周期都返回） */
   daily: MonitorDaily;
+  /** 命中的实战形态（只有全部条件成立才返回） */
+  tactics?: TacticResult[];
 }
 
 /** 顶层决策摘要 */
 export interface MonitorSummary {
   total: number;
   act_now: number;
+  /** 形态命中的只数 */
+  tactic_hits?: number;
   stop: number;
   sell: number;
   buy: number;
@@ -740,6 +746,8 @@ export interface BriefingStock {
   invalidation?: string;
   target?: string;
   valid_until?: string;
+  /** 命中的实战形态（全部条件成立） */
+  tactics?: TacticResult[];
 }
 
 /** 尾盘持仓操作项 */
@@ -763,6 +771,8 @@ export interface BriefingHolding {
   order_action?: string | null;
   /** 挂单建议文案 */
   order_hint?: string;
+  /** 命中的实战形态（卖出形态会同步升级持仓建议） */
+  tactics?: TacticResult[];
 }
 
 /** 隔夜外盘指数（盘前预读） */
@@ -821,6 +831,8 @@ export interface Briefing {
     actions?: string | null;
     summary?: string | null;
   } | null;
+  /** 形态命中汇总：关注池（买点向）+ 持仓（卖点/风险向） */
+  tactics?: BriefingTactics;
 }
 
 // ---------- 实战形态（pattern_service） ----------
@@ -840,8 +852,10 @@ export interface TacticDef {
   desc: string;
   /** daily=日线判定 / intraday=分钟线判定 */
   source: "daily" | "intraday";
-  /** 判定所需的最少日线根数 */
+  /** 取数时预留的最少日线根数 */
   history_days: number;
+  /** 判定真正需要的预热根数（回测 walk-forward 从这一根开始） */
+  warmup: number;
 }
 
 /** 单条形态条件（逐条可复核） */
@@ -891,4 +905,53 @@ export interface TacticScanResult {
   /** 本次实际检查的候选只数 */
   checked: number;
   items: TacticStock[];
+}
+
+/** 简报里的形态命中汇总 */
+export interface BriefingTactics {
+  /** 早盘关注池命中（偏买点） */
+  morning: Array<{ code: string; name: string; tactics: TacticResult[] }>;
+  /** 持仓命中（偏卖点/风险） */
+  holdings: Array<{ code: string; name: string; tactics: TacticResult[] }>;
+  summary?: string | null;
+}
+
+/** 形态回测：单条技巧的统计（POST /api/backtest/tactic） */
+export interface TacticBacktestItem {
+  key: string;
+  name: string;
+  category: TacticCategory;
+  direction: TacticDirection;
+  desc: string;
+  status: "ok" | "insufficient_data" | "not_backtestable";
+  note?: string | null;
+  horizon_days: number;
+  /** 评估时点数（基线样本量） */
+  eval_points: number;
+  /** 去重后的命中次数 */
+  signals: number;
+  stocks_evaluated: number;
+  win_definition?: string | null;
+  win_rate?: number | null;
+  avg_return?: number | null;
+  median_return?: number | null;
+  avg_max_gain?: number | null;
+  avg_max_drawdown?: number | null;
+  baseline_win_rate?: number | null;
+  baseline_avg_return?: number | null;
+  /** 形态胜率 − 基准胜率（百分点） */
+  edge_win_rate?: number | null;
+  /** 方向调整后的收益超额（百分点） */
+  edge_return?: number | null;
+  by_stock?: Array<{ code: string; signals: number; avg_return: number }>;
+}
+
+export interface TacticBacktestResult {
+  horizon_days: number;
+  eval_bars: number;
+  pool: string[];
+  pool_size: number;
+  generated_at: string;
+  items: TacticBacktestItem[];
+  error?: string;
 }

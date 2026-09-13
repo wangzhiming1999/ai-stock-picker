@@ -5,6 +5,7 @@ import { fmtDate, fmtDayLabel, isTodayCN } from "../lib/dates";
 import CollapsiblePanel from "./CollapsiblePanel";
 import WatchStar from "./WatchStar";
 import type { DailyRecommendResult } from "../types";
+import { pnlTone } from "../lib/tone";
 
 function plainStatus(status: string): string {
   return status
@@ -130,7 +131,7 @@ export default function DailyRecommendCard({ onPick, collapsed = false }: Props)
                   </span>
                   <span className="text-sm font-medium text-white">{r.name}</span>
                   <span className="text-xs text-slate-500">{r.code}</span>
-                  <span className={`text-xs font-medium ${r.change_pct >= 0 ? "text-green-400" : "text-red-400"}`}>
+                  <span className={`text-xs font-medium ${pnlTone(r.change_pct)}`}>
                     {r.change_pct >= 0 ? "+" : ""}
                     {r.change_pct.toFixed(2)}%
                   </span>

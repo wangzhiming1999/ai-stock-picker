@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import type { SimAccount, SimPerformance, SimPosition, SimPositionsData, SimTradesData } from "../types";
 import { useAuth } from "../auth/AuthContext";
 import { fmtPct, safeNumber } from "../lib/safe";
+import { pnlTone } from "../lib/tone";
 import {
   MOCK_SIM_ACCOUNT,
   MOCK_SIM_PERFORMANCE,
@@ -49,8 +50,8 @@ function PerfChart({ data }: { data: SimPerformance }) {
             data: data.snapshots.map((s) => s.total_value),
             smooth: true,
             showSymbol: false,
-            lineStyle: { color: "#dc2626", width: 2 },
-            areaStyle: { color: "rgba(220,38,38,0.15)" },
+            lineStyle: { color: "#2563eb", width: 2 },
+            areaStyle: { color: "rgba(37,99,235,0.15)" },
           },
         ],
       });
@@ -196,8 +197,6 @@ export default function SimPanel() {
     void load();
   }, [load]);
 
-  const pnlColor = useCallback((v: number | null | undefined) => (v == null ? "text-slate-500" : v >= 0 ? "text-red-400" : "text-green-400"), []);
-
   if (!user) {
     return (
       <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5 text-sm text-slate-400">
@@ -298,19 +297,19 @@ export default function SimPanel() {
               <div className="text-[11px] text-slate-500">可用现金</div>
             </div>
             <div className="rounded-lg bg-slate-800/50 px-3 py-2 text-center">
-              <div className={`text-lg font-bold ${pnlColor(account.total_pnl)}`}>
+              <div className={`text-lg font-bold ${pnlTone(account.total_pnl)}`}>
                 {account.total_pnl != null ? `${account.total_pnl >= 0 ? "+" : ""}${safeNumber(account.total_pnl).toLocaleString()}` : "-"}
               </div>
               <div className="text-[11px] text-slate-500">总盈亏</div>
             </div>
             <div className="rounded-lg bg-slate-800/50 px-3 py-2 text-center">
-              <div className={`text-lg font-bold ${pnlColor(account.total_pnl_pct)}`}>{fmtPct(account.total_pnl_pct)}</div>
+              <div className={`text-lg font-bold ${pnlTone(account.total_pnl_pct)}`}>{fmtPct(account.total_pnl_pct)}</div>
               <div className="text-[11px] text-slate-500">盈亏率</div>
             </div>
           </div>
           <div className="mb-3 flex gap-4 text-[11px] text-slate-500">
-            <span>已实现盈亏 <span className={pnlColor(account.realized_pnl)}>{account.realized_pnl >= 0 ? "+" : ""}{safeNumber(account.realized_pnl)}</span></span>
-            <span>未实现盈亏 <span className={pnlColor(account.unrealized_pnl)}>{account.unrealized_pnl >= 0 ? "+" : ""}{safeNumber(account.unrealized_pnl)}</span></span>
+            <span>已实现盈亏 <span className={pnlTone(account.realized_pnl)}>{account.realized_pnl >= 0 ? "+" : ""}{safeNumber(account.realized_pnl)}</span></span>
+            <span>未实现盈亏 <span className={pnlTone(account.unrealized_pnl)}>{account.unrealized_pnl >= 0 ? "+" : ""}{safeNumber(account.unrealized_pnl)}</span></span>
             <span>持仓市值 <span className="text-slate-300">{safeNumber(summary ?? account.market_value).toLocaleString()}</span></span>
           </div>
 
@@ -337,7 +336,7 @@ export default function SimPanel() {
                       <td className="px-2 py-2 text-right text-slate-300">{p.current_price?.toFixed(2) ?? "-"}</td>
                       <td className="px-2 py-2 text-right text-slate-400">{p.avg_cost?.toFixed(2)}</td>
                       <td className="px-2 py-2 text-right text-slate-400">{p.shares}</td>
-                      <td className={`px-2 py-2 text-right ${pnlColor(p.pnl_pct)}`}>
+                      <td className={`px-2 py-2 text-right ${pnlTone(p.pnl_pct)}`}>
                         {p.pnl_pct != null ? `${p.pnl_pct >= 0 ? "+" : ""}${p.pnl_pct.toFixed(2)}%` : "-"}
                       </td>
                       <td className="px-2 py-2 text-right">

@@ -14,6 +14,7 @@ import AlertRulesPanel from "./AlertRulesPanel";
 import type { HoldingsData, PortfolioAdvice, UserProfile } from "../types";
 import { useAuth } from "../auth/AuthContext";
 import { fmtPct, safeNumber } from "../lib/safe";
+import { actionTone, pnlTone } from "../lib/tone";
 
 const RISK_LEVELS = [
   { name: "保守", desc: "低波动优先，严格控制仓位" },
@@ -117,9 +118,6 @@ export default function PortfolioPanel() {
       toast.error("删除失败", { description: (e as Error).message });
     }
   };
-
-  const pnlColor = (v: number | null | undefined) => (v == null ? "text-slate-500" : v >= 0 ? "text-green-400" : "text-red-400");
-  const actionColor = (a: string) => (a.includes("减仓") ? "text-red-400" : a.includes("加仓") ? "text-green-400" : "text-yellow-400");
 
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
@@ -231,14 +229,14 @@ export default function PortfolioPanel() {
             <div className="text-[11px] text-slate-500">市值</div>
           </div>
           <div className="rounded-lg bg-slate-800/50 px-3 py-2 text-center">
-            <div className={`text-lg font-bold ${pnlColor(holdings.total_pnl)}`}>
+            <div className={`text-lg font-bold ${pnlTone(holdings.total_pnl)}`}>
               {holdings.total_pnl >= 0 ? "+" : ""}
               {safeNumber(holdings.total_pnl).toLocaleString()}
             </div>
             <div className="text-[11px] text-slate-500">总盈亏</div>
           </div>
           <div className="rounded-lg bg-slate-800/50 px-3 py-2 text-center">
-            <div className={`text-lg font-bold ${pnlColor(holdings.total_pnl_pct)}`}>
+            <div className={`text-lg font-bold ${pnlTone(holdings.total_pnl_pct)}`}>
               {fmtPct(holdings.total_pnl_pct)}
             </div>
             <div className="text-[11px] text-slate-500">盈亏率</div>
@@ -271,7 +269,7 @@ export default function PortfolioPanel() {
                   <td className="px-2 py-2 text-right text-slate-300">{h.current_price?.toFixed(2) ?? "-"}</td>
                   <td className="px-2 py-2 text-right text-slate-400">{h.cost_price.toFixed(2)}</td>
                   <td className="px-2 py-2 text-right text-slate-400">{h.shares}</td>
-                  <td className={`px-2 py-2 text-right ${pnlColor(h.pnl_pct)}`}>
+                  <td className={`px-2 py-2 text-right ${pnlTone(h.pnl_pct)}`}>
                     {h.pnl_pct != null ? `${h.pnl_pct >= 0 ? "+" : ""}${h.pnl_pct.toFixed(2)}%` : "-"}
                   </td>
                   <td className="px-2 py-2">
@@ -318,7 +316,7 @@ export default function PortfolioPanel() {
               <div key={a.code} className="rounded-lg border border-slate-800 p-3">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium text-slate-200">{a.name} <span className="text-xs text-slate-500">{a.code}</span></span>
-                  <span className={`text-xs font-semibold ${actionColor(a.action)}`}>{a.action}</span>
+                  <span className={`text-xs font-semibold ${actionTone(a.action)}`}>{a.action}</span>
                 </div>
                 <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-[11px] text-slate-500">
                   <span>仓位 {a.position_pct}%</span>

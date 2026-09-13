@@ -3,6 +3,7 @@ import * as echarts from "echarts";
 import { runBacktest } from "../api/client";
 import CollapsiblePanel from "./CollapsiblePanel";
 import { safeArray, safeNumber } from "../lib/safe";
+import { pnlTone } from "../lib/tone";
 import type { BacktestResult } from "../types";
 
 const STRATEGIES = [
@@ -156,14 +157,14 @@ export default function BacktestPanel() {
           {/* 指标卡片 */}
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
             <div className="rounded-lg bg-slate-800/50 px-2 py-2 text-center">
-              <div className={`text-base font-bold ${result.total_return >= 0 ? "text-green-400" : "text-red-400"}`}>
+              <div className={`text-base font-bold ${pnlTone(result.total_return)}`}>
                 {result.total_return >= 0 ? "+" : ""}
                 {result.total_return.toFixed(2)}%
               </div>
               <div className="text-[10px] text-slate-500">总收益</div>
             </div>
             <div className="rounded-lg bg-slate-800/50 px-2 py-2 text-center">
-              <div className={`text-base font-bold ${result.annual_return >= 0 ? "text-green-400" : "text-red-400"}`}>
+              <div className={`text-base font-bold ${pnlTone(result.annual_return)}`}>
                 {result.annual_return >= 0 ? "+" : ""}
                 {result.annual_return.toFixed(2)}%
               </div>

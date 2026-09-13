@@ -8,9 +8,13 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 
-from app.services import data_service, signal_service, supabase_store
+from app.services import data_service, pattern_service, signal_service, supabase_store
 
 RISK_LEVELS = {"保守", "稳健", "进取", "激进"}
+
+# 持仓要跑形态判定（多周期共振的月线 MACD 约需 735 个交易日），故日线取 900 根。
+# 技术信号只取尾部 60 根，与改动前一致，既有输出不受影响。
+_HOLDING_DAYS = 900
 
 
 def _select_stop_price(cost_price: float, technical_stop: float | None = None) -> float:
@@ -237,7 +241,7 @@ async def list_holdings(user_id: str) -> list[dict]:
     quote_map = {q.code: q for q in quotes}
     # K 线并发预取（原为循环内逐只同步请求，N+1 且阻塞）
     hists = await asyncio.gather(
-        *(asyncio.to_thread(data_service.get_history, h["code"]) for h in holdings),
+        *(asyncio.to_thread(data_service.get_history, h["code"], _HOLDING_DAYS) for h in holdings),
         return_exceptions=True,
     )
 
@@ -255,12 +259,21 @@ async def list_holdings(user_id: str) -> list[dict]:
         total_value += market_value
         total_cost += cost_price * shares
 
-        # 技术信号（K 线已并发预取）
+        # 技术信号 + 形态命中（K 线已并发预取）
         signal = None
+        tactics: list[dict] = []
         try:
             history = None if isinstance(hist, BaseException) else hist
             if history and history.closes and price:
                 signal = signal_service.compute_signals(history.closes, price)
+                tactics = pattern_service.matched_tactics(
+                    {
+                        "daily": history,
+                        "intraday": None,
+                        "price": price,
+                        "turnover": q.turnover if q else None,
+                    }
+                )
         except Exception:
             pass
 
@@ -272,6 +285,7 @@ async def list_holdings(user_id: str) -> list[dict]:
                 "pnl": round(pnl, 2) if pnl is not None else None,
                 "pnl_pct": round(pnl_pct, 2) if pnl_pct is not None else None,
                 "signal": signal,
+                "tactics": tactics,
             }
         )
 
@@ -363,6 +377,7 @@ async def get_portfolio_advice(user_id: str) -> dict:
         cost = h.get("cost_price") or 0
         pnl_pct = h.get("pnl_pct")
         signal = h.get("signal") or {}
+        tactics = h.get("tactics") or []
         strength = signal.get("strength", 0)
         rr = signal.get("rr_ratio", 0)
         support = signal.get("support")
@@ -400,6 +415,15 @@ async def get_portfolio_advice(user_id: str) -> dict:
             elif pnl_pct < -8:
                 tips.append(f"浮亏 {pnl_pct:.1f}%，检查是否跌破止损逻辑")
 
+        # 形态命中：卖出形态直接升级为减仓建议（断头铡刀这类是明确的趋势走坏信号）
+        for t in tactics:
+            if t.get("direction") == "sell":
+                tips.append(f"形态风险：{t['name']} —— {t['action']}")
+                if action == "持有观察":
+                    action = "建议减仓"
+            else:
+                tips.append(f"形态机会：{t['name']} —— {t['action']}")
+
         advice_items.append(
             {
                 "code": code,
@@ -415,6 +439,7 @@ async def get_portfolio_advice(user_id: str) -> dict:
                 "stop_loss": stop_loss,
                 "action": action,
                 "tips": tips,
+                "tactics": tactics,
             }
         )
 

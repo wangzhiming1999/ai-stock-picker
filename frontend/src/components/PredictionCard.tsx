@@ -4,12 +4,7 @@ import CollapsiblePanel from "./CollapsiblePanel";
 import KLineChart from "./KLineChart";
 import { safeArray, safeObj } from "../lib/safe";
 import type { IndexHistory, MarketPrediction, PredictionRecord, PredictionStats, StockHistory } from "../types";
-
-function directionColor(d: string): string {
-  if (d.includes("上涨") || d.includes("强")) return "text-green-400";
-  if (d.includes("下跌") || d.includes("弱")) return "text-red-400";
-  return "text-yellow-400";
-}
+import { dirTone, pnlTone } from "../lib/tone";
 
 function fmtDate(iso: string): string {
   const d = new Date(iso);
@@ -82,7 +77,7 @@ export default function PredictionCard() {
               <div className="text-xs text-slate-500">
                 {data.technical?.target_date ? `${data.technical.target_date} 方向` : "下一个交易日方向"}
               </div>
-              <div className={`text-2xl font-black ${directionColor(data.summary.direction)}`}>
+              <div className={`text-2xl font-black ${dirTone(data.summary.direction).text}`}>
                 {data.summary.direction ?? "-"}
                 {data.summary.direction_score > 0 && (
                   <span className="ml-1 text-sm font-semibold text-slate-400">({data.summary.direction_score.toFixed(1)})</span>
@@ -107,9 +102,7 @@ export default function PredictionCard() {
                   <span className="flex items-baseline gap-1.5">
                     <span className="text-sm font-semibold text-slate-200">{indexHist.latest.toFixed(2)}</span>
                     <span
-                      className={`text-[11px] font-medium ${
-                        (indexHist.change_pct ?? 0) >= 0 ? "text-green-400" : "text-red-400"
-                      }`}
+                      className={`text-[11px] font-medium ${pnlTone(indexHist.change_pct)}`}
                     >
                       {(indexHist.change_pct ?? 0) >= 0 ? "+" : ""}
                       {indexHist.change_pct?.toFixed(2)}%
@@ -226,13 +219,13 @@ export default function PredictionCard() {
                   <tr key={r.id} className="border-t border-slate-800/60">
                     <td className="px-2 py-1.5 text-[11px] text-slate-500">{fmtDate(r.created_at)}</td>
                     <td className="px-2 py-1.5">
-                      <span className={`text-xs font-medium ${directionColor(r.direction_raw || r.direction)}`}>
+                      <span className={`text-xs font-medium ${dirTone(r.direction_raw || r.direction).text}`}>
                         {r.direction_raw || r.direction || "-"}
                       </span>
                     </td>
                     <td className="px-2 py-1.5 text-right text-xs">
                       {r.actual_direction ? (
-                        <span className={r.actual_change != null && r.actual_change >= 0 ? "text-green-400" : "text-red-400"}>
+                        <span className={pnlTone(r.actual_change)}>
                           {r.actual_direction} {r.actual_change != null ? `${r.actual_change > 0 ? "+" : ""}${r.actual_change}%` : ""}
                         </span>
                       ) : (

@@ -6,11 +6,46 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from app import store
-from app.models import AnalysisRequest
-from app.services import data_service, signal_service, supabase_store, trend_template_service
+from app.models import AnalysisRequest, StockHistory
+from app.services import data_service, pattern_service, signal_service, supabase_store, trend_template_service
 from app.services.llm_service import mock_analyze, parse_analysis, should_use_mock, stream_analyze
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
+
+# 深度分析要跑全部形态技巧，其中「多周期共振」需要月线 MACD（约 35 个月 ≈ 735 个交易日），
+# 故日线取 900 根；而技术信号 / 趋势模板 / LLM 上下文仍只喂最近 260 根切片，保持原有输出不变。
+_ANALYSIS_DAYS = 900
+_CONTEXT_DAYS = 260
+
+
+def _tail_history(hist: StockHistory | None, days: int) -> StockHistory | None:
+    """截取最近 days 根 K 线，OHLCV 各序列同步截尾（长度不足则原样返回）。"""
+    if not hist or not hist.closes:
+        return None
+    if len(hist.closes) <= days:
+        return hist
+
+    def _tail(values: list | None) -> list | None:
+        return values[-days:] if values else None
+
+    return StockHistory(
+        dates=hist.dates[-days:],
+        closes=hist.closes[-days:],
+        volumes=_tail(hist.volumes),
+        opens=_tail(hist.opens),
+        highs=_tail(hist.highs),
+        lows=_tail(hist.lows),
+    )
+
+
+def _tactic_ctx(quote, history: StockHistory | None, intraday=None) -> dict:
+    """组装形态判定上下文（与 pattern_service 的 ctx 约定一致）。"""
+    return {
+        "daily": history,
+        "intraday": intraday,
+        "price": quote.price,
+        "turnover": quote.turnover,
+    }
 
 
 def _sse(event_type: str, message: str = "", payload: dict | None = None) -> str:
@@ -97,13 +132,17 @@ async def analyze_stocks(req: AnalysisRequest, request: Request):
             # 1. 缓存命中：直接返回（force=False 时）
             if not req.force and q.code in cached_map:
                 cached = cached_map[q.code]
-                # 旧缓存没有规则策略字段时就地补齐，避免用户要等到次日才看到新结果。
-                if "strategy" not in cached:
-                    cached_history = await asyncio.to_thread(data_service.get_history, q.code, 260)
+                # 旧缓存缺少规则字段（趋势模板 / 形态命中）时就地补齐，避免用户要等到次日才看到新结果。
+                if "strategy" not in cached or "tactics" not in cached:
+                    cached_history = await asyncio.to_thread(data_service.get_history, q.code, _ANALYSIS_DAYS)
                     if cached_history and cached_history.closes:
-                        cached["strategy"] = trend_template_service.assess_trend_template(
-                            cached_history.closes, q.price
-                        )
+                        if "strategy" not in cached:
+                            context_history = _tail_history(cached_history, _CONTEXT_DAYS) or cached_history
+                            cached["strategy"] = trend_template_service.assess_trend_template(
+                                context_history.closes, q.price
+                            )
+                        if "tactics" not in cached:
+                            cached["tactics"] = pattern_service.matched_tactics(_tactic_ctx(q, cached_history))
                 yield _sse(
                     "stock_start",
                     f"{q.name}（{q.code}）命中今日缓存...",
@@ -122,9 +161,11 @@ async def analyze_stocks(req: AnalysisRequest, request: Request):
 
             yield _sse("stock_start", f"正在分析 {q.name}（{q.code}）...", {"code": q.code, "name": q.name})
 
-            # 2. 组装上下文（K线 + 新闻 + 技术信号）
-            # 长期趋势模板需要约一年的日线；缓存有容量上限，不会无限占用内存。
-            history = await asyncio.to_thread(data_service.get_history, q.code, 260)
+            # 2. 组装上下文（K线 + 新闻 + 技术信号 + 形态）
+            # 日线取 900 根以支撑多周期共振（月线 MACD）；下游一律传最近 260 根切片，
+            # 保证技术信号 / 趋势模板 / LLM 上下文的输入与改动前完全一致。
+            long_history = await asyncio.to_thread(data_service.get_history, q.code, _ANALYSIS_DAYS)
+            history = _tail_history(long_history, _CONTEXT_DAYS)
             news = await asyncio.to_thread(data_service.get_news, q.code, q.name)
             context = data_service.build_stock_context(q, history, news)
 
@@ -145,6 +186,12 @@ async def analyze_stocks(req: AnalysisRequest, request: Request):
                     f"系统结论：{strategy_assessment['action']}。这是筛选条件，不是买入信号。"
                 )
 
+            # 形态命中：K 线量价条件的确定性核对结果（仅全部条件成立才算命中）
+            tactics = pattern_service.matched_tactics(_tactic_ctx(q, long_history))
+            if tactics:
+                hits = "；".join(f"{t['name']}（{t['action']}）" for t in tactics)
+                context += f"\n\n系统形态识别命中：{hits}。这是确定性条件核对结果，请结合它评估风险与操作节奏。"
+
             # 3a. 本地规则评分模式
             if use_mock:
                 analysis = await asyncio.to_thread(mock_analyze, q, history, news)
@@ -153,6 +200,7 @@ async def analyze_stocks(req: AnalysisRequest, request: Request):
                 if signal:
                     analysis.signal = signal_service.compute_signals(history.closes, q.price)
                 analysis.strategy = strategy_assessment
+                analysis.tactics = tactics
                 results.append(analysis)
                 await _write_cache(q.code, analysis.model_dump(), source="rule")
                 yield _sse(
@@ -185,6 +233,7 @@ async def analyze_stocks(req: AnalysisRequest, request: Request):
             if signal:
                 analysis.signal = signal_service.compute_signals(history.closes, q.price)
             analysis.strategy = strategy_assessment
+            analysis.tactics = tactics
             results.append(analysis)
             await _write_cache(q.code, analysis.model_dump(), source="llm")
             yield _sse(

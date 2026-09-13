@@ -115,6 +115,8 @@ class StockAnalysis(BaseModel):
     suggestions: list[str] = []
     signal: TradeSignal | None = None
     strategy: StrategyAssessment | None = None
+    # 命中的实战形态（pattern_service），只装「全部条件成立」的技巧
+    tactics: list[dict] = Field(default_factory=list)
     holding_advice: str | None = None
 
 

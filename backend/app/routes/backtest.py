@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from app.services.backtest_service import BacktestParams, DEFAULT_POOL, run_backtest
-from app.services import supabase_store
+from app.services import pattern_service, supabase_store, tactic_backtest_service
 
 router = APIRouter(prefix="/api/backtest", tags=["backtest"])
 
@@ -108,3 +108,37 @@ async def _save_backtest(cache_key: str, params: BacktestParams, result: dict) -
 async def backtest_pool():
     """默认股票池。"""
     return {"codes": DEFAULT_POOL, "count": len(DEFAULT_POOL)}
+
+
+class TacticBacktestRequest(BaseModel):
+    """实战形态回测请求"""
+    tactic: str | None = Field(None, description="技巧 key（见 /api/market/tactics），不传=全部可回测技巧")
+    codes: list[str] | None = Field(None, description="股票池，缺省用形态回测默认池（10 只）")
+    horizon_days: int = Field(10, ge=1, le=30, description="持有期（交易日）")
+    eval_bars: int = Field(250, ge=60, le=400, description="每只票参与评估的最近交易日数")
+
+
+@router.post("/tactic")
+async def tactic_backtest_endpoint(req: TacticBacktestRequest):
+    """实战形态历史回测：walk-forward 验证技巧表现，并与同区间基准对比。
+
+    结论仅供参考：免费数据源只有日线历史，分时背离无法回测；天量见天价的换手率
+    条件在回测中按数据缺失处理。命中样本过少时返回 `insufficient_data`，不给结论。
+    """
+    keys: list[str] | None = None
+    if req.tactic:
+        if req.tactic not in pattern_service.TACTIC_MAP:
+            raise HTTPException(
+                status_code=400,
+                detail=f"未知技巧 {req.tactic}，可选: {list(pattern_service.TACTIC_MAP)}",
+            )
+        keys = [req.tactic]
+    try:
+        return await tactic_backtest_service.evaluate(
+            codes=req.codes,
+            keys=keys,
+            horizon=req.horizon_days,
+            eval_bars=req.eval_bars,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"形态回测失败: {e}")

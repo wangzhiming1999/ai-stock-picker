@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import KLineChart from "./KLineChart";
 import ScoreBar from "./ScoreBar";
 import { fmtNum, safeArray } from "../lib/safe";
+import { pnlTone } from "../lib/tone";
 
 interface Props {
   analysis: StockAnalysis;
@@ -32,7 +33,7 @@ export default function StockCard({ analysis, info }: Props) {
           {quote && (
             <div className="mt-1 flex items-baseline gap-2">
               <span className="text-2xl font-semibold text-white">{quote.price.toFixed(2)}</span>
-              <span className={`text-sm font-medium ${rising ? "text-green-400" : "text-red-400"}`}>
+              <span className={`text-sm font-medium ${pnlTone(quote.change_pct)}`}>
                 {rising ? "+" : ""}
                 {quote.change_pct.toFixed(2)}%
               </span>
@@ -81,6 +82,38 @@ export default function StockCard({ analysis, info }: Props) {
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* 实战形态命中：K 线量价条件逐条核对，全部成立才算命中 */}
+      {analysis.tactics && analysis.tactics.length > 0 && (
+        <div className="mt-4 rounded-lg border border-slate-700 bg-slate-950/45 p-3">
+          <div className="text-xs font-semibold text-white">形态命中</div>
+          <div className="mt-0.5 text-[11px] text-slate-500">
+            K 线量价条件逐条核对，全部成立才算命中 · 算法推导
+          </div>
+          <ul className="mt-2 space-y-2">
+            {analysis.tactics.map((t) => (
+              <li key={t.key}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span
+                    className={`rounded px-1.5 py-0.5 text-[11px] ${
+                      t.direction === "buy"
+                        ? "bg-green-600/20 text-green-300"
+                        : "bg-red-600/20 text-red-300"
+                    }`}
+                  >
+                    {t.direction === "buy" ? "买点" : "卖点"}
+                  </span>
+                  <span className="text-xs font-semibold text-slate-200">{t.name}</span>
+                  <span className="text-[11px] text-slate-500">
+                    {t.passed}/{t.total} 条件
+                  </span>
+                </div>
+                <p className="mt-1 text-xs leading-relaxed text-slate-300">{t.action}</p>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

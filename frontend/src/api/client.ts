@@ -31,6 +31,7 @@ import type {
   StrategyName,
   StrategyStock,
   SSEEvent,
+  TacticBacktestResult,
   TacticDef,
   TacticScanResult,
   TacticStock,
@@ -176,6 +177,30 @@ export async function tacticCheck(code: string): Promise<TacticStock> {
   if (!res.ok) {
     const d = await res.json().catch(() => ({}));
     throw new Error(d.detail || `形态体检失败: ${res.status}`);
+  }
+  return res.json();
+}
+
+/** 实战形态回测：walk-forward 验证技巧表现（含同区间基准对比） */
+export async function tacticBacktest(params: {
+  tactic?: string;
+  codes?: string[];
+  horizonDays?: number;
+  evalBars?: number;
+}): Promise<TacticBacktestResult> {
+  const res = await fetch(`${API}/backtest/tactic`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      tactic: params.tactic,
+      codes: params.codes,
+      horizon_days: params.horizonDays ?? 10,
+      eval_bars: params.evalBars ?? 250,
+    }),
+  });
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(d.detail || `形态回测失败: ${res.status}`);
   }
   return res.json();
 }

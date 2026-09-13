@@ -5,6 +5,8 @@
 @layer base {
   body {
     @apply bg-slate-950 text-slate-100 antialiased;
+    /* 数字等宽：行情/持仓数字实时刷新时不抖动，表格里的涨跌幅能上下对齐 */
+    font-variant-numeric: tabular-nums;
   }
 }
 

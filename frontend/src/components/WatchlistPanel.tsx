@@ -4,6 +4,7 @@ import { CalendarDays } from "lucide-react";
 import { fetchDailyRecommend, fetchWatchlist, importToWatchlist, removeFromWatchlist } from "../api/client";
 import { fmtDayLabel, isTodayCN } from "../lib/dates";
 import { fmtNum, fmtPct } from "../lib/safe";
+import { downTone, pnlTone, upTone } from "../lib/tone";
 import type { DailyRecommendResult, WatchlistData } from "../types";
 import { useAuth } from "../auth/AuthContext";
 
@@ -89,7 +90,6 @@ export default function WatchlistPanel({ onAnalyze }: Props) {
     }
   };
 
-  const pnlColor = (v: number | null | undefined) => (v == null ? "text-slate-500" : v >= 0 ? "text-green-400" : "text-red-400");
   const s = data?.summary;
 
   return (
@@ -144,15 +144,15 @@ export default function WatchlistPanel({ onAnalyze }: Props) {
             <div className="text-[11px] text-slate-500">自选</div>
           </div>
           <div className="rounded-lg bg-slate-800/50 px-2 py-2 text-center">
-            <div className="text-lg font-bold text-green-400">{s.up}</div>
+            <div className={`text-lg font-bold ${upTone()}`}>{s.up}</div>
             <div className="text-[11px] text-slate-500">上涨</div>
           </div>
           <div className="rounded-lg bg-slate-800/50 px-2 py-2 text-center">
-            <div className="text-lg font-bold text-red-400">{s.down}</div>
+            <div className={`text-lg font-bold ${downTone()}`}>{s.down}</div>
             <div className="text-[11px] text-slate-500">下跌</div>
           </div>
           <div className="rounded-lg bg-slate-800/50 px-2 py-2 text-center">
-            <div className={`text-lg font-bold ${s.avg_change != null && s.avg_change >= 0 ? "text-green-400" : "text-red-400"}`}>
+            <div className={`text-lg font-bold ${pnlTone(s.avg_change)}`}>
               {s.avg_change != null ? fmtPct(s.avg_change) : "-"}
             </div>
             <div className="text-[11px] text-slate-500">平均涨跌</div>
@@ -183,8 +183,8 @@ export default function WatchlistPanel({ onAnalyze }: Props) {
                       <div className="text-[11px] text-slate-500">{w.code}</div>
                     </button>
                   </td>
-                  <td className={`px-2 py-2 text-right ${pnlColor(w.change_pct)}`}>{fmtNum(w.price)}</td>
-                  <td className={`px-2 py-2 text-right font-medium ${pnlColor(w.change_pct)}`}>
+                  <td className={`px-2 py-2 text-right ${pnlTone(w.change_pct)}`}>{fmtNum(w.price)}</td>
+                  <td className={`px-2 py-2 text-right font-medium ${pnlTone(w.change_pct)}`}>
                     {w.change_pct != null ? (w.change_pct >= 0 ? "+" : "") + w.change_pct.toFixed(2) + "%" : "-"}
                   </td>
                   <td className="px-2 py-2 text-right text-slate-400">

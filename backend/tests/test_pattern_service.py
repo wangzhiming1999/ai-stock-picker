@@ -3,6 +3,7 @@ import datetime as dt
 import unittest
 
 from app.models import StockHistory
+from app.routes.analysis import _tail_history
 from app.services import pattern_service as ps
 
 
@@ -235,6 +236,45 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(len(items), 6)
         self.assertEqual({i["direction"] for i in items}, {"buy", "sell"})
         self.assertTrue(all({"key", "name", "category", "desc"} <= set(i) for i in items))
+
+    def test_matched_tactics_returns_only_hits(self) -> None:
+        closes = [10.0] * 21 + [9.4]
+        opens = [10.0] * 21 + [10.0]
+        highs = [10.0] * 21 + [10.05]
+        lows = [10.0] * 21 + [9.3]
+        ctx = {"daily": _hist(closes, opens, highs, lows), "price": 9.4, "turnover": None}
+
+        hits = ps.matched_tactics(ctx)
+
+        self.assertTrue(hits)
+        self.assertTrue(all(h["matched"] for h in hits))
+        self.assertIn("guillotine", {h["key"] for h in hits})
+
+    def test_matched_tactics_empty_when_nothing_hits(self) -> None:
+        self.assertEqual(ps.matched_tactics({"daily": None, "price": None, "turnover": None}), [])
+
+
+class AnalysisTailHistoryTests(unittest.TestCase):
+    """深度分析卡用 900 根日线跑形态，但下游只允许拿到 260 根切片。"""
+
+    def test_trims_all_series_together(self) -> None:
+        hist = _hist(list(range(1, 101)))
+
+        trimmed = _tail_history(hist, 10)
+
+        self.assertEqual(len(trimmed.closes), 10)
+        self.assertEqual(trimmed.closes[-1], 100)
+        for series in (trimmed.dates, trimmed.opens, trimmed.highs, trimmed.lows, trimmed.volumes):
+            self.assertEqual(len(series), 10)
+
+    def test_short_series_returned_as_is(self) -> None:
+        hist = _hist([10.0] * 5)
+
+        self.assertIs(_tail_history(hist, 260), hist)
+
+    def test_empty_history_returns_none(self) -> None:
+        self.assertIsNone(_tail_history(None, 260))
+        self.assertIsNone(_tail_history(StockHistory(dates=[], closes=[], volumes=None), 260))
 
 
 if __name__ == "__main__":

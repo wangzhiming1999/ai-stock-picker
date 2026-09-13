@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { listTactics, tacticScan } from "../api/client";
 import { fmtNum } from "../lib/safe";
+import { pnlTone } from "../lib/tone";
 import CollapsiblePanel from "./CollapsiblePanel";
 import type { TacticDef, TacticResult, TacticScanResult } from "../types";
 
@@ -217,9 +218,7 @@ export default function TacticPanel({ onPick, onImport }: Props) {
                     <td className="px-3 py-1.5 text-slate-200">{s.name}</td>
                     <td className="px-3 py-1.5 text-slate-500">{s.code}</td>
                     <td
-                      className={`px-3 py-1.5 text-right ${
-                        (s.change_pct ?? 0) >= 0 ? "text-green-400" : "text-red-400"
-                      }`}
+                      className={`px-3 py-1.5 text-right ${pnlTone(s.change_pct)}`}
                     >
                       {(s.change_pct ?? 0) >= 0 ? "+" : ""}
                       {fmtNum(s.change_pct ?? 0)}%

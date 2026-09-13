@@ -4,9 +4,11 @@ import { fetchAuctionOpportunity, fetchClosingOpportunity, importToWatchlist, sc
 import { requestAuth } from "./WatchStar";
 import { useAuth } from "../auth/AuthContext";
 import { fmtNum } from "../lib/safe";
+import { pnlTone } from "../lib/tone";
 import CollapsiblePanel from "./CollapsiblePanel";
 import BacktestPanel from "./BacktestPanel";
 import MonitorPanel from "./MonitorPanel";
+import TacticBacktestPanel from "./TacticBacktestPanel";
 import TacticPanel from "./TacticPanel";
 import WinratePanel from "./WinratePanel";
 import type { OpportunityResult, ScanStock, StrategyDef, StrategyName, StrategyStock } from "../types";
@@ -218,7 +220,12 @@ export default function ScanPanel({ onPick }: Props) {
 
       {scanView === "monitor" && <MonitorPanel />}
 
-      {scanView === "tactics" && <TacticPanel onPick={onPick} onImport={importCodes} />}
+      {scanView === "tactics" && (
+        <>
+          <TacticPanel onPick={onPick} onImport={importCodes} />
+          <TacticBacktestPanel />
+        </>
+      )}
 
       {/* 早盘竞价机会（9:15-9:30） */}
       {scanView === "timing" && <>
@@ -290,7 +297,7 @@ export default function ScanPanel({ onPick }: Props) {
                     </td>
                     <td className="px-3 py-1.5 text-slate-200">{s.name}</td>
                     <td className="px-3 py-1.5 text-slate-500">{s.code}</td>
-                    <td className={`px-3 py-1.5 text-right ${s.change_pct >= 0 ? "text-green-400" : "text-red-400"}`}>
+                    <td className={`px-3 py-1.5 text-right ${pnlTone(s.change_pct)}`}>
                       {s.change_pct >= 0 ? "+" : ""}
                       {fmtNum(s.change_pct)}%
                     </td>
@@ -375,7 +382,7 @@ export default function ScanPanel({ onPick }: Props) {
                     </td>
                     <td className="px-3 py-1.5 text-slate-200">{s.name}</td>
                     <td className="px-3 py-1.5 text-slate-500">{s.code}</td>
-                    <td className={`px-3 py-1.5 text-right ${s.change_pct >= 0 ? "text-green-400" : "text-red-400"}`}>
+                    <td className={`px-3 py-1.5 text-right ${pnlTone(s.change_pct)}`}>
                       {s.change_pct >= 0 ? "+" : ""}
                       {fmtNum(s.change_pct)}%
                     </td>
@@ -478,7 +485,7 @@ export default function ScanPanel({ onPick }: Props) {
                     <td className="px-3 py-1.5 text-slate-200">{s.name}</td>
                     <td className="px-3 py-1.5 text-slate-500">{s.code}</td>
                     <td className="px-3 py-1.5 text-right text-slate-300">{fmtNum(s.price)}</td>
-                    <td className={`px-3 py-1.5 text-right ${s.change_pct >= 0 ? "text-green-400" : "text-red-400"}`}>
+                    <td className={`px-3 py-1.5 text-right ${pnlTone(s.change_pct)}`}>
                       {s.change_pct >= 0 ? "+" : ""}
                       {fmtNum(s.change_pct)}%
                     </td>
@@ -584,7 +591,7 @@ export default function ScanPanel({ onPick }: Props) {
                       <td className="px-3 py-1.5 text-slate-200">{s.name}</td>
                       <td className="px-3 py-1.5 text-slate-500">{s.code}</td>
                       <td className="px-3 py-1.5 text-right text-slate-300">{fmtNum(s.price)}</td>
-                      <td className={`px-3 py-1.5 text-right ${s.change_pct >= 0 ? "text-green-400" : "text-red-400"}`}>
+                      <td className={`px-3 py-1.5 text-right ${pnlTone(s.change_pct)}`}>
                         {s.change_pct >= 0 ? "+" : ""}
                         {fmtNum(s.change_pct)}%
                       </td>

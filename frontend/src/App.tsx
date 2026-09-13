@@ -252,7 +252,7 @@ export default function App() {
                   onClick={() => setAuthOpen(true)}
                   whileHover={{ scale: 1.04 }}
                   whileTap={{ scale: 0.95 }}
-                  className="flex items-center gap-1.5 rounded-lg bg-brand px-4 py-1.5 text-xs font-medium text-white shadow-[0_2px_8px_rgba(220,38,38,0.3)] hover:bg-brand-dark"
+                  className="flex items-center gap-1.5 rounded-lg bg-brand px-4 py-1.5 text-xs font-medium text-white shadow-[0_2px_8px_rgba(37,99,235,0.35)] hover:bg-brand-dark"
                 >
                   <LogIn className="h-3.5 w-3.5" />
                   登录
@@ -283,7 +283,7 @@ export default function App() {
                 {active && (
                   <motion.span
                     layoutId="tab-pill"
-                    className="absolute inset-0 rounded-lg bg-brand shadow-[0_0_12px_rgba(220,38,38,0.35)]"
+                    className="absolute inset-0 rounded-lg bg-brand shadow-[0_0_12px_rgba(37,99,235,0.4)]"
                     transition={{ type: "spring", stiffness: 400, damping: 32 }}
                   />
                 )}
@@ -383,7 +383,7 @@ export default function App() {
                       className="flex items-center justify-center overflow-hidden border-r border-slate-800 last:border-r-0 text-xs font-medium"
                       style={{
                         width: `${(item.analysis.overall_score / Math.max(...items.map((i) => i.analysis.overall_score), 1)) * (100 / items.length)}%`,
-                        background: `linear-gradient(to top, rgba(220,38,38,0.85), rgba(220,38,38,0.45))`,
+                        background: `linear-gradient(to top, rgba(37,99,235,0.85), rgba(37,99,235,0.45))`,
                       }}
                       title={`${item.analysis.name} ${item.analysis.overall_score.toFixed(1)}`}
                     >

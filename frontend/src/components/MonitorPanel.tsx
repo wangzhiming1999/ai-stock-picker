@@ -5,6 +5,7 @@ import { addAlertRule, fetchHoldings, fetchMonitor, fetchWatchlist } from "../ap
 import CollapsiblePanel from "./CollapsiblePanel";
 import { useAuth } from "../auth/AuthContext";
 import type { MonitorInterval, MonitorResult, MonitorStock } from "../types";
+import { actionTone, pnlTone } from "../lib/tone";
 
 const LS_KEY = "ai:monitorCodes";
 const LS_NOTIFY = "ai:monitorNotify";
@@ -490,6 +491,14 @@ export default function MonitorPanel() {
                     买入 {summary.buy}
                   </span>
                 )}
+                {(summary.tactic_hits ?? 0) > 0 && (
+                  <span
+                    title="命中实战形态（K 线量价条件全部成立）的只数，名单内每只票的形态标签见股票列"
+                    className="rounded-md border border-sky-800/60 bg-sky-950/40 px-2 py-0.5 text-[11px] text-sky-300"
+                  >
+                    形态命中 {summary.tactic_hits}
+                  </span>
+                )}
               </>
             )}
             <button
@@ -678,15 +687,30 @@ export default function MonitorPanel() {
                     <td className="px-2 py-2">
                       <div className="font-medium text-slate-100">{it.name}</div>
                       <div className="text-[11px] text-slate-500">{code}</div>
+                      {it.tactics && it.tactics.length > 0 && (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {it.tactics.map((t) => (
+                            <span
+                              key={t.key}
+                              title={t.action}
+                              className={`rounded px-1 py-0.5 text-[10px] ${
+                                t.direction === "buy" ? "bg-red-950/60" : "bg-green-950/50"
+                              } ${actionTone(t.direction, 300)}`}
+                            >
+                              {t.name}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </td>
                     <td className="px-2 py-2 text-right">
                       <div className="text-slate-200">{num(it.price)}</div>
-                      <div className={`text-[11px] ${up ? "text-green-400" : "text-red-400"}`}>
+                      <div className={`text-[11px] ${pnlTone(it.change_pct)}`}>
                         {up ? "+" : ""}
                         {num(it.change_pct, 2)}%
                       </div>
                       {pnl != null && (
-                        <div className={`text-[10px] ${pnl >= 0 ? "text-green-500/80" : "text-red-500/80"}`}>
+                        <div className={`text-[10px] ${pnlTone(pnl, 500)}`}>
                           浮盈 {pnl >= 0 ? "+" : ""}
                           {num(pnl, 1)}%
                         </div>

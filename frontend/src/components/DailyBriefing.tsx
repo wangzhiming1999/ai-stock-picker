@@ -1,7 +1,8 @@
 import { type MouseEvent, useCallback, useEffect, useState } from "react";
 import { ArrowDownRight, ArrowUpRight, Bell, ClipboardCheck, Plus, RefreshCw, ShieldCheck, Sunrise, Target } from "lucide-react";
 import { addToWatchlist, fetchBriefing, getAuthToken, simTrade } from "../api/client";
-import type { Briefing, BriefingHolding, BriefingStock } from "../types";
+import type { Briefing, BriefingHolding, BriefingStock, BriefingTactics } from "../types";
+import { actionBadge, actionTone, dirTone, downTone, pnlTone, upTone } from "../lib/tone";
 import { toast } from "sonner";
 
 /** 当日复盘块：持仓盈亏快照 + 今日触发预警（登录用户） */
@@ -23,20 +24,20 @@ function ReviewBlock({ review }: { review: NonNullable<Briefing["review"]> }) {
         <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
           <div className="rounded bg-slate-800/60 px-2 py-1.5">
             <div className="text-slate-500">持仓总盈亏</div>
-            <div className={(hp.total_pnl ?? 0) >= 0 ? "text-green-300" : "text-red-300"}>
+            <div className={pnlTone(hp.total_pnl, 300)}>
               {fmt(hp.total_pnl)}
               {hp.total_pnl_pct != null && <span className="ml-1">({fmt(hp.total_pnl_pct, true)})</span>}
             </div>
           </div>
           <div className="rounded bg-slate-800/60 px-2 py-1.5">
             <div className="text-slate-500">最强</div>
-            <div className="text-green-300">
+            <div className={upTone(300)}>
               {hp.best?.name ?? "—"} {hp.best?.pnl_pct != null && fmt(hp.best.pnl_pct, true)}
             </div>
           </div>
           <div className="rounded bg-slate-800/60 px-2 py-1.5">
             <div className="text-slate-500">最弱</div>
-            <div className="text-red-300">
+            <div className={downTone(300)}>
               {hp.worst?.name ?? "—"} {hp.worst?.pnl_pct != null && fmt(hp.worst.pnl_pct, true)}
             </div>
           </div>
@@ -82,18 +83,6 @@ function AlgoTag() {
 interface Props {
   onPick: (codes: string[]) => void;
   onSettled?: () => void;
-}
-
-function dirTone(direction: string): { text: string; bg: string; ring: string } {
-  if (direction.includes("涨")) return { text: "text-green-400", bg: "bg-green-500/10", ring: "ring-green-500/30" };
-  if (direction.includes("跌")) return { text: "text-red-400", bg: "bg-red-500/10", ring: "ring-red-500/30" };
-  return { text: "text-amber-300", bg: "bg-amber-500/10", ring: "ring-amber-500/30" };
-}
-
-function actionTone(action: string): { text: string; bg: string; label: string } {
-  if (action.includes("减仓")) return { text: "text-red-300", bg: "bg-red-500/10", label: "减仓" };
-  if (action.includes("加仓")) return { text: "text-green-300", bg: "bg-green-500/10", label: "可加仓" };
-  return { text: "text-slate-300", bg: "bg-slate-500/10", label: "持有" };
 }
 
 function Money({ v }: { v?: number | null }) {
@@ -257,7 +246,7 @@ function PreMarketBlock({ data }: { data: Briefing }) {
             {overseas.map((o) => (
               <div key={o.name} className="rounded bg-slate-800/60 px-2 py-1 text-xs">
                 <div className="truncate text-slate-400">{o.name}</div>
-                <div className={o.change_pct >= 0 ? "text-green-300" : "text-red-300"}>
+                <div className={pnlTone(o.change_pct, 300)}>
                   {o.change_pct >= 0 ? "+" : ""}
                   {o.change_pct.toFixed(2)}%
                 </div>
@@ -273,7 +262,7 @@ function PreMarketBlock({ data }: { data: Briefing }) {
 }
 
 function TailHoldingCard({ h }: { h: BriefingHolding }) {
-  const tone = actionTone(h.action);
+  const tone = actionBadge(h.action);
   const [watching, setWatching] = useState(false);
   const [busy, setBusy] = useState(false);
   const [tip, setTip] = useState("");
@@ -357,7 +346,7 @@ function TailHoldingCard({ h }: { h: BriefingHolding }) {
       <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
         <div className="rounded bg-slate-800/60 px-2 py-1">
           <div className="text-slate-500">现价/盈亏</div>
-          <div className={h.pnl_pct != null && h.pnl_pct >= 0 ? "text-green-300" : "text-red-300"}>
+          <div className={pnlTone(h.pnl_pct, 300)}>
             <Money v={h.price} />
             {h.pnl_pct != null && <span className="ml-1">{h.pnl_pct >= 0 ? "+" : ""}{h.pnl_pct.toFixed(1)}%</span>}
           </div>
@@ -387,11 +376,11 @@ function TailHoldingCard({ h }: { h: BriefingHolding }) {
         <div
           className={`mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border px-2 py-1.5 text-xs ${
             h.order_action === "卖出"
-              ? "border-red-800/40 bg-red-500/5"
-              : "border-green-800/40 bg-green-500/5"
+              ? "border-green-800/40 bg-green-500/5"
+              : "border-red-800/40 bg-red-500/5"
           }`}
         >
-          <span className={`font-semibold ${h.order_action === "卖出" ? "text-red-300" : "text-green-300"}`}>
+          <span className={`font-semibold ${actionTone(h.order_action, 300)}`}>
             {h.order_action}挂单
           </span>
           {h.limit_price != null && (
@@ -405,6 +394,66 @@ function TailHoldingCard({ h }: { h: BriefingHolding }) {
         </div>
       )}
       {tip && <div className="mt-2 text-[11px] text-amber-300">{tip}</div>}
+    </div>
+  );
+}
+
+/** 形态命中块：持仓偏风险（优先处理），关注池偏买点 */
+function TacticsBlock({ tactics, onPick }: { tactics: BriefingTactics; onPick: (codes: string[]) => void }) {
+  const groups = [
+    { key: "holdings", label: "持仓形态信号", hint: "偏卖出 / 风险，优先处理", items: tactics.holdings },
+    { key: "morning", label: "关注池形态命中", hint: "偏买点，需结合买点与止损", items: tactics.morning },
+  ].filter((g) => g.items.length > 0);
+
+  if (groups.length === 0) return null;
+
+  return (
+    <div className="mb-3 rounded-lg border border-sky-900/40 bg-sky-500/5 p-3">
+      <div className="flex items-center gap-2 text-sm font-medium text-slate-200">
+        <Target className="h-4 w-4 text-sky-400" />
+        形态命中
+        <AlgoTag />
+      </div>
+      {tactics.summary && <p className="mt-1 text-xs text-slate-400">{tactics.summary}</p>}
+      <div className="mt-2 space-y-2">
+        {groups.map((g) => (
+          <div key={g.key}>
+            <div className="text-[11px] text-slate-500">
+              {g.label} · {g.hint}
+            </div>
+            <div className="mt-1 space-y-1">
+              {g.items.map((it) => (
+                <button
+                  key={it.code}
+                  onClick={() => onPick([it.code])}
+                  className="w-full rounded border border-slate-800 bg-slate-900/60 px-2 py-1.5 text-left transition-colors hover:border-brand/50"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-medium text-slate-100">{it.name}</span>
+                    <span className="text-[11px] text-slate-500">{it.code}</span>
+                    {it.tactics.map((t) => (
+                      <span
+                        key={t.key}
+                        title={t.action}
+                        className={`rounded px-1.5 py-0.5 text-[10px] ${
+                          t.direction === "buy"
+                            ? "bg-green-600/20 text-green-300"
+                            : "bg-red-600/20 text-red-300"
+                        }`}
+                      >
+                        {t.name}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="mt-0.5 text-[11px] leading-relaxed text-slate-400">
+                    {it.tactics.map((t) => t.action).join("；")}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -464,7 +513,7 @@ export default function DailyBriefing({ onPick, onSettled }: Props) {
 
         {data ? (
           <div className="mt-3">
-            <div className={`text-2xl font-bold ${hasPicks ? "text-green-300" : "text-amber-300"}`}>{mainAction}</div>
+            <div className={`text-2xl font-bold ${hasPicks ? upTone(300) : "text-amber-300"}`}>{mainAction}</div>
             <div className="mt-3 flex flex-wrap gap-2 text-sm">
               <span className="rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-slate-300">
                 大盘预计：<b className={tone.text}>{m?.direction || "等待数据"}</b>
@@ -490,6 +539,9 @@ export default function DailyBriefing({ onPick, onSettled }: Props) {
 
         {/* 盘前预读（仅盘前时段 9:00–9:25） */}
         {data?.is_premarket && <PreMarketBlock data={data} />}
+
+        {/* 形态命中：持仓风险优先，其次关注池买点 */}
+        {data?.tactics && <TacticsBlock tactics={data.tactics} onPick={onPick} />}
 
         {/* 主区：按交易时段切换 */}
         {phase === "closed" && (
@@ -529,7 +581,7 @@ export default function DailyBriefing({ onPick, onSettled }: Props) {
         <div className="space-y-3">
           <div className="flex items-center gap-2 text-sm font-medium text-slate-200">
             {phase === "morning" ? (
-              <ArrowUpRight className="h-4 w-4 text-green-400" />
+              <ArrowUpRight className={`h-4 w-4 ${upTone(400)}`} />
             ) : (
               <ArrowDownRight className="h-4 w-4 text-slate-400" />
             )}

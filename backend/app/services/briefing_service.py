@@ -16,6 +16,7 @@ from app.services import (
     akshare_guard,
     data_service,
     market_prediction,
+    pattern_service,
     portfolio_service,
     recommend_service,
     signal_service,
@@ -29,6 +30,10 @@ _RISK_POS_PCT: dict[str, int] = {
     "进取": 25,
     "激进": 35,
 }
+
+# 关注池要跑形态判定（多周期共振的月线 MACD 约需 735 个交易日），故日线取 900 根；
+# 技术信号只取尾部 60 根，与改动前一致。
+_ENRICH_DAYS = 900
 
 
 def _direction_to_position(direction_score: float) -> int:
@@ -75,15 +80,20 @@ async def _enrich_morning_stock(
         "invalidation": rec.get("invalidation"),
         "target": rec.get("target"),
         "valid_until": rec.get("valid_until"),
+        "tactics": [],
     }
     try:
         code = base["code"]
         price = base["price"]
         if not code or not price:
             return base
-        hist = await asyncio.to_thread(data_service.get_history, code, 120)
+        hist = await asyncio.to_thread(data_service.get_history, code, _ENRICH_DAYS)
         closes = hist.closes if hist and hist.closes else None
         sig = signal_service.compute_signals(closes, float(price)) if closes else None
+        if hist and hist.closes:
+            base["tactics"] = pattern_service.matched_tactics(
+                {"daily": hist, "intraday": None, "price": float(price), "turnover": None}
+            )
         if sig:
             base["buy_point"] = sig.get("buy_point")
             base["stop_loss"] = sig.get("stop_loss")
@@ -114,6 +124,31 @@ def _tail_summary(holdings: list[dict]) -> str:
     if hold:
         parts.append(f"{hold} 只持有观察")
     return "、".join(parts) if parts else "持仓均持有观察"
+
+
+def _build_tactics_block(morning_stocks: list[dict], holdings: list[dict]) -> dict:
+    """汇总形态命中：关注池（买点向）+ 持仓（卖点/风险向）。无命中则列表为空。"""
+
+    def _pick(items: list[dict]) -> list[dict]:
+        return [
+            {"code": it.get("code"), "name": it.get("name"), "tactics": it.get("tactics") or []}
+            for it in items
+            if it.get("tactics")
+        ]
+
+    morning_hits = _pick(morning_stocks)
+    holding_hits = _pick(holdings)
+    parts: list[str] = []
+    if holding_hits:
+        names = "、".join(str(t.get("name") or t.get("code")) for t in holding_hits[:3])
+        parts.append(f"持仓 {len(holding_hits)} 只出现形态信号（{names}）")
+    if morning_hits:
+        parts.append(f"关注池 {len(morning_hits)} 只命中形态")
+    return {
+        "morning": morning_hits,
+        "holdings": holding_hits,
+        "summary": "；".join(parts) if parts else None,
+    }
 
 
 async def _build_review(user_id: str | None) -> dict | None:
@@ -300,6 +335,9 @@ async def build_today(user_id: str | None = None) -> dict:
     # 当日复盘（登录用户；收盘/尾盘时段前端重点展示）
     review = await _build_review(user_id)
 
+    # 形态命中汇总：关注池偏买点，持仓偏卖点/风险
+    tactics_block = _build_tactics_block(morning_stocks, tail.get("holdings") or [])
+
     # 目标交易日：pred 里 target_date 才是"这份简报针对哪个交易日"；
     # pred["date"] 只是行情数据的最后一根 K 线日（数据基准），不能当目标日展示
     pred_date = pred.get("date") if isinstance(pred, dict) else None
@@ -336,6 +374,7 @@ async def build_today(user_id: str | None = None) -> dict:
         },
         "tail": tail,
         "review": review,
+        "tactics": tactics_block,
     }
 
 

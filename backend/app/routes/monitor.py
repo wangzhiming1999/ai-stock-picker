@@ -12,11 +12,14 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from app.models import StockHistory
-from app.services import data_service, intraday_service, signal_service
+from app.services import data_service, intraday_service, pattern_service, signal_service
 
 router = APIRouter(prefix="/api/market", tags=["monitor"])
 
 _KLINE_TTL = 30 * 60  # 30 分钟
+# 形态识别需要长历史（多周期共振的月线 MACD 约需 735 个交易日），故日 K 取 900 根。
+# 仍是一次请求即可覆盖；技术信号与量比只取尾部，行为不变。
+_KLINE_DAYS = 900
 _CN_TZ = dt.timezone(dt.timedelta(hours=8))
 _kline_cache: dict[str, tuple[float, StockHistory | None]] = {}
 _KLINE_CACHE_MAX = 200
@@ -246,6 +249,8 @@ def _summary(items: list[dict]) -> dict:
     return {
         "total": len(items),
         "act_now": len(acting),
+        # 形态命中的只数（断头铡刀 / 天量见天价这类需要重视的形态会体现在这里）
+        "tactic_hits": sum(1 for i in items if i.get("tactics")),
         "stop": _count("stop"),
         "sell": _count("sell"),
         "buy": _count("buy"),
@@ -291,7 +296,7 @@ async def monitor(req: MonitorRequest):
 
     async def _k(code: str):
         async with sem:
-            return await asyncio.to_thread(_get_history_cached, code, 120, req.force)
+            return await asyncio.to_thread(_get_history_cached, code, _KLINE_DAYS, req.force)
 
     histories = await asyncio.gather(*(_k(c) for c in seen))
     history_map = dict(zip(seen, histories))
@@ -364,6 +369,17 @@ async def monitor(req: MonitorRequest):
             }
             advice = _advice(q.price, sig)
 
+        # 形态命中：只回传「全部条件成立」的技巧，避免盯盘列表被未确认形态刷屏。
+        # 分钟线仅在分钟周期下可取，故日线档不会出现「分时背离」。
+        tactics = pattern_service.matched_tactics(
+            {
+                "daily": history,
+                "intraday": intraday_map.get(code),
+                "price": q.price,
+                "turnover": q.turnover,
+            }
+        )
+
         cost = req.costs.get(code)
         if cost:
             advice = _with_cost(advice, q.price, float(cost), sig)
@@ -378,6 +394,7 @@ async def monitor(req: MonitorRequest):
                 "signal": sig_out,
                 "advice": advice,
                 "daily": daily_out,
+                "tactics": tactics,
             }
         )
 

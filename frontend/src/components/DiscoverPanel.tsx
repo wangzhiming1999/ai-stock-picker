@@ -5,6 +5,7 @@ import CollapsiblePanel from "./CollapsiblePanel";
 import DailyBriefing from "./DailyBriefing";
 import DailyRecommendCard from "./DailyRecommendCard";
 import type { Industry } from "../types";
+import { pnlTone } from "../lib/tone";
 
 const PredictionCard = lazy(() => import("./PredictionCard"));
 const QuadRankTable = lazy(() => import("./QuadRankTable"));
@@ -100,7 +101,7 @@ export default function DiscoverPanel({ onPick }: Props) {
                   <tr key={ind.label} className="border-t border-slate-800/60 hover:bg-slate-800/40">
                     <td className="px-3 py-1.5 text-slate-200">{ind.name}</td>
                     <td className="px-3 py-1.5 text-right text-slate-400">{ind.company_count}</td>
-                    <td className={`px-3 py-1.5 text-right ${ind.change_pct >= 0 ? "text-green-400" : "text-red-400"}`}>
+                    <td className={`px-3 py-1.5 text-right ${pnlTone(ind.change_pct)}`}>
                       {ind.change_pct >= 0 ? "+" : ""}
                       {ind.change_pct.toFixed(2)}%
                     </td>

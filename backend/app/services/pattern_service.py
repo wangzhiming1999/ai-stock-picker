@@ -18,8 +18,10 @@ import datetime as dt
 
 from app.services import data_service
 
-# 技巧注册表：source 决定取数方式（daily=日线，intraday=分钟线），
-# history_days 为该技巧所需的最少日线根数（含指标预热）。
+# 技巧注册表：
+# - source 决定取数方式（daily=日线，intraday=分钟线）
+# - history_days：取数时预留的日线根数（含缓冲区），供接口按需拉取
+# - warmup：判定该技巧真正需要的预热根数，回测 walk-forward 从这一根开始评估
 TACTICS: list[dict] = [
     {
         "key": "cycle_resonance",
@@ -28,6 +30,7 @@ TACTICS: list[dict] = [
         "direction": "buy",
         "source": "daily",
         "history_days": 900,
+        "warmup": 750,
         "desc": "日线、周线、月线 MACD 同时金叉，大级别共振买点。",
     },
     {
@@ -37,6 +40,7 @@ TACTICS: list[dict] = [
         "direction": "sell",
         "source": "intraday",
         "history_days": 0,
+        "warmup": 0,
         "desc": "分时价格创新高但 MACD 未同步创新高，顶背离分批止盈。",
     },
     {
@@ -46,6 +50,7 @@ TACTICS: list[dict] = [
         "direction": "buy",
         "source": "daily",
         "history_days": 120,
+        "warmup": 25,
         "desc": "长上影＋长下影、两根实体接近，突破上影高点即为加仓点。",
     },
     {
@@ -55,6 +60,7 @@ TACTICS: list[dict] = [
         "direction": "sell",
         "source": "daily",
         "history_days": 120,
+        "warmup": 21,
         "desc": "均线粘合后一根大阴线跌破 MA5/10/20 且跌幅超 5%，趋势走坏。",
     },
     {
@@ -64,6 +70,7 @@ TACTICS: list[dict] = [
         "direction": "buy",
         "source": "daily",
         "history_days": 160,
+        "warmup": 70,
         "desc": "长期下跌后缩量至前期均量 20% 以下，再温和放量 2 倍为左侧买点。",
     },
     {
@@ -73,6 +80,7 @@ TACTICS: list[dict] = [
         "direction": "sell",
         "source": "daily",
         "history_days": 320,
+        "warmup": 70,
         "desc": "短期涨幅超 50% 后放出历史天量、换手超 30%，高位减仓信号。",
     },
 ]
@@ -642,6 +650,7 @@ def list_tactics() -> list[dict]:
             "desc": t["desc"],
             "source": t["source"],
             "history_days": t["history_days"],
+            "warmup": t["warmup"],
         }
         for t in TACTICS
     ]
@@ -660,6 +669,15 @@ def check_one(ctx: dict, keys: list[str] | None = None) -> list[dict]:
         except Exception as e:  # 形态计算失败不应让整批扫描 502
             out.append(_insufficient(TACTIC_MAP[key], f"计算异常：{type(e).__name__}"))
     return out
+
+
+def matched_tactics(ctx: dict, keys: list[str] | None = None) -> list[dict]:
+    """只返回命中的技巧（全部条件成立）。
+
+    深度分析卡 / 盯盘等紧凑展示场景只关心「命中了什么」，
+    未命中与数据不足的结果不必回传，避免前端被噪音刷屏。
+    """
+    return [r for r in check_one(ctx, keys) if r["matched"]]
 
 
 async def check_codes(codes: list[str], keys: list[str] | None = None, intraday_period: str = "5m") -> list[dict]:
