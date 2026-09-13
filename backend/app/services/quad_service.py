@@ -14,9 +14,7 @@ import asyncio
 import time
 from typing import Any
 
-import akshare as ak
-
-from app.services import akshare_guard, data_service, supabase_store, trade_calendar_service
+from app.services import akshare_guard, data_service, spot_service, supabase_store, trade_calendar_service
 from app.services.cache_utils import put_bounded
 
 # 当日内存缓存：key=交易日, value=(生成时间, data)
@@ -94,7 +92,8 @@ def _full_spot(force: bool = False) -> list[dict]:
 
     rows: list[dict] = []
     try:
-        df = akshare_guard.call(ak.stock_zh_a_spot_em)
+        # spot_service 内部：东财多域名轮换 → 新浪兜底，并带节流与重试
+        df = akshare_guard.call(spot_service.fetch_spot_frame)
         for _, row in df.iterrows():
             code = str(row.get("代码", "")).strip().replace("sh", "").replace("sz", "").replace("bj", "")
             if not code:
@@ -115,31 +114,8 @@ def _full_spot(force: bool = False) -> list[dict]:
                 }
             )
     except Exception as e:
-        print(f"[quad] 东财快照失败，降级腾讯: {e}")
-        try:
-            df = akshare_guard.call(ak.stock_zh_a_spot)
-            for _, row in df.iterrows():
-                code = str(row["代码"]).replace("sh", "").replace("sz", "").replace("bj", "")
-                if not code:
-                    continue
-                rows.append(
-                    {
-                        "code": code,
-                        "name": str(row["名称"]).strip(),
-                        "price": float(row["最新价"]),
-                        "change_pct": float(row["涨跌幅"]),
-                        "amount_yi": float(row["成交额"]) / 1e8 if row["成交额"] else 0,
-                        "volume_ratio": None,
-                        "turnover": None,
-                        "pe": None,
-                        "pb": None,
-                        "market_cap_yi": None,
-                        "change_5min": None,
-                    }
-                )
-        except Exception as e2:
-            print(f"[quad] 腾讯快照也失败: {e2}")
-            rows = []
+        print(f"[quad] 全市场快照失败: {e}")
+        rows = []
     _full_spot_cache = (now, rows)
     return rows
 

@@ -3,7 +3,7 @@
 - 早盘竞价（9:15-9:30）：开盘强势、博当日大涨
 - 尾盘机会（14:45-15:00）：尾盘异动、博次日高开
 
-数据源：akshare 全市场实时快照（东财），短缓存 60s。
+数据源：全市场实时快照（东财优先，新浪兜底），短缓存 60s。
 """
 from __future__ import annotations
 
@@ -11,9 +11,7 @@ import asyncio
 import re
 import time
 
-import akshare as ak
-
-from app.services import akshare_guard, supabase_store
+from app.services import akshare_guard, spot_service, supabase_store
 
 _SHORT_CACHE: dict[str, tuple[float, list[dict]]] = {}
 _TTL = 60
@@ -22,7 +20,7 @@ _TTL = 60
 async def _get_rich_spot(force: bool = False) -> list[dict]:
     """全市场实时快照（含量比/换手/委比/5分钟涨跌）。短缓存 60s。
 
-    优先东财（em）含丰富字段；若网络/超时失败则 fallback 腾讯（基础字段）。
+    优先东财（含量比/换手/5分钟涨跌）；若失败则由 spot_service 降级新浪（基础字段）。
     force=True 时忽略缓存重新拉取（供「强制重跑」穿透底层快照缓存）。
     """
     key = "rich_spot"
@@ -31,53 +29,30 @@ async def _get_rich_spot(force: bool = False) -> list[dict]:
         return _SHORT_CACHE[key][1]
 
     rows: list[dict] = []
-    # 优先东财接口（含 量比/换手/5分钟涨跌）
+    # 东财（含量比/换手/5分钟涨跌）优先，失败自动降级新浪（spot_service 内部处理）
     try:
-        df = await asyncio.to_thread(akshare_guard.call, ak.stock_zh_a_spot_em)
-        for _, row in df.iterrows():
-            try:
-                amount = float(row.get("成交额", 0))
-                rows.append(
-                    {
-                        "code": str(row.get("代码", "")).replace("sh", "").replace("sz", "").replace("bj", ""),
-                        "name": str(row.get("名称", "")).strip(),
-                        "price": float(row.get("最新价", 0)),
-                        "change_pct": float(row.get("涨跌幅", 0)),
-                        "amount_yi": amount / 1e8,
-                        "volume_ratio": float(row.get("量比", 0) or 0),
-                        "turnover": float(row.get("换手率", 0) or 0),
-                        "pe": float(row.get("市盈率(动)", 0) or 0),
-                        "amplitude": float(row.get("振幅", 0) or 0),
-                        "change_5min": float(row.get("5分钟涨跌", 0) or 0),
-                    }
-                )
-            except (ValueError, TypeError):
-                continue
+        df = await asyncio.to_thread(akshare_guard.call, spot_service.fetch_spot_frame)
     except Exception as e:
-        # Fallback：腾讯基础接口（基础字段，量比/换手/5分钟涨跌不可用）
+        raise RuntimeError(f"获取全市场快照失败: {e}")
+    for _, row in df.iterrows():
         try:
-            df = await asyncio.to_thread(akshare_guard.call, ak.stock_zh_a_spot)
-            for _, row in df.iterrows():
-                try:
-                    amount = float(row.get("成交额", 0))
-                    rows.append(
-                        {
-                            "code": str(row.get("代码", "")).replace("sh", "").replace("sz", "").replace("bj", ""),
-                            "name": str(row.get("名称", "")).strip(),
-                            "price": float(row.get("最新价", 0)),
-                            "change_pct": float(row.get("涨跌幅", 0)),
-                            "amount_yi": amount / 1e8,
-                            "volume_ratio": 0,
-                            "turnover": 0,
-                            "pe": 0,
-                            "amplitude": float(row.get("振幅", 0) or 0),
-                            "change_5min": 0,
-                        }
-                    )
-                except (ValueError, TypeError):
-                    continue
-        except Exception as e2:
-            raise RuntimeError(f"获取全市场快照失败: {e2}")
+            amount = float(row.get("成交额", 0) or 0)
+            rows.append(
+                {
+                    "code": str(row.get("代码", "")).replace("sh", "").replace("sz", "").replace("bj", ""),
+                    "name": str(row.get("名称", "")).strip(),
+                    "price": float(row.get("最新价", 0) or 0),
+                    "change_pct": float(row.get("涨跌幅", 0) or 0),
+                    "amount_yi": amount / 1e8,
+                    "volume_ratio": float(row.get("量比", 0) or 0),
+                    "turnover": float(row.get("换手率", 0) or 0),
+                    "pe": float(row.get("市盈率-动态", 0) or 0),
+                    "amplitude": float(row.get("振幅", 0) or 0),
+                    "change_5min": float(row.get("5分钟涨跌", 0) or 0),
+                }
+            )
+        except (ValueError, TypeError):
+            continue
 
     _SHORT_CACHE[key] = (now, rows)
     return rows

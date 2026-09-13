@@ -7,16 +7,24 @@ import akshare as ak
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from app.services import akshare_guard, data_service, market_prediction, opportunity_service, recommend_service, supabase_store, winrate_service
+from app.services import akshare_guard, data_service, market_prediction, opportunity_service, recommend_service, spot_service, supabase_store, winrate_service
 
 router = APIRouter(prefix="/api/market", tags=["market"])
 
 # 全市场快照缓存：key -> (timestamp, data)，缓存 5 分钟
 _spot_cache: tuple[float, list] | None = None
 _SPOT_TTL = 300  # 5 分钟
-# Supabase 持久化快照有效期：ak.stock_zh_a_spot 在 Vercel 上单次 ~70s，
+# Supabase 持久化快照有效期：全市场快照单次拉取需数十秒，
 # 落库后跨实例/跨请求复用，避免每个冷实例都打一次慢速行情源（每日最多拉几次）。
 _SPOT_DB_TTL = 6 * 3600
+# 强制刷新的最小间隔：短时间内反复 force 会触发行情源风控（东财直接断连），
+# 风控窗口内所有数据源都会失败，因此这里做节流。
+_SPOT_FORCE_MIN_INTERVAL = 60
+# 实时行情源失败后的冷却期：风控通常是 IP 级且持续数分钟，
+# 冷却期内不再重复打行情源（否则既慢又会延长封禁），直接快速失败。
+_SPOT_COOLDOWN = 180
+_last_live_fetch: float | None = None
+_last_live_failure: float | None = None
 
 
 def _is_usable_spot(rows: list | None) -> bool:
@@ -46,16 +54,19 @@ def _rows_from_spot_frame(df) -> list[dict]:
 
 
 def _fetch_live_spot_rows() -> list[dict]:
-    errors = []
-    for source in (ak.stock_zh_a_spot_em, ak.stock_zh_a_spot):
-        try:
-            rows = _rows_from_spot_frame(akshare_guard.call(source))
-            if _is_usable_spot(rows):
-                return rows
-            errors.append(f"{source.__name__}: 有效价格不足")
-        except Exception as exc:
-            errors.append(f"{source.__name__}: {exc}")
-    raise RuntimeError("；".join(errors))
+    """拉取全市场快照。
+
+    数据源选择与重试（东财多域名 → 新浪兜底）由 spot_service 统一处理，
+    这里只做字段归一化与快照可用性校验。
+    """
+    try:
+        frame = akshare_guard.call(spot_service.fetch_spot_frame)
+    except Exception as exc:
+        raise RuntimeError(f"行情源全部失败: {exc}") from exc
+    rows = _rows_from_spot_frame(frame)
+    if not _is_usable_spot(rows):
+        raise RuntimeError(f"行情快照有效价格不足（{len(rows)} 行）")
+    return rows
 
 
 async def _load_spot_db() -> list | None:
@@ -98,9 +109,9 @@ async def _get_spot(force: bool = False) -> list:
     """获取全市场快照。
 
     内存 5 分钟缓存 → Supabase 6h 持久化快照（跨实例共享，避免每个冷实例都打 ~70s 慢速行情源）
-    → 以上都未命中才真正拉 akshare 并落库。force=True 仅绕过内存缓存，仍优先复用持久化快照。
+    → 以上都未命中才真正拉行情源并落库。force=True 仅绕过内存缓存，仍优先复用持久化快照。
     """
-    global _spot_cache
+    global _spot_cache, _last_live_fetch, _last_live_failure
     now = time.monotonic()
     if not force and _spot_cache and now - _spot_cache[0] < _SPOT_TTL:
         return _spot_cache[1]
@@ -108,7 +119,25 @@ async def _get_spot(force: bool = False) -> list:
     if _is_usable_spot(db_rows):
         _spot_cache = (now, db_rows)
         return db_rows
-    rows = await asyncio.to_thread(_fetch_live_spot_rows)
+    if _last_live_failure is not None and now - _last_live_failure < _SPOT_COOLDOWN:
+        if _spot_cache:
+            return _spot_cache[1]
+        raise RuntimeError(
+            f"行情源被风控，冷却中（{int(_SPOT_COOLDOWN - (now - _last_live_failure))}s 后重试）"
+        )
+    if (
+        _last_live_fetch is not None
+        and now - _last_live_fetch < _SPOT_FORCE_MIN_INTERVAL
+        and _spot_cache
+    ):
+        return _spot_cache[1]
+    try:
+        rows = await asyncio.to_thread(_fetch_live_spot_rows)
+    except Exception:
+        _last_live_failure = time.monotonic()
+        raise
+    _last_live_fetch = time.monotonic()
+    _last_live_failure = None
     _spot_cache = (now, rows)
     await _save_spot_db(rows)
     return rows

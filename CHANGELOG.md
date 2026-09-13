@@ -25,6 +25,13 @@
   - 预警规则新增 `buy_point`（回踩到买点，≤触发）/ `sell_point`（冲高到卖点，≥触发）
   - 前端盯盘面板：今日决策条 + 「只看要操作的」过滤 + 挂单计划列（买/卖/止损价位）+ 一键设到价提醒 + 一键导入自选股/持仓（持仓带成本）
 
+### Fixed
+- **全市场行情源稳定性**（2026-09-11）
+  - 新增 `backend/app/services/spot_service.py`：东财多域名轮换（`82.push2` 不可用时自动切 `push2/48/1/…`）+ 浏览器 UA/Referer + 页间节流 + 退避重试，解决 akshare `stock_zh_a_spot_em` 硬编码单域名、无 UA、无重试导致的 `('Connection aborted.', RemoteDisconnected(...))`
+  - 兜底源更正为**新浪**（原注释误写为「腾讯」），并识别其 HTML 风控页给出可读错误，替代 `Can not decode value starting with character '<'`
+  - 全市场快照统一字段命名（新增 `市盈率-动态` 等），`market` / `quad_service` / `opportunity_service` 三处重复的「东财 → 备用源」逻辑收敛到同一入口
+  - 强制刷新 60s 节流 + 行情源失败 180s 冷却：避免高频 force 触发 IP 级风控，也避免风控期间每个请求都空等数十秒后才 502
+
 ### 🚧 进行中
 - **V6 预警中心（站内提醒）**：数据层（`alert_rules` / `alert_events`）· 规则引擎（price_above / price_below / stop_loss / buy_point / support_break / resistance_break / volume_surge）· Cron 串行扫描 · 接口与前端铃声角标（见 ROADMAP 第三节）
 
