@@ -172,7 +172,8 @@ class VolumePeakTests(unittest.TestCase):
         result = ps.detect_volume_peak({"daily": _hist(closes, volumes=volumes), "turnover": 35.0})
 
         self.assertTrue(result["matched"])
-        self.assertIn("减半仓", result["action"])
+        # 文案已从「至少减半仓」降级为风险提示口径（回测未显示显著超额）
+        self.assertIn("分批减仓", result["action"])
 
     def test_no_surge_no_signal(self) -> None:
         n = 70
@@ -218,6 +219,103 @@ class IntradayDivergenceTests(unittest.TestCase):
         self.assertEqual(result["status"], "insufficient_data")
 
 
+class MacdZoneCrossTests(unittest.TestCase):
+    def test_insufficient_history(self) -> None:
+        result = ps.detect_macd_zone_cross({"daily": _hist([10.0] * 40)})
+
+        self.assertEqual(result["status"], "insufficient_data")
+
+    def test_flat_market_has_no_cross(self) -> None:
+        result = ps.detect_macd_zone_cross({"daily": _hist([10.0] * 80)})
+
+        self.assertFalse(result["matched"])
+        self.assertFalse(result["conditions"][0]["passed"])
+
+    def test_above_zero_cross_matches(self) -> None:
+        # 单边上行时 DIF 必然在零轴上方；金叉用打桩控制，专注验证分区分支
+        closes = [10.0 + i * 0.5 for i in range(80)]
+        orig = ps._cross_recently
+        ps._cross_recently = lambda dif, dea, lookback=3: True  # noqa: E731
+        try:
+            result = ps.detect_macd_zone_cross({"daily": _hist(closes), "price": closes[-1]})
+        finally:
+            ps._cross_recently = orig
+
+        self.assertTrue(result["matched"])
+        self.assertEqual(result["metrics"]["zone"], "above")
+
+    def test_below_zero_cross_requires_volume(self) -> None:
+        # 单边下行时 DIF < 0；零轴下方金叉必须放量（原文物 30%）才成立
+        closes = [30.0 - i * 0.2 for i in range(80)]
+        orig = ps._cross_recently
+        ps._cross_recently = lambda dif, dea, lookback=3: True  # noqa: E731
+        try:
+            no_vol = ps.detect_macd_zone_cross(
+                {"daily": _hist(closes, volumes=[1000.0] * 80), "price": closes[-1]}
+            )
+            spike = [1000.0] * 80
+            spike[-1] = 2000.0
+            with_vol = ps.detect_macd_zone_cross(
+                {"daily": _hist(closes, volumes=spike), "price": closes[-1]}
+            )
+        finally:
+            ps._cross_recently = orig
+
+        self.assertFalse(no_vol["matched"])
+        self.assertTrue(with_vol["matched"])
+        self.assertEqual(with_vol["metrics"]["zone"], "below")
+
+
+class Ma10BreakTests(unittest.TestCase):
+    def test_detects_three_days_below_ma10(self) -> None:
+        closes = [10.0] * 26 + [9.5, 9.0, 8.5]
+
+        result = ps.detect_ma10_break({"daily": _hist(closes), "price": closes[-1]})
+
+        self.assertTrue(result["matched"])
+        self.assertIn("趋势走弱", result["action"])
+
+    def test_two_days_below_is_not_enough(self) -> None:
+        closes = [10.0] * 27 + [9.5, 9.0]
+
+        result = ps.detect_ma10_break({"daily": _hist(closes), "price": closes[-1]})
+
+        self.assertFalse(result["matched"])
+
+    def test_already_below_is_not_a_break(self) -> None:
+        # 一直贴在 MA10 下方，不属于「跌破后失守」
+        closes = [10.0] * 20 + [9.0] * 9 + [8.5, 8.0, 7.5]
+
+        result = ps.detect_ma10_break({"daily": _hist(closes), "price": closes[-1]})
+
+        self.assertFalse(result["matched"])
+
+
+class Ma20SlopeTests(unittest.TestCase):
+    def test_golden_slope_matches(self) -> None:
+        closes = [round(10.0 + i * 0.05, 4) for i in range(60)]
+
+        result = ps.detect_ma20_slope({"daily": _hist(closes), "price": closes[-1]})
+
+        self.assertTrue(result["matched"])
+        self.assertGreaterEqual(result["metrics"]["slope"], 5.0)
+        self.assertLessEqual(result["metrics"]["slope"], 20.0)
+
+    def test_too_steep_is_fish_tail(self) -> None:
+        closes = [round(10.0 + i * 0.3, 4) for i in range(60)]
+
+        result = ps.detect_ma20_slope({"daily": _hist(closes), "price": closes[-1]})
+
+        self.assertFalse(result["matched"])
+        self.assertIn("鱼尾", result["action"])
+
+    def test_flat_slope_does_not_match(self) -> None:
+        result = ps.detect_ma20_slope({"daily": _hist([10.0] * 60)})
+
+        self.assertFalse(result["matched"])
+        self.assertIn("不在黄金区间", result["action"])
+
+
 class RegistryTests(unittest.TestCase):
     def test_all_tactics_have_detector(self) -> None:
         keys = {t["key"] for t in ps.TACTICS}
@@ -233,7 +331,7 @@ class RegistryTests(unittest.TestCase):
     def test_list_tactics_shape(self) -> None:
         items = ps.list_tactics()
 
-        self.assertEqual(len(items), 6)
+        self.assertEqual(len(items), 9)
         self.assertEqual({i["direction"] for i in items}, {"buy", "sell"})
         self.assertTrue(all({"key", "name", "category", "desc"} <= set(i) for i in items))
 

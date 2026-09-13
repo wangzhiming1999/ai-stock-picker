@@ -7,6 +7,7 @@ import { useAuth } from "../auth/AuthContext";
 import type { MonitorInterval, MonitorResult, MonitorStock } from "../types";
 import { actionTone, pnlTone } from "../lib/tone";
 import Input from "./Input";
+import Button from "./Button";
 
 const LS_KEY = "ai:monitorCodes";
 const LS_NOTIFY = "ai:monitorNotify";
@@ -454,13 +455,13 @@ export default function MonitorPanel() {
             {notifyOn ? <BellRing className="h-3.5 w-3.5" aria-hidden /> : <Bell className="h-3.5 w-3.5" aria-hidden />}
             {notifyOn ? "提醒已开" : "开启提醒"}
           </button>
-          <button
+          <Button variant="outlineQuiet" size="sm"
             onClick={() => void refresh(false, true)}
             disabled={loading || codes.length === 0}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1 text-xs text-ink-muted hover:text-ink">
+            >
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden />
             {loading ? "刷新中..." : "立即刷新"}
-          </button>
+          </Button>
         </div>
       }
     >

@@ -6,6 +6,7 @@ import { safeArray, safeObj } from "../lib/safe";
 import type { IndexHistory, MarketPrediction, PredictionRecord, PredictionStats, StockHistory } from "../types";
 import { dirTone, pctTone, pnlTone } from "../lib/tone";
 import StatTile from "./StatTile";
+import Button from "./Button";
 
 function fmtDate(iso: string): string {
   const d = new Date(iso);
@@ -60,9 +61,9 @@ export default function PredictionCard() {
       title="明日大盘推衍"
       subtitle="上证指数技术信号 + AI 预测 · 附准确率追踪"
       action={
-        <button onClick={() => void load(true)} disabled={loading} className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-ink-muted hover:text-ink">
+        <Button variant="outlineQuiet" size="sm" onClick={() => void load(true)} disabled={loading} >
           {loading ? "分析中..." : "强制刷新"}
-        </button>
+        </Button>
       }
     >
 

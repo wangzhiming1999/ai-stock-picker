@@ -83,6 +83,36 @@ TACTICS: list[dict] = [
         "warmup": 70,
         "desc": "短期涨幅超 50% 后放出历史天量、换手超 30%，高位减仓信号。",
     },
+    {
+        "key": "macd_zone_cross",
+        "name": "MACD 零轴金叉",
+        "category": "均线与指标",
+        "direction": "buy",
+        "source": "daily",
+        "history_days": 160,
+        "warmup": 60,
+        "desc": "零轴上方金叉为强势买点；零轴下方金叉需放量 30% 才轻仓试错。",
+    },
+    {
+        "key": "ma10_break",
+        "name": "MA10 三日失守",
+        "category": "风控铁律",
+        "direction": "sell",
+        "source": "daily",
+        "history_days": 120,
+        "warmup": 25,
+        "desc": "跌破 10 日均线后连续 3 日无力收回，趋势走弱离场信号。",
+    },
+    {
+        "key": "ma20_slope",
+        "name": "均线斜率主升",
+        "category": "均线与指标",
+        "direction": "buy",
+        "source": "daily",
+        "history_days": 160,
+        "warmup": 60,
+        "desc": "20 日均线温和上行（尺度无关口径）为主升布局区，过陡视为鱼尾。",
+    },
 ]
 TACTIC_MAP: dict[str, dict] = {t["key"]: t for t in TACTICS}
 
@@ -92,12 +122,24 @@ _SHADOW_RANGE_RATIO = 0.4       # 影线至少占全幅比例
 _BODY_SIMILAR_TOL = 0.35        # 揉搓线两根实体差异容忍度
 _MA_CONVERGE_TOL = 0.03         # 断头铡刀：MA5/10/20 粘合极差
 _GUILLOTINE_DROP = -5.0         # 断头铡刀：单日跌幅阈值 %
-_FLOOR_VOLUME_RATIO = 0.20      # 地量：相对前期均量比例
+# 地量：相对前期均量比例。原文写 20%，但 2026-09-13 在 42 只大中盘、16380 个时点上
+# 实测为 0 次命中（地量条件仅成立 7 次）—— 大市值股票几乎不可能缩到 20%。
+# 扫描 0.2/0.3/0.4/0.5 后取 0.3：开始出信号（9 次，胜率超额 +18pt，但样本不足以判定），
+# 0.4/0.5 信号变多但超额迅速衰减。0.3 仍属「初步」，需样本外验证。
+_FLOOR_VOLUME_RATIO = 0.30
 _FLOOR_CONFIRM_RATIO = 2.0      # 地量后放量倍数
 _FLOOR_LOOKBACK = 10            # 地量搜索窗口（交易日）
 _PEAK_GAIN = 50.0               # 天量见天价：短期涨幅阈值 %
 _PEAK_TURNOVER = 30.0           # 天量见天价：换手率阈值 %
 _PEAK_VOLUME_RATIO = 0.98       # 天量：相对历史最大量的比例
+_MACD_ZONE_VOL_RATIO = 1.3      # 零轴下方金叉要求的量能放大倍数（原文物 30%）
+_SLOPE_MA = 20                  # 斜率用 20 日均线
+_SLOPE_LOOKBACK = 20            # 斜率 = MA20 相对 20 日前的变化率（尺度无关）
+# 原文用「15°–35°」描述斜率，但角度依赖 K 线图的纵横比（Y 轴压缩多少，角度就变多少），
+# 不是尺度不变的量。这里改用「MA20 的 20 日变化率（%）」表达同一意图：
+# 温和上行 = 主升浪布局区，过陡 = 鱼尾加速。两个阈值是初值，需回测校准。
+_SLOPE_GOLDEN_LO = 5.0          # 黄金区间下限（% / 20 日）
+_SLOPE_GOLDEN_HI = 20.0         # 黄金区间上限，超过视为鱼尾加速
 
 
 # ---------------- 通用工具 ----------------
@@ -476,7 +518,7 @@ def detect_guillotine(ctx: dict) -> dict:
 
     matched = converge and break_all and bearish and near_above and drop <= _GUILLOTINE_DROP
     action = (
-        "断头铡刀成立，收盘前无条件减仓 70% 以上"
+        "断头铡刀成立，趋势转坏信号；建议收紧止损并评估减仓（回测未显示显著超额，勿机械清仓）"
         if matched
         else ("跌破三线但条件未全部满足，收紧止损并减仓观察" if break_all else "未出现断头铡刀")
     )
@@ -618,13 +660,161 @@ def detect_volume_peak(ctx: dict) -> dict:
 
     matched = surge and is_peak_volume and (turnover_cond["passed"] or not turnover_cond["available"])
     if matched and high_cond["passed"]:
-        action = "天量后 2 日未创新高，按纪律清仓离场"
+        action = "天量后 2 日未创新高，高位风险信号，建议分批减仓"
     elif matched:
-        action = "天量见天价，收盘前至少减半仓，2 日不创新高则清仓"
+        action = "天量见天价，高位风险信号，建议分批减仓并收紧止损"
     else:
         action = "未出现天量见天价结构"
     metrics = {"gain_pct": round(gain, 1), "volume_ratio": round(peak_ratio, 3) if peak_ratio is not None else None}
     return _pack(tactic, conditions, matched=matched, action=action, metrics=metrics)
+
+
+# ---------------- 技巧 7：MACD 零轴金叉 ----------------
+
+def detect_macd_zone_cross(ctx: dict) -> dict:
+    """零轴上方金叉 = 强势买点；零轴下方金叉必须放量（原文物 30%）才轻仓试错。"""
+    tactic = TACTIC_MAP["macd_zone_cross"]
+    daily = ctx.get("daily")
+    closes = (daily.closes if daily else None) or []
+    if len(closes) < 60:
+        return _insufficient(tactic, "日线不足 60 根，无法计算 MACD")
+    volumes = daily.volumes or []
+    macd = macd_series(closes)
+    if macd is None:
+        return _insufficient(tactic, "日线长度不足，无法计算 MACD")
+    dif, dea = macd["dif"], macd["dea"]
+
+    crossed = _cross_recently(dif, dea, 3)
+    above = dif[-1] > 0
+    conditions = [
+        _cond("MACD 近 3 根内金叉", crossed, f"DIF {dif[-1]:.3f} / DEA {dea[-1]:.3f}"),
+    ]
+
+    if above:
+        conditions.append(
+            _cond("零轴上方金叉（强势区）", True, f"DIF {dif[-1]:.3f} 位于零轴上方，属中长期走强")
+        )
+        matched = crossed
+        action = "零轴上方金叉，强势区买点，可按计划分批参与" if matched else "未出现零轴上方金叉"
+    else:
+        base = [v for v in volumes[-6:-1] if v and v > 0]
+        base_avg = _mean(base)
+        vol_ok = bool(volumes[-1]) and base_avg > 0 and volumes[-1] >= _MACD_ZONE_VOL_RATIO * base_avg
+        ratio = volumes[-1] / base_avg if base_avg else 0.0
+        conditions.append(
+            _cond(
+                "零轴下方金叉需放量 ≥30%",
+                vol_ok,
+                f"最新量 {volumes[-1]:.0f} 为前 5 日均量 {base_avg:.0f} 的 {ratio:.2f} 倍"
+                if base_avg
+                else "无量能数据",
+                available=bool(base_avg) and bool(volumes[-1]),
+            )
+        )
+        matched = crossed and vol_ok
+        action = (
+            "零轴下方金叉且放量，仅反弹性质，轻仓试错"
+            if matched
+            else ("零轴下方金叉但未放量，反弹成色不足，不参与" if crossed else "未出现金叉")
+        )
+
+    metrics = {"dif": round(dif[-1], 3), "dea": round(dea[-1], 3), "zone": "above" if above else "below"}
+    return _pack(tactic, conditions, matched=matched, action=action, metrics=metrics)
+
+
+# ---------------- 技巧 8：MA10 三日失守 ----------------
+
+def detect_ma10_break(ctx: dict) -> dict:
+    """跌破 10 日均线后连续 3 日无力收回。"""
+    tactic = TACTIC_MAP["ma10_break"]
+    daily = ctx.get("daily")
+    c = (daily.closes if daily else None) or []
+    if len(c) < 25:
+        return _insufficient(tactic, "日线不足 25 根，无法计算 MA10")
+    n = len(c)
+    prev = n - 4
+    ma_prev = _ma_at(c, prev, 10)
+    if ma_prev is None:
+        return _insufficient(tactic, "日线不足 13 根，无法计算 MA10")
+
+    was_above = c[prev] >= ma_prev
+    below_days = sum(
+        1
+        for j in (n - 3, n - 2, n - 1)
+        if (ma := _ma_at(c, j, 10)) is not None and c[j] < ma
+    )
+    below = below_days == 3
+    latest_ma = _ma_at(c, n - 1, 10)
+    no_recover = latest_ma is not None and max(c[-3:]) < latest_ma
+
+    conditions = [
+        _cond("跌破前一日仍站上 MA10", was_above, f"前一日收盘 {c[prev]:.2f} / MA10 {ma_prev:.2f}"),
+        _cond("连续 3 日收盘低于各自 MA10", below, f"三日中 {below_days}/3 日失守"),
+        _cond(
+            "反弹未收复 MA10",
+            no_recover,
+            f"三日最高收盘 {max(c[-3:]):.2f} / 最新 MA10 {latest_ma:.2f}" if latest_ma else "无 MA10 数据",
+        ),
+    ]
+
+    matched = was_above and below and no_recover
+    action = "MA10 三日失守，趋势走弱，建议减仓或收紧止损" if matched else "未出现 MA10 三日失守"
+    metrics = {"ma10": round(latest_ma, 2) if latest_ma else None, "below_days": below_days}
+    return _pack(tactic, conditions, matched=matched, action=action, metrics=metrics)
+
+
+# ---------------- 技巧 9：均线斜率主升 ----------------
+
+def detect_ma20_slope(ctx: dict) -> dict:
+    """MA20 温和上行 = 主升布局区；过陡 = 鱼尾加速。
+
+    口径说明：原文用 15°–35° 角度，但角度依赖图表纵横比，不是尺度不变的量。
+    这里改用「MA20 的 20 日变化率（%）」，阈值 5%~20% 为初值，需回测校准。
+    """
+    tactic = TACTIC_MAP["ma20_slope"]
+    daily = ctx.get("daily")
+    c = (daily.closes if daily else None) or []
+    need = _SLOPE_MA + _SLOPE_LOOKBACK + 1
+    if len(c) < need:
+        return _insufficient(tactic, f"日线不足 {need} 根，无法计算斜率")
+    n = len(c)
+    ma_now = _ma_at(c, n - 1, _SLOPE_MA)
+    ma_prev = _ma_at(c, n - 1 - _SLOPE_LOOKBACK, _SLOPE_MA)
+    if ma_now is None or ma_prev is None or ma_prev <= 0:
+        return _insufficient(tactic, "均线数据不足，无法计算斜率")
+
+    slope = (ma_now / ma_prev - 1) * 100
+    rising = slope > 0
+    golden = _SLOPE_GOLDEN_LO <= slope <= _SLOPE_GOLDEN_HI
+    too_steep = slope > _SLOPE_GOLDEN_HI
+    price_above = c[-1] > ma_now
+
+    conditions = [
+        _cond("20 日均线向上", rising, f"MA20 斜率 {slope:+.1f}% / 20 日"),
+        _cond(
+            f"斜率处于黄金区间（{_SLOPE_GOLDEN_LO:.0f}%~{_SLOPE_GOLDEN_HI:.0f}%）",
+            golden,
+            f"当前 {slope:+.1f}%" + ("，过陡属鱼尾加速" if too_steep else ""),
+        ),
+        _cond("现价站上 MA20", price_above, f"现价 {c[-1]:.2f} / MA20 {ma_now:.2f}"),
+    ]
+
+    matched = rising and golden and price_above
+    if matched:
+        action = "MA20 温和上行，主升布局区，可分批参与"
+    elif too_steep:
+        action = "MA20 过陡（鱼尾加速），只宜小仓博弈，斜率放缓即离场"
+    else:
+        action = "斜率不在黄金区间，暂不参与"
+    metrics = {"slope": round(slope, 2), "ma20": round(ma_now, 2)}
+    return _pack(tactic, conditions, matched=matched, action=action, metrics=metrics)
+
+
+# 允许把「持有观察」升级为「建议减仓」的卖出形态。
+# 原则：只有回测达到显著（tactic_backtest_service 里 confidence == "significant"）的
+# 技巧才有资格触发仓位动作。首次回测（2026-09-13）没有任何形态达到显著，因此为空 ——
+# 这是刻意留白的闸门，避免未经验证的形态直接驱动减仓建议。
+ESCALATE_SELL_KEYS: set[str] = set()
 
 
 DETECTORS = {
@@ -634,6 +824,9 @@ DETECTORS = {
     "guillotine": detect_guillotine,
     "volume_floor": detect_volume_floor,
     "volume_peak": detect_volume_peak,
+    "macd_zone_cross": detect_macd_zone_cross,
+    "ma10_break": detect_ma10_break,
+    "ma20_slope": detect_ma20_slope,
 }
 
 

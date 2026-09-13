@@ -415,11 +415,13 @@ async def get_portfolio_advice(user_id: str) -> dict:
             elif pnl_pct < -8:
                 tips.append(f"浮亏 {pnl_pct:.1f}%，检查是否跌破止损逻辑")
 
-        # 形态命中：卖出形态直接升级为减仓建议（断头铡刀这类是明确的趋势走坏信号）
+        # 形态命中：只做风险 / 机会提示。是否升级为「建议减仓」由回测闸门决定 ——
+        # 只有 confidence == "significant" 的卖出形态才有资格触发仓位动作，
+        # 避免未经验证的形态直接驱动减仓（首次回测中断头铡刀的收益超额为负）。
         for t in tactics:
             if t.get("direction") == "sell":
                 tips.append(f"形态风险：{t['name']} —— {t['action']}")
-                if action == "持有观察":
+                if t.get("key") in pattern_service.ESCALATE_SELL_KEYS and action == "持有观察":
                     action = "建议减仓"
             else:
                 tips.append(f"形态机会：{t['name']} —— {t['action']}")
@@ -457,6 +459,12 @@ async def get_portfolio_advice(user_id: str) -> dict:
         portfolio_tips.append(f"组合平均信号强度 {avg_strength:.1f}，整体偏弱，注意市场风险")
     else:
         portfolio_tips.append(f"组合平均信号强度 {avg_strength:.1f}，中性")
+
+    # 仓位分层铁律：不满仓，留出现金后手（组合层规则，与个股形态无关）
+    if positions > 0:
+        portfolio_tips.append(
+            "仓位分层参考：5 成蓝筹底仓 + 3 成主线成长 + 2 成现金后手，极端回调时才有补仓缓冲"
+        )
 
     return {
         "risk_level": risk_level,

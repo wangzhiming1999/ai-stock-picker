@@ -11,7 +11,13 @@
  *
  * 层级与半径绑定（面越大、圆角越大）：
  *   主卡 rounded-2xl ／ 子块 rounded-xl ／ 芯片·按钮·输入 rounded-lg ／ 胶囊 rounded-full
+ *   紧凑档 rounded-md：只给高度 <= 24px 的徽章和分段控件（见下方说明）
  * 不要再手写 `rounded-lg border border-slate-800 bg-slate-900/60 p-5` 这类临时组合。
+ *
+ * ⚠️ rounded-md(6px) 曾被误判为「体系外、该并入 rounded-lg」。实测方向反了：
+ *   它服务的是「止损 3」「买入 2」这类 20px 高的小徽章和登录页 tab 指示条，
+ *   8px 圆角套上去接近胶囊形，比例失调，恰恰违反「面越大、圆角越大」。
+ *   所以正式收录为紧凑档，而不是清除。
  *
  * ── 文字色规则（无障碍，硬约束）────────────────────────────────────
  * 文字色一律走 tailwind.config.js 的 `ink` 阶梯，**不要再用 text-slate-* 作为文字色**：
@@ -107,8 +113,10 @@ export const BTN_VARIANT = {
   primary: "bg-brand text-white hover:bg-brand-dark",
   /** 中性实底：次要动作但有分量 */
   neutral: "bg-slate-800 text-ink hover:bg-slate-700",
-  /** 描边：并列的次要动作 */
+  /** 描边：并列的次要动作（hover 有底色反馈） */
   outline: "border border-slate-500 text-ink-soft hover:border-slate-400 hover:text-white",
+  /** 描边（安静）：更弱的次要动作，hover 只提亮文字不加底 */
+  outlineQuiet: "border border-slate-500 text-ink-muted hover:text-ink",
   /** 纯文字：最低优先级的动作（展开、切换、链接式） */
   ghost: "text-ink-muted hover:text-ink",
   /** 危险：卖出、清仓、删除 */

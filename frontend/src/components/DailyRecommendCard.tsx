@@ -69,13 +69,12 @@ export default function DailyRecommendCard({ onPick, collapsed = false }: Props)
   ) : null;
 
   const refreshBtn = (
-    <button
+    <Button variant="outlineQuiet" size="sm"
       onClick={() => void load(true)}
       disabled={loading}
-      className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-ink-muted hover:text-ink"
-    >
+      >
       {loading ? "生成中..." : "强制刷新"}
-    </button>
+    </Button>
   );
 
   const body = (

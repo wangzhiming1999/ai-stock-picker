@@ -18,23 +18,40 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import math
 import statistics
 
 from app.models import StockHistory
 from app.services import data_service, pattern_service
 
-# 默认回测股票池（控制在 10 只，避免单次回测过慢）
+# 默认回测股票池：覆盖大/中盘与主要行业，避免结论只来自少数几只票。
+# 注意这是「今天的存活者」，天然有幸存者偏差，且大票波动小、形态信号偏弱，
+# 因此回测结果只能当作下限参考。
 DEFAULT_POOL = [
-    "600519", "000858", "300750", "601318", "600036",
-    "000333", "601012", "002594", "600030", "600887",
+    # 消费 / 白酒 / 食品
+    "600519", "000858", "600809", "603288", "000333", "600887", "002714",
+    # 医药
+    "600276", "300760", "603259", "000538",
+    # 新能源 / 电子 / 科技
+    "300750", "601012", "002594", "002475", "300059", "002415", "002230", "300124", "688981", "600703",
+    # 金融
+    "600036", "601318", "600030", "601166", "601398",
+    # 周期 / 资源
+    "601088", "600585", "601899", "600028", "601857", "000725",
+    # 地产 / 建筑 / 汽车 / 家电 / 交运
+    "000002", "601668", "600104", "000651", "601888", "000876", "600941", "002027", "600900", "601111",
 ]
 
 DEFAULT_HORIZON = 10          # 前向持有期（交易日）
 DEFAULT_EVAL_BARS = 250       # 每只票参与评估的最近交易日数
 _MIN_EVAL_BARS = 60
 _MAX_EVAL_BARS = 400
-_MAX_POOL = 15
-_MIN_SAMPLES = 8              # 命中次数低于此值不给出结论
+_MAX_POOL = 60
+_FETCH_CONCURRENCY = 8        # 历史 K 线并发上限，避免触发行情源风控
+
+_MIN_SAMPLES = 10             # 低于此值只给数字、不给结论
+_RELIABLE_SAMPLES = 30        # 低于此值时正态近似的显著性判定不可靠
+_Z_CRITICAL = 1.96            # 双侧 95%
 
 # 需要分钟级历史、当前数据源无法回测的技巧
 _NOT_BACKTESTABLE = {
@@ -104,6 +121,10 @@ def _blank(tactic: dict, horizon: int, status: str, note: str | None) -> dict:
         "baseline_avg_return": None,
         "edge_win_rate": None,
         "edge_return": None,
+        "z_score": None,
+        "significant": None,
+        "confidence": status,
+        "verdict": note or "无结论",
         "by_stock": [],
     }
 
@@ -125,7 +146,9 @@ def _pack(
     base["win_definition"] = "之后上涨记为胜（买入形态）" if buy else "之后下跌记为胜（卖出形态）"
 
     if not signals or not baseline:
-        base["note"] = note or "评估区间内未出现命中，样本不足以下结论"
+        reason = note or "评估区间内未出现命中，样本不足以下结论"
+        base["note"] = reason
+        base["verdict"] = reason
         return base
 
     returns = [s[0] for s in signals]
@@ -133,15 +156,37 @@ def _pack(
     def _is_win(value: float) -> bool:
         return value > 0 if buy else value < 0
 
-    win_rate = sum(1 for r in returns if _is_win(r)) / len(returns) * 100
-    baseline_win = sum(1 for r in baseline if _is_win(r)) / len(baseline) * 100
+    n = len(returns)
+    m = len(baseline)
+    win_rate = sum(1 for r in returns if _is_win(r)) / n * 100
+    baseline_win = sum(1 for r in baseline if _is_win(r)) / m * 100
     avg_return = statistics.fmean(returns)
     baseline_avg = statistics.fmean(baseline)
     # 卖出形态：价格跌得比基准更多才算「超额」，因此基准均值取反
     edge_return = (avg_return - baseline_avg) if buy else (baseline_avg - avg_return)
 
+    # 两个比例之差的近似 z 检验：判断「形态胜率高出基准」能否与噪音区分开。
+    # 关键在样本量 —— 没有这层判定，「3 次命中的 100% 胜率」会被当成可靠信号。
+    p1, p2 = win_rate / 100, baseline_win / 100
+    se = math.sqrt(p1 * (1 - p1) / n + p2 * (1 - p2) / m)
+    z = (p1 - p2) / se if se > 0 else 0.0
+    significant = n >= _RELIABLE_SAMPLES and abs(z) >= _Z_CRITICAL
+
+    if n < _MIN_SAMPLES:
+        confidence = "insufficient"
+        verdict = f"仅 {n} 次命中，样本不足以下结论"
+    elif n < _RELIABLE_SAMPLES:
+        confidence = "preliminary"
+        verdict = f"仅 {n} 次命中，初步胜率 {win_rate:.1f}%（基准 {baseline_win:.1f}%），样本不足以判定显著性"
+    elif significant:
+        confidence = "significant"
+        verdict = f"{n} 次命中，胜率 {win_rate:.1f}% 显著高于基准 {baseline_win:.1f}%（z={z:.2f}）"
+    else:
+        confidence = "not_significant"
+        verdict = f"{n} 次命中，胜率 {win_rate:.1f}% 与基准 {baseline_win:.1f}% 无显著差异（z={z:.2f}）"
+
     base.update(
-        status="ok" if len(returns) >= _MIN_SAMPLES else "insufficient_data",
+        status="ok" if n >= _MIN_SAMPLES else "insufficient_data",
         win_rate=round(win_rate, 1),
         avg_return=round(avg_return, 2),
         median_return=round(statistics.median(returns), 2),
@@ -151,13 +196,15 @@ def _pack(
         baseline_avg_return=round(baseline_avg, 2),
         edge_win_rate=round(win_rate - baseline_win, 1),
         edge_return=round(edge_return, 2),
+        z_score=round(z, 2),
+        significant=significant,
+        confidence=confidence,
+        verdict=verdict,
         by_stock=[
             {"code": code, "signals": len(vals), "avg_return": round(statistics.fmean(vals), 2)}
             for code, vals in sorted(per_stock.items(), key=lambda kv: -len(kv[1]))[:8]
         ],
     )
-    if base["status"] == "insufficient_data" and not base["note"]:
-        base["note"] = f"仅 {len(returns)} 次命中（少于 {_MIN_SAMPLES} 次），样本不足以下结论"
     return base
 
 
@@ -167,42 +214,55 @@ def _evaluate_sync(
     horizon: int,
     eval_bars: int,
 ) -> list[dict]:
-    """对每只票、每条技巧做 walk-forward 评估。"""
-    results: list[dict] = []
-    for key in keys:
+    """对每只票、每条技巧做 walk-forward 评估。
+
+    前缀切片按「K 线位置」缓存，在同一条票的各技巧间复用 ——
+    否则每条技巧都要自己切一遍历史，回测会慢数倍。
+    """
+    selected = list(keys)
+    resolved: dict[str, dict] = {}
+    plan: list[str] = []
+    for key in selected:
         tactic = pattern_service.TACTIC_MAP[key]
         if key in _NOT_BACKTESTABLE:
-            results.append(_blank(tactic, horizon, "not_backtestable", _NOT_BACKTESTABLE[key]))
+            resolved[key] = _blank(tactic, horizon, "not_backtestable", _NOT_BACKTESTABLE[key])
+        else:
+            plan.append(key)
+
+    accum = {k: {"signals": [], "baseline": [], "per_stock": {}, "stocks": 0} for k in plan}
+
+    for code, hist in hist_map.items():
+        closes = hist.closes
+        n = len(closes)
+        end = n - horizon
+        if end <= 0:
             continue
-
-        detector = pattern_service.DETECTORS[key]
-        warmup = int(tactic["warmup"])
-        signals: list[tuple[float, float, float, str]] = []
-        baseline: list[float] = []
-        per_stock: dict[str, list[float]] = {}
-        stocks = 0
-
-        for code, hist in hist_map.items():
-            closes = hist.closes
-            n = len(closes)
+        prefix_cache: dict[int, StockHistory] = {}
+        for key in plan:
+            warmup = int(pattern_service.TACTIC_MAP[key]["warmup"])
             start = max(warmup, n - eval_bars)
-            end = n - horizon
             if start >= end:
                 continue
-            stocks += 1
+            acc = accum[key]
+            acc["stocks"] += 1
+            detector = pattern_service.DETECTORS[key]
             last_hit = -10 ** 9
             stock_returns: list[float] = []
             for i in range(start, end):
                 fwd = _forward(closes, i, horizon)
                 if fwd is None:
                     continue
-                baseline.append(fwd[0])
+                acc["baseline"].append(fwd[0])
                 if i - last_hit < horizon:
                     continue  # 去重：同一波行情只计一次
+                prefix = prefix_cache.get(i)
+                if prefix is None:
+                    prefix = _prefix(hist, i + 1)
+                    prefix_cache[i] = prefix
                 try:
                     hit = detector(
                         {
-                            "daily": _prefix(hist, i + 1),
+                            "daily": prefix,
                             "intraday": None,
                             "price": closes[i],
                             "turnover": None,  # 无历史换手率
@@ -212,14 +272,25 @@ def _evaluate_sync(
                     continue
                 if not hit["matched"]:
                     continue
-                signals.append((fwd[0], fwd[1], fwd[2], code))
+                acc["signals"].append((fwd[0], fwd[1], fwd[2], code))
                 stock_returns.append(fwd[0])
                 last_hit = i
             if stock_returns:
-                per_stock[code] = stock_returns
+                acc["per_stock"][code] = stock_returns
 
-        results.append(_pack(tactic, horizon, signals, baseline, stocks, per_stock))
-    return results
+    for key in selected:
+        if key in resolved:
+            continue
+        acc = accum[key]
+        resolved[key] = _pack(
+            pattern_service.TACTIC_MAP[key],
+            horizon,
+            acc["signals"],
+            acc["baseline"],
+            acc["stocks"],
+            acc["per_stock"],
+        )
+    return [resolved[k] for k in selected]
 
 
 async def evaluate(
@@ -243,16 +314,23 @@ async def evaluate(
     warmup = max((int(pattern_service.TACTIC_MAP[k]["warmup"]) for k in backtestable), default=0)
     days = warmup + eval_bars + horizon + 5
 
-    hists = await asyncio.gather(
-        *(asyncio.to_thread(data_service.get_history, code, days) for code in pool),
-        return_exceptions=True,
-    )
+    sem = asyncio.Semaphore(_FETCH_CONCURRENCY)
+
+    async def _fetch(code: str):
+        async with sem:
+            return await asyncio.to_thread(data_service.get_history, code, days)
+
+    hists = await asyncio.gather(*(_fetch(code) for code in pool), return_exceptions=True)
     hist_map: dict[str, StockHistory] = {}
+    failed: list[str] = []
     for code, hist in zip(pool, hists):
         if isinstance(hist, BaseException) or not hist or not hist.closes:
+            failed.append(code)
             continue
         if len(hist.closes) >= horizon + 30:
             hist_map[code] = hist
+        else:
+            failed.append(code)
 
     if not hist_map:
         return {"error": "未获取到足够的日线历史数据，请稍后重试"}
@@ -263,6 +341,9 @@ async def evaluate(
         "eval_bars": eval_bars,
         "pool": list(hist_map),
         "pool_size": len(hist_map),
+        "failed": failed,
+        "min_samples": _MIN_SAMPLES,
+        "reliable_samples": _RELIABLE_SAMPLES,
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         "items": items,
     }

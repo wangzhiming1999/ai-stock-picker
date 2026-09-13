@@ -82,13 +82,12 @@ export default function QuadRankTable({ onPick }: Props) {
               勾选 {selected.size} 只去分析 →
             </Button>
           )}
-          <button
+          <Button variant="outlineQuiet" size="sm"
             onClick={() => void load(true)}
             disabled={loading}
-            className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-ink-muted hover:text-ink"
-          >
+            >
             {loading ? "重算中..." : "强制刷新"}
-          </button>
+          </Button>
         </div>
       }
     >

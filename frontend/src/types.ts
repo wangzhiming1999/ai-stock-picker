@@ -838,7 +838,7 @@ export interface Briefing {
 // ---------- 实战形态（pattern_service） ----------
 
 /** 技巧分类 */
-export type TacticCategory = "周期共振" | "K线组合" | "量价关系";
+export type TacticCategory = "周期共振" | "K线组合" | "量价关系" | "均线与指标" | "风控铁律";
 
 /** 技巧方向：buy=买点 / sell=卖点或止损 */
 export type TacticDirection = "buy" | "sell";
@@ -943,6 +943,14 @@ export interface TacticBacktestItem {
   edge_win_rate?: number | null;
   /** 方向调整后的收益超额（百分点） */
   edge_return?: number | null;
+  /** 两个比例之差的 z 检验值 */
+  z_score?: number | null;
+  /** ≥30 次命中且 |z| ≥ 1.96 才为 true */
+  significant?: boolean | null;
+  /** insufficient / preliminary / significant / not_significant */
+  confidence?: string;
+  /** 一句话结论（含样本量与显著性） */
+  verdict?: string | null;
   by_stock?: Array<{ code: string; signals: number; avg_return: number }>;
 }
 
@@ -951,6 +959,11 @@ export interface TacticBacktestResult {
   eval_bars: number;
   pool: string[];
   pool_size: number;
+  /** 取数失败 / 历史不足被剔除的票 */
+  failed?: string[];
+  /** 样本门槛：<min_samples 不给结论，<reliable_samples 不判显著 */
+  min_samples?: number;
+  reliable_samples?: number;
   generated_at: string;
   items: TacticBacktestItem[];
   error?: string;

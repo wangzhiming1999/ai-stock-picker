@@ -57,7 +57,7 @@ async def backtest_run(req: BacktestRequest):
     # 3. 写缓存
     if "error" not in result:
         try:
-            await _save_backtest(cache_key, params, result)
+            await _save_backtest(cache_key, params.__dict__, result)
         except Exception as e:
             print(f"[backtest] 缓存写入失败: {e}")
     return result
@@ -82,7 +82,7 @@ async def _load_backtest(cache_key: str) -> dict | None:
     return None
 
 
-async def _save_backtest(cache_key: str, params: BacktestParams, result: dict) -> None:
+async def _save_backtest(cache_key: str, params: dict, result: dict) -> None:
     if not supabase_store.is_configured():
         return
     sb = await supabase_store.get_service_client()
@@ -95,7 +95,7 @@ async def _save_backtest(cache_key: str, params: BacktestParams, result: dict) -
     )
     payload = {
         "cache_key": cache_key,
-        "params": params.__dict__,
+        "params": params,
         "result": result,
     }
     if existing.data:
@@ -133,8 +133,22 @@ async def tactic_backtest_endpoint(req: TacticBacktestRequest):
                 detail=f"未知技巧 {req.tactic}，可选: {list(pattern_service.TACTIC_MAP)}",
             )
         keys = [req.tactic]
+    # 回测结果按「数据日 + 参数」缓存：日线一天只新增一根，同参数重复跑没有意义
+    data_day = dt.date.today().isoformat()
     try:
-        return await tactic_backtest_service.evaluate(
+        from app.services import trade_calendar_service
+
+        data_day = (await trade_calendar_service.last_trading_day()).isoformat()
+    except Exception:
+        pass
+    pool_sig = ",".join(sorted(req.codes)) if req.codes else "default"
+    cache_key = f"tactic|{req.tactic or 'all'}|{data_day}|{req.horizon_days}|{req.eval_bars}|{pool_sig}"
+    cached = await _load_backtest(cache_key)
+    if cached:
+        return cached
+
+    try:
+        result = await tactic_backtest_service.evaluate(
             codes=req.codes,
             keys=keys,
             horizon=req.horizon_days,
@@ -142,3 +156,20 @@ async def tactic_backtest_endpoint(req: TacticBacktestRequest):
         )
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"形态回测失败: {e}")
+
+    if "error" not in result:
+        try:
+            await _save_backtest(
+                cache_key,
+                {
+                    "tactic": req.tactic,
+                    "codes": req.codes,
+                    "horizon_days": req.horizon_days,
+                    "eval_bars": req.eval_bars,
+                    "data_day": data_day,
+                },
+                result,
+            )
+        except Exception as e:
+            print(f"[backtest] 形态回测缓存写入失败: {e}")
+    return result

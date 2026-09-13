@@ -3,6 +3,7 @@ import { fetchBatchDetail, fetchBatches } from "../api/client";
 import { safeArray } from "../lib/safe";
 import type { AnalysisBatch, AnalysisBatchDetail, StockAnalysis } from "../types";
 import StockCard from "./StockCard";
+import Button from "./Button";
 
 interface Props {
   refreshKey: number;
@@ -49,9 +50,9 @@ export default function HistoryPanel({ refreshKey }: Props) {
       <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-ink">分析历史记录</h3>
-          <button onClick={() => void load()} className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-ink-muted hover:text-ink">
+          <Button variant="outlineQuiet" size="sm" onClick={() => void load()} >
             刷新
-          </button>
+          </Button>
         </div>
         {loading && <div className="p-3 text-sm text-ink-faint">加载中...</div>}
         {err && <div className="rounded-lg border border-red-800 bg-red-950/40 px-3 py-2 text-sm text-red-300">{err}</div>}

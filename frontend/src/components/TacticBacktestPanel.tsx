@@ -9,8 +9,10 @@ const HORIZONS = [5, 10, 20];
 
 function statusBadge(item: TacticBacktestItem) {
   if (item.status === "not_backtestable") return { text: "无法回测", cls: "bg-slate-700 text-ink-soft" };
-  if (item.status === "insufficient_data") return { text: "样本不足", cls: "bg-amber-950/60 text-amber-300" };
-  return { text: "已回测", cls: "bg-sky-950/60 text-sky-300" };
+  if (item.confidence === "significant") return { text: "显著", cls: "bg-sky-950/60 text-sky-300" };
+  if (item.confidence === "preliminary") return { text: "初步", cls: "bg-amber-950/60 text-amber-300" };
+  if (item.confidence === "not_significant") return { text: "不显著", cls: "bg-slate-800 text-ink-muted" };
+  return { text: "样本不足", cls: "bg-amber-950/60 text-amber-300" };
 }
 
 /** 超额着色：edge 已在后端按方向调整（买入看涨、卖出看跌），正数即形态优于基准 */
@@ -162,6 +164,9 @@ export default function TacticBacktestPanel() {
                           </div>
                           {!measurable && it.note && (
                             <div className="mt-0.5 text-xs text-ink-faint">{it.note}</div>
+                          )}
+                          {measurable && it.verdict && (
+                            <div className="mt-0.5 text-xs text-ink-muted">{it.verdict}</div>
                           )}
                         </td>
                         <td className="px-3 py-2 text-right text-ink-soft">

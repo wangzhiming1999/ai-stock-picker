@@ -5,6 +5,7 @@ import { safeObj } from "../lib/safe";
 import { pctTone } from "../lib/tone";
 import type { WinrateStats } from "../types";
 import StatTile from "./StatTile";
+import Button from "./Button";
 
 export default function WinratePanel() {
   const [data, setData] = useState<WinrateStats | null>(null);
@@ -33,9 +34,9 @@ export default function WinratePanel() {
       title="胜率看板"
       subtitle="预测与推荐的实际命中表现 · 每日自动结算"
       action={
-        <button onClick={() => void load()} disabled={loading} className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-ink-muted hover:text-ink">
+        <Button variant="outlineQuiet" size="sm" onClick={() => void load()} disabled={loading} >
           {loading ? "加载中..." : "刷新"}
-        </button>
+        </Button>
       }
     >
 

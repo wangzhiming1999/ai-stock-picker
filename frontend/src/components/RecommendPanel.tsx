@@ -6,6 +6,7 @@ import DailyRecommendCard from "./DailyRecommendCard";
 import PanelSkeleton from "./PanelSkeleton";
 import type { Industry } from "../types";
 import { pnlTone } from "../lib/tone";
+import Button from "./Button";
 
 const PredictionCard = lazy(() => import("./PredictionCard"));
 const QuadRankTable = lazy(() => import("./QuadRankTable"));
@@ -69,13 +70,12 @@ export default function RecommendPanel({ onPick }: Props) {
           if (open && industries.length === 0 && !indLoading) void loadIndustries();
         }}
         action={
-          <button
+          <Button variant="outlineQuiet" size="sm"
             onClick={() => void loadIndustries()}
             disabled={indLoading}
-            className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-ink-muted hover:text-ink"
-          >
+            >
             {indLoading ? "加载中..." : "刷新"}
-          </button>
+          </Button>
         }
       >
         <div className="max-h-80 overflow-y-auto rounded-xl border border-slate-800">
