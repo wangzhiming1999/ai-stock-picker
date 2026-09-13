@@ -5,6 +5,8 @@ import CollapsiblePanel from "./CollapsiblePanel";
 import { safeArray, safeNumber } from "../lib/safe";
 import { pctTone, pnlTone } from "../lib/tone";
 import type { BacktestResult } from "../types";
+import Input from "./Input";
+import Button from "./Button";
 
 const STRATEGIES = [
   { name: "quality_momentum", label: "质量动量", desc: "动量排序 + 趋势确认" },
@@ -107,13 +109,12 @@ export default function BacktestPanel() {
       subtitle="用历史数据验证策略胜率（默认股票池 28 只）"
       onToggle={() => setTimeout(() => chart.current?.resize(), 80)}
       action={
-        <button
+        <Button variant="primary" size="lg"
           onClick={() => void run()}
           disabled={running}
-          className="rounded-lg bg-brand px-5 py-2 text-sm font-medium text-white hover:bg-brand-dark disabled:opacity-50"
-        >
+          >
           {running ? "回测中..." : "开始回测"}
-        </button>
+        </Button>
       }
     >
 
@@ -136,15 +137,15 @@ export default function BacktestPanel() {
         </div>
         <label className="block">
           <span className="mb-1 block text-xs text-ink-faint">开始日期</span>
-          <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="rounded-lg border border-slate-700 bg-slate-800/70 px-2 py-1.5 text-xs text-ink" />
+          <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="rounded-lg bg-slate-800/70 px-2 py-1.5 text-xs" />
         </label>
         <label className="block">
           <span className="mb-1 block text-xs text-ink-faint">每期持仓数</span>
-          <input value={topN} onChange={(e) => setTopN(e.target.value)} className="w-16 rounded-lg border border-slate-700 bg-slate-800/70 px-2 py-1.5 text-xs text-ink" />
+          <Input value={topN} onChange={(e) => setTopN(e.target.value)} className="w-16 rounded-lg bg-slate-800/70 px-2 py-1.5 text-xs" />
         </label>
         <label className="block">
           <span className="mb-1 block text-xs text-ink-faint">调仓周期(交易日)</span>
-          <input value={rebalance} onChange={(e) => setRebalance(e.target.value)} className="w-16 rounded-lg border border-slate-700 bg-slate-800/70 px-2 py-1.5 text-xs text-ink" />
+          <Input value={rebalance} onChange={(e) => setRebalance(e.target.value)} className="w-16 rounded-lg bg-slate-800/70 px-2 py-1.5 text-xs" />
         </label>
       </div>
 

@@ -61,12 +61,12 @@ export default function HistoryPanel({ refreshKey }: Props) {
             <table className="w-full text-sm">
               <thead className="bg-slate-900 text-left text-xs text-ink-muted">
                 <tr>
-                  <th className="px-3 py-2">时间</th>
-                  <th className="px-3 py-2">股票</th>
-                  <th className="px-3 py-2">模式</th>
-                  <th className="px-3 py-2 text-right">数量</th>
-                  <th className="px-3 py-2 text-right">平均分</th>
-                  <th className="px-3 py-2 text-right">操作</th>
+                  <th scope="col" className="px-3 py-2">时间</th>
+                  <th scope="col" className="px-3 py-2">股票</th>
+                  <th scope="col" className="px-3 py-2">模式</th>
+                  <th scope="col" className="px-3 py-2 text-right">数量</th>
+                  <th scope="col" className="px-3 py-2 text-right">平均分</th>
+                  <th scope="col" className="px-3 py-2 text-right">操作</th>
                 </tr>
               </thead>
               <tbody>

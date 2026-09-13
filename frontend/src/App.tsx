@@ -112,7 +112,7 @@ export default function App() {
                 >
                   <span className="hidden max-w-[140px] truncate text-xs text-ink-soft md:inline">{user.email}</span>
                   <button onClick={signOut} className="flex items-center gap-1 text-xs text-ink-faint hover:text-ink">
-                    <LogIn className="h-3.5 w-3.5" />
+                    <LogIn className="h-3.5 w-3.5" aria-hidden />
                     退出
                   </button>
                 </motion.div>
@@ -123,7 +123,7 @@ export default function App() {
                   whileTap={{ scale: 0.95 }}
                   className="flex items-center gap-1.5 rounded-lg bg-brand px-4 py-1.5 text-xs font-medium text-white shadow-[0_2px_8px_rgba(37,99,235,0.35)] hover:bg-brand-dark"
                 >
-                  <LogIn className="h-3.5 w-3.5" />
+                  <LogIn className="h-3.5 w-3.5" aria-hidden />
                   登录
                 </motion.button>
               )}

@@ -103,7 +103,7 @@ export default function WatchlistPanel({ onAnalyze }: Props) {
           <button
             onClick={() => void doImportDaily()}
             disabled={importing}
-            className="rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-dark disabled:opacity-50"
+            className="rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-dark"
           >
             {importing ? "导入中..." : "+ 导入每日推荐"}
           </button>
@@ -115,7 +115,7 @@ export default function WatchlistPanel({ onAnalyze }: Props) {
 
       {daily?.date && daily.recommendations.length > 0 && (
         <div className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-slate-800 bg-slate-800/40 px-3 py-2 text-xs text-ink-muted">
-          <CalendarDays className="h-3.5 w-3.5 shrink-0 text-ink-faint" />
+          <CalendarDays className="h-3.5 w-3.5 shrink-0 text-ink-faint" aria-hidden />
           <span>
             可导入推荐基于 <span className="font-medium text-ink">{fmtDayLabel(daily.date)}</span> 收盘
             {daily.target_date && (
@@ -166,12 +166,12 @@ export default function WatchlistPanel({ onAnalyze }: Props) {
           <table className="w-full text-sm">
             <thead className="text-left text-xs text-ink-muted">
               <tr>
-                <th className="px-3 py-2">名称</th>
-                <th className="px-3 py-2 text-right">现价</th>
-                <th className="px-3 py-2 text-right">涨跌幅</th>
-                <th className="px-3 py-2 text-right">换手率</th>
-                <th className="px-3 py-2">状态</th>
-                <th className="px-3 py-2"></th>
+                <th scope="col" className="px-3 py-2">名称</th>
+                <th scope="col" className="px-3 py-2 text-right">现价</th>
+                <th scope="col" className="px-3 py-2 text-right">涨跌幅</th>
+                <th scope="col" className="px-3 py-2 text-right">换手率</th>
+                <th scope="col" className="px-3 py-2">状态</th>
+                <th scope="col" className="px-3 py-2"></th>
               </tr>
             </thead>
             <tbody>

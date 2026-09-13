@@ -4,7 +4,10 @@ import { ClipboardPaste, ImageUp, Loader2, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { importHoldingsBatch, parseHoldingImport } from "../api/client";
 import { compressImage } from "../lib/image";
+import { INPUT_BASE } from "../lib/ui";
 import type { ParsedHolding } from "../types";
+import Input from "./Input";
+import Button from "./Button";
 
 interface Props {
   open: boolean;
@@ -203,12 +206,12 @@ export default function ImportHoldingsModal({ open, onClose, onImported }: Props
                 />
                 {parsing ? (
                   <div className="flex flex-col items-center gap-2 py-2 text-sm text-ink-soft">
-                    <Loader2 className="h-6 w-6 animate-spin text-brand-light" />
+                    <Loader2 className="h-6 w-6 animate-spin text-brand-light" aria-hidden />
                     正在识别截图（约 5~15 秒）...
                   </div>
                 ) : (
                   <>
-                    <ImageUp className="mx-auto mb-2 h-8 w-8 text-ink-faint" />
+                    <ImageUp className="mx-auto mb-2 h-8 w-8 text-ink-faint" aria-hidden />
                     <p className="text-sm text-ink-soft">
                       {fileName ? (
                         <>
@@ -219,12 +222,11 @@ export default function ImportHoldingsModal({ open, onClose, onImported }: Props
                       )}
                     </p>
                     <p className="mt-1 text-xs text-ink-faint">点击选择 / 拖入 / 直接 Ctrl+V 粘贴截图</p>
-                    <button
+                    <Button variant="primary" size="md"
                       onClick={() => fileRef.current?.click()}
-                      className="mt-3 rounded-lg bg-brand px-4 py-1.5 text-xs font-medium text-white hover:bg-brand-dark"
-                    >
+                      className="mt-3">
                       选择截图
-                    </button>
+                    </Button>
                   </>
                 )}
               </div>
@@ -235,17 +237,15 @@ export default function ImportHoldingsModal({ open, onClose, onImported }: Props
                   onChange={(e) => setText(e.target.value)}
                   rows={5}
                   placeholder={"从券商 App 复制持仓文本后粘贴到这里，每行一只，例如：\n贵州茅台 600519 1224.50 100\n五粮液 000858 成本128.5 数量200"}
-                  className="w-full resize-y rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-ink placeholder:text-ink-faint focus:border-brand focus:outline-none"
-                />
+                  className={`${INPUT_BASE} w-full resize-y bg-slate-950 px-3 py-2 text-xs`} />
                 <div className="mt-2 flex items-center justify-between">
                   <span className="text-xs text-ink-faint">支持 名称+代码+成本+数量 的任意组合顺序</span>
-                  <button
+                  <Button variant="primary" size="md"
                     onClick={() => void parseText()}
                     disabled={parsing || !text.trim()}
-                    className="rounded-lg bg-brand px-4 py-1.5 text-xs font-medium text-white hover:bg-brand-dark disabled:opacity-40"
-                  >
+                    >
                     {parsing ? "解析中..." : "解析文本"}
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
@@ -267,12 +267,12 @@ export default function ImportHoldingsModal({ open, onClose, onImported }: Props
                 <table className="w-full text-sm" style={{ minWidth: 520 }}>
                   <thead className="sticky top-0 z-10 bg-slate-900 text-left text-xs text-ink-muted">
                     <tr>
-                      <th className="px-3 py-2"></th>
-                      <th className="px-3 py-2">代码</th>
-                      <th className="px-3 py-2">名称</th>
-                      <th className="px-3 py-2 text-right">成本价</th>
-                      <th className="px-3 py-2 text-right">数量(股)</th>
-                      <th className="px-3 py-2 text-right">操作</th>
+                      <th scope="col" className="px-3 py-2"></th>
+                      <th scope="col" className="px-3 py-2">代码</th>
+                      <th scope="col" className="px-3 py-2">名称</th>
+                      <th scope="col" className="px-3 py-2 text-right">成本价</th>
+                      <th scope="col" className="px-3 py-2 text-right">数量(股)</th>
+                      <th scope="col" className="px-3 py-2 text-right">操作</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -287,17 +287,16 @@ export default function ImportHoldingsModal({ open, onClose, onImported }: Props
                           />
                         </td>
                         <td className="px-3 py-2">
-                          <input
+                          <Input
                             value={r.code}
                             onChange={(e) => updateRow(idx, { code: e.target.value.replace(/\D/g, "").slice(0, 6) })}
-                            className={`w-20 rounded border bg-slate-950 px-1.5 py-1 text-xs ${
-                              /^\d{6}$/.test(r.code) ? "border-slate-700 text-ink" : "border-red-700 text-red-300"
-                            }`}
+                            tone={/^\d{6}$/.test(r.code) ? "default" : "danger"}
+                            className="w-20 bg-slate-950 px-1.5 py-1 text-xs"
                           />
                         </td>
                         <td className="px-3 py-2 text-xs text-ink-soft">{r.name || "-"}</td>
                         <td className="px-3 py-2 text-right">
-                          <input
+                          <Input
                             type="number"
                             step="any"
                             min="0"
@@ -306,13 +305,12 @@ export default function ImportHoldingsModal({ open, onClose, onImported }: Props
                               updateRow(idx, { cost_price: e.target.value === "" ? null : parseFloat(e.target.value) })
                             }
                             placeholder="必填"
-                            className={`w-20 rounded border bg-slate-950 px-1.5 py-1 text-right text-xs ${
-                              (r.cost_price ?? 0) > 0 ? "border-slate-700 text-ink" : "border-red-700 text-red-300"
-                            }`}
+                            tone={(r.cost_price ?? 0) > 0 ? "default" : "danger"}
+                            className="w-20 bg-slate-950 px-1.5 py-1 text-right text-xs"
                           />
                         </td>
                         <td className="px-3 py-2 text-right">
-                          <input
+                          <Input
                             type="number"
                             min="0"
                             value={r.shares ?? ""}
@@ -320,9 +318,8 @@ export default function ImportHoldingsModal({ open, onClose, onImported }: Props
                               updateRow(idx, { shares: e.target.value === "" ? null : parseInt(e.target.value, 10) })
                             }
                             placeholder="必填"
-                            className={`w-20 rounded border bg-slate-950 px-1.5 py-1 text-right text-xs ${
-                              (r.shares ?? 0) > 0 ? "border-slate-700 text-ink" : "border-red-700 text-red-300"
-                            }`}
+                            tone={(r.shares ?? 0) > 0 ? "default" : "danger"}
+                            className="w-20 bg-slate-950 px-1.5 py-1 text-right text-xs"
                           />
                         </td>
                         <td className="px-3 py-2 text-right">
@@ -331,7 +328,7 @@ export default function ImportHoldingsModal({ open, onClose, onImported }: Props
                             className="rounded p-1 text-ink-faint hover:bg-red-950/40 hover:text-red-400"
                             title="移除此行"
                           >
-                            <Trash2 className="h-4 w-4" />
+                            <Trash2 className="h-4 w-4" aria-hidden />
                           </button>
                         </td>
                       </tr>
@@ -343,16 +340,15 @@ export default function ImportHoldingsModal({ open, onClose, onImported }: Props
 
             {/* 底部动作 */}
             <div className="flex items-center justify-between gap-3">
-              <button onClick={reset} disabled={rows.length === 0} className="text-xs text-ink-faint hover:text-ink-soft disabled:opacity-30">
+              <button onClick={reset} disabled={rows.length === 0} className="text-xs text-ink-faint hover:text-ink-soft">
                 清空重来
               </button>
-              <button
+              <Button variant="primary" size="lg"
                 onClick={() => void doImport()}
                 disabled={importing || validSelected.length === 0}
-                className="rounded-lg bg-brand px-5 py-2 text-sm font-medium text-white hover:bg-brand-dark disabled:opacity-40"
-              >
+                >
                 {importing ? "导入中..." : `导入选中 ${validSelected.length} 只`}
-              </button>
+              </Button>
             </div>
           </motion.div>
         </motion.div>

@@ -4,6 +4,8 @@ import { toast } from "sonner";
 import { addAlertRule, deleteAlertRule, fetchAlertRules } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import type { AlertRule, AlertType } from "../types";
+import Input from "./Input";
+import { INPUT_BASE } from "../lib/ui";
 
 const TYPE_LABEL: Record<AlertType, string> = {
   stop_loss: "止损（≤触发）",
@@ -77,45 +79,41 @@ export default function AlertRulesPanel() {
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
       <div className="mb-3 flex items-center gap-2">
-        <Bell className="h-4 w-4 text-brand-light" />
+        <Bell className="h-4 w-4 text-brand-light" aria-hidden />
         <h3 className="text-sm font-semibold text-ink">价格预警</h3>
         <span className="text-xs text-ink-faint">持仓止损 / 目标价 / 破位，触发后铃铛提醒</span>
       </div>
 
       {/* 添加表单 */}
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <input
+        <Input
           value={code}
           onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
           placeholder="代码"
-          className="w-20 rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-ink placeholder:text-ink-faint focus:border-brand focus:outline-none"
-        />
+          className="w-20 bg-slate-950 px-2 py-1.5 text-xs" />
         <select
           value={type}
           onChange={(e) => setType(e.target.value as AlertType)}
-          className="rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-ink focus:border-brand focus:outline-none"
-        >
+          className={`${INPUT_BASE} bg-slate-950 px-2 py-1.5 text-xs`}>
           {(Object.keys(TYPE_LABEL) as AlertType[]).map((k) => (
             <option key={k} value={k}>
               {TYPE_LABEL[k]}
             </option>
           ))}
         </select>
-        <input
+        <Input
           value={threshold}
           onChange={(e) => setThreshold(e.target.value)}
           type="number"
           step="any"
           min="0"
           placeholder="阈值价"
-          className="w-24 rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-ink placeholder:text-ink-faint focus:border-brand focus:outline-none"
-        />
+          className="w-24 bg-slate-950 px-2 py-1.5 text-xs" />
         <button
           onClick={() => void submit()}
           disabled={adding}
-          className="flex items-center gap-1 rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-dark disabled:opacity-40"
-        >
-          <Plus className="h-3.5 w-3.5" />
+          className="flex items-center gap-1 rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-dark">
+          <Plus className="h-3.5 w-3.5" aria-hidden />
           添加规则
         </button>
       </div>
@@ -137,7 +135,7 @@ export default function AlertRulesPanel() {
               <div className="flex items-center gap-2">
                 <span className="text-ink-soft">阈值 {r.threshold}</span>
                 <button onClick={() => void remove(r.id)} className="rounded p-1 text-ink-faint hover:bg-red-950/40 hover:text-red-400" title="删除">
-                  <Trash2 className="h-3.5 w-3.5" />
+                  <Trash2 className="h-3.5 w-3.5" aria-hidden />
                 </button>
               </div>
             </div>

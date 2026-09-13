@@ -10,6 +10,66 @@
   }
 }
 
+/* ── 键盘焦点环（无障碍硬约束）──────────────────────────────────────
+ * 此前全站 94 个 <button> 里只有 3 个写了焦点态，另有 13 处主动写
+ * `outline-none` 把浏览器默认焦点环删掉却不给替代 —— 结果键盘用户
+ * Tab 一遍完全看不见光标在哪，等于不可用（WCAG 2.4.7 失败）。
+ *
+ * 这里做全局兜底：所有可聚焦元素一律给 2px 焦点环。
+ * 颜色用 brand-light #60a5fa —— 实测在 slate-950 / 900 / 800 三种
+ * 底色上为 7.93 / 7.02 / 5.75，均 >= 3:1（WCAG 1.4.11 对焦点指示器的要求）。
+ * 注意：主色 #2563eb 在 slate-800 上只有 2.83:1，**不能**用作焦点环。
+ *
+ * 组件里不要再写 `focus:outline-none`；确需自定义请覆盖 --focus-ring。
+ */
+:root {
+  --focus-ring: #60a5fa;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* ── 禁用态统一 ──────────────────────────────────────────────────────
+ * 此前用 5 种 opacity（30/40/50/60/70）描述同一个概念，且 30/40 档实测
+ * 只有 2.58 / 3.58:1。统一到 0.5（白字实测 4.88:1，即便按 AA 也达标）。
+ * 组件里不要再写 `disabled:opacity-*`。
+ */
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── 按压反馈 ────────────────────────────────────────────────────────
+ * 此前全站 94 个 <button> 里只有 1 个写了 active 态 —— 点下去毫无反馈。
+ * 对挂单/买入这类操作，按下没有确认感是不能接受的。
+ * 放在全局而非 token 里：这样连纯图标按钮也一并覆盖，不需要逐个改。
+ * 用 1px 位移而不是缩放/变色，避免影响布局与文字清晰度。
+ */
+button:not(:disabled):active {
+  transform: translateY(0.5px);
+}
+
+/* ── 动效减弱偏好 ────────────────────────────────────────────────────
+ * 此前全站 0 处处理：27 处 transition + 12 处 animate-*（pulse/spin/ping）
+ * 无论用户系统偏好如何都强行播放。行情界面元素多、刷新频繁，对前庭敏感
+ * 用户尤其不友好。这里统一压掉时长，保留状态变化的最终效果。
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* 自定义滚动条 */
 ::-webkit-scrollbar {
   width: 6px;

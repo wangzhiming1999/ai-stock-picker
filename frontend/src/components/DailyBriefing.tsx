@@ -69,8 +69,7 @@ function ReviewBlock({ review }: { review: NonNullable<Briefing["review"]> }) {
           {review.alerts_today.map((a, i) => (
             <div key={i} className="flex items-center gap-2 text-xs text-ink-soft">
               <Bell
-                className={`h-3 w-3 shrink-0 ${a.severity === "danger" ? "text-red-400" : "text-amber-400"}`}
-              />
+                className={`h-3 w-3 shrink-0 ${a.severity === "danger" ? "text-red-400" : "text-amber-400"}`} aria-hidden />
               <span className="truncate">
                 {a.title} · {a.message}
               </span>
@@ -211,7 +210,7 @@ function MorningStockCard({ s, onPick }: { s: BriefingStock; onPick: (c: string)
                 : "border-slate-700 text-ink-soft hover:border-brand hover:text-brand-light"
             }`}
           >
-            <Plus className="h-3 w-3" />
+            <Plus className="h-3 w-3" aria-hidden />
             {added ? "已自选" : busy ? "..." : "自选"}
           </button>
         </div>
@@ -571,16 +570,16 @@ export default function DailyBriefing({ onPick, onSettled }: Props) {
       {/* 卡片头：不套容器，靠字号与留白成层 */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <Target className="h-4 w-4 text-brand-light" />
+          <Target className="h-4 w-4 text-brand-light" aria-hidden />
           <h1 className={TEXT.title}>今天怎么做</h1>
           {data && <span className={TEXT.meta}>· {data.target_date ?? "下一个交易日"}</span>}
         </div>
         <button
           onClick={() => void load()}
           disabled={loading}
-          className="flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1 text-xs text-ink-muted transition-colors hover:text-ink disabled:opacity-50"
+          className="flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1 text-xs text-ink-muted transition-colors hover:text-ink"
         >
-          <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
+          <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} aria-hidden />
           刷新
         </button>
       </div>
@@ -618,7 +617,7 @@ export default function DailyBriefing({ onPick, onSettled }: Props) {
           {/* 时段性提示：只在真的需要动手时出现 */}
           {data.is_tail_urgent && (
             <div className="mt-3 flex items-center gap-2 rounded-xl border border-red-800/50 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-200">
-              <Bell className="h-4 w-4 animate-pulse" />
+              <Bell className="h-4 w-4 animate-pulse" aria-hidden />
               尾盘窗口（14:45–15:00）：收盘前必须完成挂单，否则今日无法操作
             </div>
           )}
@@ -630,7 +629,7 @@ export default function DailyBriefing({ onPick, onSettled }: Props) {
 
           {/* ③ 分区：尾盘操作（有持仓才出现，避免空段占位） */}
           {phase === "tail" && (holdingCount > 0 || needLogin) && (
-            <Section icon={<Bell className="h-4 w-4 text-brand-light" />} title={`尾盘操作（${data.tail.summary ?? "持仓决策"}）`}>
+            <Section icon={<Bell className="h-4 w-4 text-brand-light" aria-hidden />} title={`尾盘操作（${data.tail.summary ?? "持仓决策"}）`}>
               {needLogin ? (
                 <div className={`${SUB} px-4 py-6 text-center text-sm text-ink-muted`}>
                   登录后查看你的持仓尾盘操作建议
@@ -649,9 +648,9 @@ export default function DailyBriefing({ onPick, onSettled }: Props) {
           <Section
             icon={
               phase === "morning" ? (
-                <ArrowUpRight className={`h-4 w-4 ${upTone(400)}`} />
+                <ArrowUpRight className={`h-4 w-4 ${upTone(400)}`} aria-hidden />
               ) : (
-                <ArrowDownRight className="h-4 w-4 text-ink-muted" />
+                <ArrowDownRight className="h-4 w-4 text-ink-muted" aria-hidden />
               )
             }
             title={hasPicks ? "今天关注这几只" : "为什么今天没有推荐"}
@@ -668,7 +667,7 @@ export default function DailyBriefing({ onPick, onSettled }: Props) {
                 role="status"
                 className="flex items-start gap-3 rounded-xl border border-amber-900/40 bg-amber-500/5 px-3 py-3"
               >
-                <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+                <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" aria-hidden />
                 <div>
                   <div className="text-sm font-medium text-amber-200">没有股票同时满足上涨趋势和风险控制要求</div>
                   <p className="mt-1 text-xs leading-relaxed text-ink-muted">
@@ -681,21 +680,21 @@ export default function DailyBriefing({ onPick, onSettled }: Props) {
 
           {/* ③ 分区：盘前预读（仅 9:00–9:25） */}
           {data.is_premarket && (
-            <Section icon={<Sunrise className="h-4 w-4 text-amber-400" />} title="盘前预读">
+            <Section icon={<Sunrise className="h-4 w-4 text-amber-400" aria-hidden />} title="盘前预读">
               <PreMarketBlock data={data} />
             </Section>
           )}
 
           {/* ③ 分区：当日复盘 */}
           {reviewReady && data.review && (
-            <Section icon={<ClipboardCheck className="h-4 w-4 text-brand-light" />} title="当日复盘">
+            <Section icon={<ClipboardCheck className="h-4 w-4 text-brand-light" aria-hidden />} title="当日复盘">
               <ReviewBlock review={data.review} />
             </Section>
           )}
 
           {/* ③ 分区：形态命中（附加信息，放最后） */}
           {tacticsReady && data.tactics && (
-            <Section icon={<Target className="h-4 w-4 text-sky-400" />} title="形态命中">
+            <Section icon={<Target className="h-4 w-4 text-sky-400" aria-hidden />} title="形态命中">
               <TacticsBlock tactics={data.tactics} onPick={onPick} />
             </Section>
           )}

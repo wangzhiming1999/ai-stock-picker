@@ -55,7 +55,7 @@ export default function HoldingsPanel({ authed, onAnalyze, onRequestAuth, histor
           transition={{ duration: 0.35 }}
           className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-800 bg-slate-900"
         >
-          <Wallet className="h-7 w-7 text-brand-light" />
+          <Wallet className="h-7 w-7 text-brand-light" aria-hidden />
         </motion.div>
         <h2 className="mt-4 text-base font-semibold text-ink">登录后管理你的持仓与历史记录</h2>
         <p className="mt-1 text-sm text-ink-faint">持仓数据、风险等级建议与历史分析将按账号隔离保存</p>

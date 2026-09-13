@@ -76,3 +76,110 @@ export const TEXT = {
   /** 12px 次要信息 / 注释 */
   meta: "text-xs text-ink-faint",
 } as const;
+
+/* ── 交互原语 ────────────────────────────────────────────────────────
+ * 此前 94 个 <button>、13 个 <input> 的类名**没有任何两个是相同的**，
+ * 每种态（焦点/禁用/按压）都在各处手写或干脆没写 —— 这是界面不一致的机械原因。
+ * 下面这套是唯一来源，组件（components/Button.tsx 等）消费它。
+ *
+ * 用 Button 组件，不要直接拼这些常量；常量导出只是为了在组件内部复用。
+ */
+
+/**
+ * 按钮结构层：布局 + 圆角 + 过渡。与颜色无关。
+ *
+ * 不用在这里写 focus-visible / disabled / active —— 三者都由 index.css 全局兜底，
+ * 见该文件的「键盘焦点环」「禁用态统一」「按压反馈」三段。
+ */
+export const BTN_BASE =
+  "inline-flex select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-lg font-medium transition-colors";
+
+/**
+ * 按钮颜色变体。
+ *
+ * 注意 `outline` 的边框用 slate-500 而不是 slate-700：
+ * 描边按钮的边框**就是**它唯一的形态标识，按 WCAG 1.4.11 需 >= 3:1。
+ * 实测 slate-700 在 slate-900/800 上只有 1.72 / 1.41，slate-500 是 3.75 / 3.07。
+ * （卡片那种纯装饰边框不受此约束，仍可用 slate-800。）
+ */
+export const BTN_VARIANT = {
+  /** 主操作：提交、开始、确认 */
+  primary: "bg-brand text-white hover:bg-brand-dark",
+  /** 中性实底：次要动作但有分量 */
+  neutral: "bg-slate-800 text-ink hover:bg-slate-700",
+  /** 描边：并列的次要动作 */
+  outline: "border border-slate-500 text-ink-soft hover:border-slate-400 hover:text-white",
+  /** 纯文字：最低优先级的动作（展开、切换、链接式） */
+  ghost: "text-ink-muted hover:text-ink",
+  /** 危险：卖出、清仓、删除 */
+  danger: "bg-red-600 text-white hover:bg-red-500",
+  /** 警戒：需要留意但非破坏性 */
+  warn: "bg-amber-600 text-white hover:bg-amber-500",
+  /** 信息：分析、推衍一类的中性重动作 */
+  info: "bg-indigo-600 text-white hover:bg-indigo-500",
+} as const;
+
+export type ButtonVariant = keyof typeof BTN_VARIANT;
+
+/**
+ * 按钮尺寸。
+ *
+ * ⚠️ 这五档是从历史代码里**实际存在的组合**归纳出来的，不是重新设计的阶梯：
+ * 迁移时按「最接近的档」归并，少数按钮会有 <= 4px 的宽高差。
+ * 若要进一步收敛成 3 档（相邻档差 2px、人眼难辨），需单独确认。
+ */
+export const BTN_SIZE = {
+  /** 极小：标签行内的小动作 */
+  xs: "px-2.5 py-1 text-xs",
+  /** 小：表格操作列、卡片内动作（历史用量最大） */
+  sm: "px-3 py-1 text-xs",
+  /** 中：表单提交 */
+  md: "px-4 py-1.5 text-xs",
+  /** 大：面板级主操作 */
+  lg: "px-5 py-2 text-sm",
+  /** 大 +：弹窗/空状态里的独立 CTA */
+  xl: "px-6 py-2.5 text-sm",
+} as const;
+
+export type ButtonSize = keyof typeof BTN_SIZE;
+
+/**
+ * 输入框固定部分：圆角 + 文字色 + 占位符 + 过渡。
+ *
+ * 不含边框色 —— 边框色是**状态**，由 INPUT_TONE 决定。
+ * 不含底色与尺寸：各调用点的底色（页面 / 卡内）和尺寸本就不同，
+ * 由调用方通过 className 给，避免同族类互相覆盖时结果不可预期。
+ */
+export const INPUT_BASE =
+  "rounded-lg border text-ink-strong placeholder:text-ink-faint transition-colors";
+
+/**
+ * 输入框状态色。
+ *
+ * `default` 的边框用 slate-500 而不是 slate-700：输入框的边框是**它唯一的边界标识**，
+ * 按 WCAG 1.4.11 需要 >= 3:1。实测 slate-700 在 slate-950/900/800 三种底色上
+ * 只有 1.95 / 1.72 / 1.41 —— 等于看不见输入框在哪；slate-500 是 4.24 / 3.75 / 3.07。
+ *
+ * 把「正常 / 校验失败」做成状态而不是在同一条 className 里写三元，
+ * 是为了避免 border-slate-* 与 border-red-* 同时出现在一个元素上 ——
+ * 那样谁生效取决于 Tailwind 的 CSS 输出顺序，不可预期。
+ */
+export const INPUT_TONE = {
+  default: "border-slate-500 focus:border-brand-light",
+  danger: "border-red-700 text-red-300 focus:border-red-500",
+} as const;
+
+export type InputTone = keyof typeof INPUT_TONE;
+
+/**
+ * 统计格：数字 + 标签的等宽单元。
+ * 此前 `rounded-lg bg-slate-800/70 px-3 py-2 text-center` 逐字重复 17 次、
+ * 散在 4 个文件里。用 <StatTile value label /> 代替。
+ */
+export const STAT = "rounded-lg bg-slate-800/70 px-3 py-2 text-center";
+
+/** 统计格的数字行。基线不含颜色 —— 颜色由 StatTile 的 valueClass 决定，默认 text-ink。 */
+export const STAT_VALUE = "text-lg font-bold";
+
+/** 统计格的标签行 */
+export const STAT_LABEL = "text-xs text-ink-faint";

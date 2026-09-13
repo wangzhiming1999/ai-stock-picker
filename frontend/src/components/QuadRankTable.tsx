@@ -5,6 +5,7 @@ import WatchStar from "./WatchStar";
 import { safeArray } from "../lib/safe";
 import { pnlTone, scoreChip } from "../lib/tone";
 import type { QuadRankResult, QuadStock } from "../types";
+import Button from "./Button";
 
 interface Props {
   onPick: (codes: string[]) => void;
@@ -75,17 +76,16 @@ export default function QuadRankTable({ onPick }: Props) {
       action={
         <div className="flex items-center gap-2">
           {selected.size > 0 && (
-            <button
+            <Button variant="primary" size="sm"
               onClick={pickSelected}
-              className="rounded-lg bg-brand px-3 py-1 text-xs font-medium text-white hover:bg-brand-dark"
-            >
+              >
               勾选 {selected.size} 只去分析 →
-            </button>
+            </Button>
           )}
           <button
             onClick={() => void load(true)}
             disabled={loading}
-            className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-ink-muted hover:text-ink disabled:opacity-50"
+            className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-ink-muted hover:text-ink"
           >
             {loading ? "重算中..." : "强制刷新"}
           </button>
@@ -114,16 +114,16 @@ export default function QuadRankTable({ onPick }: Props) {
             <table className="w-full text-sm" style={{ minWidth: 760 }}>
               <thead className="sticky top-0 z-10 bg-slate-900 text-left text-xs text-ink-muted">
                 <tr>
-                  <th className="px-3 py-2"></th>
-                  <th className="px-3 py-2">#</th>
-                  <th className="px-3 py-2">股票</th>
-                  <th className="px-3 py-2 text-right">现价</th>
-                  <th className="px-3 py-2 text-center">基本面</th>
-                  <th className="px-3 py-2 text-center">技术面</th>
-                  <th className="px-3 py-2 text-center">资金面</th>
-                  <th className="px-3 py-2 text-center">消息面</th>
-                  <th className="px-3 py-2 text-center">综合</th>
-                  <th className="px-3 py-2 text-right">操作</th>
+                  <th scope="col" className="px-3 py-2"></th>
+                  <th scope="col" className="px-3 py-2">#</th>
+                  <th scope="col" className="px-3 py-2">股票</th>
+                  <th scope="col" className="px-3 py-2 text-right">现价</th>
+                  <th scope="col" className="px-3 py-2 text-center">基本面</th>
+                  <th scope="col" className="px-3 py-2 text-center">技术面</th>
+                  <th scope="col" className="px-3 py-2 text-center">资金面</th>
+                  <th scope="col" className="px-3 py-2 text-center">消息面</th>
+                  <th scope="col" className="px-3 py-2 text-center">综合</th>
+                  <th scope="col" className="px-3 py-2 text-right">操作</th>
                 </tr>
               </thead>
               <tbody>

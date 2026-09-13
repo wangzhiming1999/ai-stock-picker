@@ -2,6 +2,7 @@ import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { LogIn, Mail, ShieldCheck, UserPlus, X } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
+import Input from "./Input";
 
 interface Props {
   open: boolean;
@@ -64,7 +65,7 @@ export default function AuthModal({ open, onClose }: Props) {
           >
             <div className="mb-5 flex items-center justify-between">
               <h2 className="flex items-center gap-2 text-lg font-bold text-white">
-                {mode === "signin" ? <LogIn className="h-5 w-5 text-brand-light" /> : <UserPlus className="h-5 w-5 text-brand-light" />}
+                {mode === "signin" ? <LogIn className="h-5 w-5 text-brand-light" aria-hidden /> : <UserPlus className="h-5 w-5 text-brand-light" aria-hidden />}
                 {mode === "signin" ? "登录" : "注册"}
               </h2>
               <motion.button
@@ -95,7 +96,7 @@ export default function AuthModal({ open, onClose }: Props) {
                     <motion.span layoutId="auth-tab" className="absolute inset-0 rounded-md bg-brand" transition={{ type: "spring", stiffness: 400, damping: 30 }} />
                   )}
                   <span className="relative flex items-center justify-center gap-1.5">
-                    {m === "signin" ? <LogIn className="h-3.5 w-3.5" /> : <UserPlus className="h-3.5 w-3.5" />}
+                    {m === "signin" ? <LogIn className="h-3.5 w-3.5" aria-hidden /> : <UserPlus className="h-3.5 w-3.5" aria-hidden />}
                     {m === "signin" ? "登录" : "注册"}
                   </span>
                 </motion.button>
@@ -104,28 +105,26 @@ export default function AuthModal({ open, onClose }: Props) {
 
             <label className="mb-3 block">
               <span className="mb-1 flex items-center gap-1.5 text-sm text-ink-muted">
-                <Mail className="h-3.5 w-3.5" /> 邮箱
+                <Mail className="h-3.5 w-3.5" aria-hidden /> 邮箱
               </span>
-              <input
+              <Input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com"
-                className="w-full rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-2 text-sm outline-none focus:border-brand"
-              />
+                className="w-full rounded-lg bg-slate-800/70 px-3 py-2 text-sm" />
             </label>
             <label className="mb-4 block">
               <span className="mb-1 flex items-center gap-1.5 text-sm text-ink-muted">
-                <ShieldCheck className="h-3.5 w-3.5" /> 密码
+                <ShieldCheck className="h-3.5 w-3.5" aria-hidden /> 密码
               </span>
-              <input
+              <Input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && void submit()}
                 placeholder="至少 6 位"
-                className="w-full rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-2 text-sm outline-none focus:border-brand"
-              />
+                className="w-full rounded-lg bg-slate-800/70 px-3 py-2 text-sm" />
             </label>
 
             {error && (
@@ -152,8 +151,7 @@ export default function AuthModal({ open, onClose }: Props) {
               disabled={loading}
               whileHover={loading ? {} : { scale: 1.01 }}
               whileTap={loading ? {} : { scale: 0.98 }}
-              className="w-full rounded-lg bg-brand py-2.5 text-sm font-medium text-white hover:bg-brand-dark disabled:opacity-50"
-            >
+              className="w-full rounded-lg bg-brand py-2.5 text-sm font-medium text-white hover:bg-brand-dark">
               {loading ? "请稍候..." : mode === "signin" ? "登录" : "注册"}
             </motion.button>
           </motion.div>

@@ -92,7 +92,7 @@ export default function AlertBell() {
         title="价格预警"
         aria-label="预警通知"
       >
-        {unread > 0 ? <BellRing className="h-5 w-5 text-amber-400" /> : <Bell className="h-5 w-5" />}
+        {unread > 0 ? <BellRing className="h-5 w-5 text-amber-400" aria-hidden /> : <Bell className="h-5 w-5" aria-hidden />}
         {unread > 0 && (
           <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-xs font-bold text-white">
             {unread > 99 ? "99+" : unread}
@@ -114,7 +114,7 @@ export default function AlertBell() {
               <div className="flex items-center justify-between border-b border-slate-800 px-4 py-2.5">
                 <span className="text-sm font-semibold text-ink-strong">价格预警</span>
                 <button onClick={readAll} className="flex items-center gap-1 text-xs text-ink-muted hover:text-brand-light">
-                  <CheckCheck className="h-3.5 w-3.5" />
+                  <CheckCheck className="h-3.5 w-3.5" aria-hidden />
                   全部已读
                 </button>
               </div>

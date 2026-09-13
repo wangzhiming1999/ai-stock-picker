@@ -4,6 +4,7 @@ import CollapsiblePanel from "./CollapsiblePanel";
 import { safeObj } from "../lib/safe";
 import { pctTone } from "../lib/tone";
 import type { WinrateStats } from "../types";
+import StatTile from "./StatTile";
 
 export default function WinratePanel() {
   const [data, setData] = useState<WinrateStats | null>(null);
@@ -32,7 +33,7 @@ export default function WinratePanel() {
       title="胜率看板"
       subtitle="预测与推荐的实际命中表现 · 每日自动结算"
       action={
-        <button onClick={() => void load()} disabled={loading} className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-ink-muted hover:text-ink disabled:opacity-50">
+        <button onClick={() => void load()} disabled={loading} className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-ink-muted hover:text-ink">
           {loading ? "加载中..." : "刷新"}
         </button>
       }
@@ -60,20 +61,13 @@ export default function WinratePanel() {
             <div className="mb-1.5 text-xs font-semibold text-ink-muted">大盘推衍命中率</div>
             {data.prediction && data.prediction.total > 0 ? (
               <div className="grid grid-cols-3 gap-2">
-                <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
-                  <div className="text-lg font-bold text-ink">{data.prediction.total}</div>
-                  <div className="text-xs text-ink-faint">已结算</div>
-                </div>
-                <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
-                  <div className="text-lg font-bold text-ink">{data.prediction.hit}</div>
-                  <div className="text-xs text-ink-faint">命中</div>
-                </div>
-                <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
-                  <div className={`text-lg font-bold ${pctTone(data.prediction.hit_rate)}`}>
-                    {data.prediction.hit_rate != null ? `${data.prediction.hit_rate}%` : "-"}
-                  </div>
-                  <div className="text-xs text-ink-faint">命中率</div>
-                </div>
+                <StatTile value={data.prediction.total} label="已结算" />
+                <StatTile value={data.prediction.hit} label="命中" />
+                <StatTile
+                  value={data.prediction.hit_rate != null ? `${data.prediction.hit_rate}%` : "-"}
+                  label="命中率"
+                  valueClass={pctTone(data.prediction.hit_rate)}
+                />
               </div>
             ) : (
               <div className="rounded-lg bg-slate-800/40 px-3 py-2 text-xs text-ink-faint">
@@ -99,20 +93,13 @@ export default function WinratePanel() {
             <div className="mb-1.5 text-xs font-semibold text-ink-muted">每日推荐次日胜率</div>
             {data.recommendation && data.recommendation.total > 0 ? (
               <div className="grid grid-cols-3 gap-2">
-                <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
-                  <div className="text-lg font-bold text-ink">{data.recommendation.total}</div>
-                  <div className="text-xs text-ink-faint">已结算</div>
-                </div>
-                <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
-                  <div className="text-lg font-bold text-ink">{data.recommendation.hit}</div>
-                  <div className="text-xs text-ink-faint">次日上涨</div>
-                </div>
-                <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
-                  <div className={`text-lg font-bold ${pctTone(data.recommendation.hit_rate)}`}>
-                    {data.recommendation.hit_rate != null ? `${data.recommendation.hit_rate}%` : "-"}
-                  </div>
-                  <div className="text-xs text-ink-faint">次日胜率</div>
-                </div>
+                <StatTile value={data.recommendation.total} label="已结算" />
+                <StatTile value={data.recommendation.hit} label="次日上涨" />
+                <StatTile
+                  value={data.recommendation.hit_rate != null ? `${data.recommendation.hit_rate}%` : "-"}
+                  label="次日胜率"
+                  valueClass={pctTone(data.recommendation.hit_rate)}
+                />
               </div>
             ) : (
               <div className="rounded-lg bg-slate-800/40 px-3 py-2 text-xs text-ink-faint">

@@ -4,6 +4,7 @@ import { fmtNum } from "../lib/safe";
 import { pnlTone } from "../lib/tone";
 import CollapsiblePanel from "./CollapsiblePanel";
 import type { TacticDef, TacticResult, TacticScanResult } from "../types";
+import Button from "./Button";
 
 interface Props {
   onPick: (codes: string[]) => void;
@@ -112,13 +113,12 @@ export default function TacticPanel({ onPick, onImport }: Props) {
             >
               全部加自选
             </button>
-            <button
+            <Button variant="primary" size="sm"
               onClick={() => onPick(Array.from(selected))}
               disabled={selected.size === 0}
-              className="rounded-lg bg-brand px-3 py-1 text-xs font-medium text-white hover:bg-brand-dark disabled:opacity-40"
-            >
+              >
               勾选 {selected.size} 只去分析 →
-            </button>
+            </Button>
           </div>
         ) : undefined
       }
@@ -128,7 +128,7 @@ export default function TacticPanel({ onPick, onImport }: Props) {
           onClick={() => void run("all")}
           disabled={running}
           aria-pressed={active === "all"}
-          className={`rounded-lg border px-3 py-2 text-left text-sm transition disabled:opacity-60 ${
+          className={`rounded-lg border px-3 py-2 text-left text-sm transition ${
             active === "all" ? "border-brand bg-brand/10 text-white" : "border-slate-700 text-ink hover:border-slate-500"
           }`}
         >
@@ -149,7 +149,7 @@ export default function TacticPanel({ onPick, onImport }: Props) {
                   onClick={() => void run(t.key)}
                   disabled={running}
                   aria-pressed={active === t.key}
-                  className={`rounded-lg border p-3 text-left transition disabled:opacity-60 ${buttonClass(t.direction, active === t.key)}`}
+                  className={`rounded-lg border p-3 text-left transition ${buttonClass(t.direction, active === t.key)}`}
                 >
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-ink-strong">{t.name}</span>

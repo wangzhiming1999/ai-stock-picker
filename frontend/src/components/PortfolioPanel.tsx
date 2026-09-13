@@ -15,6 +15,9 @@ import type { HoldingsData, PortfolioAdvice, UserProfile } from "../types";
 import { useAuth } from "../auth/AuthContext";
 import { fmtPct, safeNumber } from "../lib/safe";
 import { actionTone, pnlTone, scoreChip } from "../lib/tone";
+import Input from "./Input";
+import Button from "./Button";
+import StatTile from "./StatTile";
 
 const RISK_LEVELS = [
   { name: "保守", desc: "低波动优先，严格控制仓位" },
@@ -134,9 +137,9 @@ export default function PortfolioPanel() {
           >
             截图导入
           </button>
-          <button onClick={() => setShowAdd(true)} className="rounded-lg bg-brand px-4 py-1.5 text-xs font-medium text-white hover:bg-brand-dark">
+          <Button variant="primary" size="md" onClick={() => setShowAdd(true)}>
             + 添加持仓
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -150,7 +153,7 @@ export default function PortfolioPanel() {
             <span className="text-xs font-semibold text-ink-muted">风险等级</span>
             <label className="flex items-center gap-2 text-xs text-ink-faint">
               总资金
-              <input
+              <Input
                 type="number"
                 defaultValue={profile.total_capital}
                 onBlur={(e) => {
@@ -163,7 +166,7 @@ export default function PortfolioPanel() {
                     })
                     .catch((err) => toast.error("总资金保存失败", { description: (err as Error).message }));
                 }}
-                className="w-24 rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-ink"
+                className="w-24 bg-slate-800 px-2 py-1 text-xs"
               />
             </label>
           </div>
@@ -198,21 +201,21 @@ export default function PortfolioPanel() {
             <div className="grid grid-cols-2 gap-3">
               <label className="block">
                 <span className="mb-1 block text-xs text-ink-faint">成本价</span>
-                <input value={costPrice} onChange={(e) => setCostPrice(e.target.value)} type="number" step="0.01" placeholder="如 1250.00" className="w-full rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-1.5 text-sm" />
+                <Input value={costPrice} onChange={(e) => setCostPrice(e.target.value)} type="number" step="0.01" placeholder="如 1250.00" className="w-full rounded-lg bg-slate-800/70 px-3 py-1.5 text-sm" />
               </label>
               <label className="block">
                 <span className="mb-1 block text-xs text-ink-faint">数量(股)</span>
-                <input value={shares} onChange={(e) => setShares(e.target.value)} type="number" placeholder="如 100" className="w-full rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-1.5 text-sm" />
+                <Input value={shares} onChange={(e) => setShares(e.target.value)} type="number" placeholder="如 100" className="w-full rounded-lg bg-slate-800/70 px-3 py-1.5 text-sm" />
               </label>
             </div>
             <label className="block">
               <span className="mb-1 block text-xs text-ink-faint">备注（可选）</span>
-              <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="如：核心持仓" className="w-full rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-1.5 text-sm" />
+              <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="如：核心持仓" className="w-full rounded-lg bg-slate-800/70 px-3 py-1.5 text-sm" />
             </label>
             <div className="flex gap-2">
-              <button onClick={() => void submitAdd()} className="rounded-lg bg-brand px-4 py-1.5 text-xs font-medium text-white hover:bg-brand-dark">
+              <Button variant="primary" size="md" onClick={() => void submitAdd()}>
                 保存
-              </button>
+              </Button>
               <button onClick={() => setShowAdd(false)} className="rounded-lg border border-slate-600 px-4 py-1.5 text-xs text-ink-muted hover:text-ink">
                 取消
               </button>
@@ -224,23 +227,13 @@ export default function PortfolioPanel() {
       {/* 汇总 */}
       {holdings && holdings.holdings.length > 0 && (
         <div className="mb-4 grid grid-cols-3 gap-2">
-          <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
-            <div className="text-lg font-bold text-ink">{safeNumber(holdings.total_value).toLocaleString()}</div>
-            <div className="text-xs text-ink-faint">市值</div>
-          </div>
-          <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
-            <div className={`text-lg font-bold ${pnlTone(holdings.total_pnl)}`}>
-              {holdings.total_pnl >= 0 ? "+" : ""}
-              {safeNumber(holdings.total_pnl).toLocaleString()}
-            </div>
-            <div className="text-xs text-ink-faint">总盈亏</div>
-          </div>
-          <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
-            <div className={`text-lg font-bold ${pnlTone(holdings.total_pnl_pct)}`}>
-              {fmtPct(holdings.total_pnl_pct)}
-            </div>
-            <div className="text-xs text-ink-faint">盈亏率</div>
-          </div>
+          <StatTile value={safeNumber(holdings.total_value).toLocaleString()} label="市值" />
+          <StatTile
+            value={<>{holdings.total_pnl >= 0 ? "+" : ""}{safeNumber(holdings.total_pnl).toLocaleString()}</>}
+            label="总盈亏"
+            valueClass={pnlTone(holdings.total_pnl)}
+          />
+          <StatTile value={fmtPct(holdings.total_pnl_pct)} label="盈亏率" valueClass={pnlTone(holdings.total_pnl_pct)} />
         </div>
       )}
 
@@ -250,13 +243,13 @@ export default function PortfolioPanel() {
           <table className="w-full text-sm">
             <thead className="text-left text-xs text-ink-muted">
               <tr>
-                <th className="px-3 py-2">股票</th>
-                <th className="px-3 py-2 text-right">现价</th>
-                <th className="px-3 py-2 text-right">成本</th>
-                <th className="px-3 py-2 text-right">数量</th>
-                <th className="px-3 py-2 text-right">盈亏</th>
-                <th className="px-3 py-2">技术信号</th>
-                <th className="px-3 py-2"></th>
+                <th scope="col" className="px-3 py-2">股票</th>
+                <th scope="col" className="px-3 py-2 text-right">现价</th>
+                <th scope="col" className="px-3 py-2 text-right">成本</th>
+                <th scope="col" className="px-3 py-2 text-right">数量</th>
+                <th scope="col" className="px-3 py-2 text-right">盈亏</th>
+                <th scope="col" className="px-3 py-2">技术信号</th>
+                <th scope="col" className="px-3 py-2"></th>
               </tr>
             </thead>
             <tbody>

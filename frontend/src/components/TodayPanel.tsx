@@ -73,7 +73,7 @@ export default function TodayPanel({ onPick }: Props) {
               view === "monitor" ? "bg-brand text-white" : "text-ink-muted hover:text-ink"
             }`}
           >
-            <Activity className="h-3.5 w-3.5" />
+            <Activity className="h-3.5 w-3.5" aria-hidden />
             盯盘
           </button>
           <button
@@ -83,7 +83,7 @@ export default function TodayPanel({ onPick }: Props) {
               view === "briefing" ? "bg-brand text-white" : "text-ink-muted hover:text-ink"
             }`}
           >
-            <ClipboardList className="h-3.5 w-3.5" />
+            <ClipboardList className="h-3.5 w-3.5" aria-hidden />
             简报
           </button>
         </div>

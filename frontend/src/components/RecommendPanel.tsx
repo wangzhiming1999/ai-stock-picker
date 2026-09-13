@@ -52,7 +52,7 @@ export default function RecommendPanel({ onPick }: Props) {
       </div>
 
       <div className="flex items-center gap-2 pt-1 text-sm font-semibold text-ink-soft">
-        <Radar className="h-4 w-4 text-brand-light" /> 想继续找机会？
+        <Radar className="h-4 w-4 text-brand-light" aria-hidden /> 想继续找机会？
         <span className="text-xs font-normal text-ink-faint">下面是模型筛出的备选股票，可进一步分析，但不等于建议买入</span>
       </div>
 
@@ -72,7 +72,7 @@ export default function RecommendPanel({ onPick }: Props) {
           <button
             onClick={() => void loadIndustries()}
             disabled={indLoading}
-            className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-ink-muted hover:text-ink disabled:opacity-50"
+            className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-ink-muted hover:text-ink"
           >
             {indLoading ? "加载中..." : "刷新"}
           </button>
@@ -87,10 +87,10 @@ export default function RecommendPanel({ onPick }: Props) {
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-slate-900 text-left text-xs text-ink-muted">
                 <tr>
-                  <th className="px-3 py-2">板块</th>
-                  <th className="px-3 py-2 text-right">家数</th>
-                  <th className="px-3 py-2 text-right">涨跌幅</th>
-                  <th className="px-3 py-2 text-right">平均价</th>
+                  <th scope="col" className="px-3 py-2">板块</th>
+                  <th scope="col" className="px-3 py-2 text-right">家数</th>
+                  <th scope="col" className="px-3 py-2 text-right">涨跌幅</th>
+                  <th scope="col" className="px-3 py-2 text-right">平均价</th>
                 </tr>
               </thead>
               <tbody>

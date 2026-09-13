@@ -55,7 +55,7 @@ export default function WatchStar({ code, size = "sm" }: Props) {
             : "text-ink-faint hover:bg-slate-700/50 hover:text-amber-300"
         }`}
       >
-        <Star className={`h-3.5 w-3.5 ${active ? "fill-amber-400" : ""}`} strokeWidth={2} />
+        <Star className={`h-3.5 w-3.5 ${active ? "fill-amber-400" : ""}`} strokeWidth={2} aria-hidden />
         {size === "md" && (active ? "已加" : "加自选")}
       </motion.button>
       {msg && (

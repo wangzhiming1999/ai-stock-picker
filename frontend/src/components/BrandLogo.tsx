@@ -38,7 +38,7 @@ export default function BrandLogo({ size = "md", withText = true, subtitle, onCl
           transition={{ type: "spring", stiffness: 260, damping: 18 }}
           className={`relative flex ${c.box} items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 via-indigo-500 to-violet-500 text-white ${c.glow}`}
         >
-          <TrendingUp className={c.icon} strokeWidth={2.6} />
+          <TrendingUp className={c.icon} strokeWidth={2.6} aria-hidden />
         </motion.div>
       </div>
       {withText && (

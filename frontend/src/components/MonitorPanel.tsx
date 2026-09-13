@@ -6,6 +6,7 @@ import CollapsiblePanel from "./CollapsiblePanel";
 import { useAuth } from "../auth/AuthContext";
 import type { MonitorInterval, MonitorResult, MonitorStock } from "../types";
 import { actionTone, pnlTone } from "../lib/tone";
+import Input from "./Input";
 
 const LS_KEY = "ai:monitorCodes";
 const LS_NOTIFY = "ai:monitorNotify";
@@ -450,15 +451,14 @@ export default function MonitorPanel() {
                 : "border-slate-700 text-ink-muted hover:text-ink"
             }`}
           >
-            {notifyOn ? <BellRing className="h-3.5 w-3.5" /> : <Bell className="h-3.5 w-3.5" />}
+            {notifyOn ? <BellRing className="h-3.5 w-3.5" aria-hidden /> : <Bell className="h-3.5 w-3.5" aria-hidden />}
             {notifyOn ? "提醒已开" : "开启提醒"}
           </button>
           <button
             onClick={() => void refresh(false, true)}
             disabled={loading || codes.length === 0}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1 text-xs text-ink-muted hover:text-ink disabled:opacity-50"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1 text-xs text-ink-muted hover:text-ink">
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden />
             {loading ? "刷新中..." : "立即刷新"}
           </button>
         </div>
@@ -466,7 +466,11 @@ export default function MonitorPanel() {
     >
       {/* 今日决策条：一眼知道现在要不要动 */}
       {summary && summary.total > 0 && (
-        <div className="mb-3 rounded-xl border border-slate-800 bg-gradient-to-br from-slate-900 to-slate-950 p-3">
+        <div
+          role="status"
+          aria-live="polite"
+          className="mb-3 rounded-xl border border-slate-800 bg-gradient-to-br from-slate-900 to-slate-950 p-3"
+        >
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-semibold text-ink">现在要不要动</span>
             {summary.act_now === 0 ? (
@@ -568,7 +572,7 @@ export default function MonitorPanel() {
       {/* 添加栏 */}
       <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center">
         <div className="flex flex-1 gap-2">
-          <input
+          <Input
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
@@ -578,13 +582,12 @@ export default function MonitorPanel() {
               }
             }}
             placeholder="输入股票代码，空格/逗号分隔，如 600519 000858"
-            className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-ink placeholder:text-ink-faint focus:border-brand focus:outline-none"
-          />
+            className="flex-1 rounded-lg bg-slate-900 px-3 py-2 text-sm" />
           <button
             onClick={addCodes}
             className="inline-flex items-center gap-1 rounded-lg bg-slate-800 px-3 py-2 text-sm text-ink hover:bg-slate-700"
           >
-            <Plus className="h-4 w-4" /> 添加
+            <Plus className="h-4 w-4" aria-hidden /> 添加
           </button>
         </div>
         <div className="flex items-center gap-2">
@@ -593,14 +596,14 @@ export default function MonitorPanel() {
             title="把自选股一次性加入监控名单"
             className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-ink-muted hover:text-ink"
           >
-            <Download className="h-3.5 w-3.5" /> 导入自选
+            <Download className="h-3.5 w-3.5" aria-hidden /> 导入自选
           </button>
           <button
             onClick={() => void importHoldings()}
             title="把持仓加入监控，并带上成本价（指令会显示浮盈浮亏）"
             className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-ink-muted hover:text-ink"
           >
-            <Download className="h-3.5 w-3.5" /> 导入持仓
+            <Download className="h-3.5 w-3.5" aria-hidden /> 导入持仓
           </button>
         </div>
       </div>
@@ -641,13 +644,13 @@ export default function MonitorPanel() {
           <table className="w-full text-sm" style={{ minWidth: 940 }}>
             <thead className="sticky top-0 z-10 bg-slate-900 text-left text-xs text-ink-muted">
               <tr>
-                <th className="px-3 py-2">#</th>
-                <th className="px-3 py-2">股票</th>
-                <th className="px-3 py-2 text-right">现价</th>
-                <th className="px-3 py-2 text-right">{interval === "1d" ? "支撑/压力" : "VWAP / 日内高低"}</th>
-                <th className="px-3 py-2">指令</th>
-                <th className="px-3 py-2">挂单计划</th>
-                <th className="px-3 py-2 text-right">操作</th>
+                <th scope="col" className="px-3 py-2">#</th>
+                <th scope="col" className="px-3 py-2">股票</th>
+                <th scope="col" className="px-3 py-2 text-right">现价</th>
+                <th scope="col" className="px-3 py-2 text-right">{interval === "1d" ? "支撑/压力" : "VWAP / 日内高低"}</th>
+                <th scope="col" className="px-3 py-2">指令</th>
+                <th scope="col" className="px-3 py-2">挂单计划</th>
+                <th scope="col" className="px-3 py-2 text-right">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -669,7 +672,7 @@ export default function MonitorPanel() {
                           className="rounded p-1 text-ink-faint hover:bg-red-950/40 hover:text-red-400"
                           title="移除"
                         >
-                          <Trash2 className="h-4 w-4" />
+                          <Trash2 className="h-4 w-4" aria-hidden />
                         </button>
                       </td>
                     </tr>
@@ -781,13 +784,12 @@ export default function MonitorPanel() {
                         <button
                           onClick={() => void quickAlert(it)}
                           disabled={alertBusy === code}
-                          className="rounded p-1 text-ink-faint hover:bg-slate-700/50 hover:text-amber-300 disabled:opacity-40"
-                          title="按建议价建到价提醒（到价后报警中心提醒）"
+                          className="rounded p-1 text-ink-faint hover:bg-slate-700/50 hover:text-amber-300"title="按建议价建到价提醒（到价后报警中心提醒）"
                         >
                           {alertBusy === code ? (
-                            <Bell className="h-4 w-4 animate-pulse" />
+                            <Bell className="h-4 w-4 animate-pulse" aria-hidden />
                           ) : (
-                            <BellPlus className="h-4 w-4" />
+                            <BellPlus className="h-4 w-4" aria-hidden />
                           )}
                         </button>
                         <button
@@ -795,7 +797,7 @@ export default function MonitorPanel() {
                           className="rounded p-1 text-ink-faint hover:bg-red-950/40 hover:text-red-400"
                           title="移除监控"
                         >
-                          <Trash2 className="h-4 w-4" />
+                          <Trash2 className="h-4 w-4" aria-hidden />
                         </button>
                       </div>
                     </td>

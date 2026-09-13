@@ -81,9 +81,9 @@ export default function TacticBacktestPanel() {
         <button
           onClick={() => void run()}
           disabled={running}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-4 py-1.5 text-sm font-medium text-white hover:bg-brand-dark disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-4 py-1.5 text-sm font-medium text-white hover:bg-brand-dark"
         >
-          <FlaskConical className="h-4 w-4" />
+          <FlaskConical className="h-4 w-4" aria-hidden />
           {running ? "回测中（需十几秒）..." : "运行回测验证"}
         </button>
       </div>

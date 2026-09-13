@@ -6,6 +6,7 @@ import CollapsiblePanel from "./CollapsiblePanel";
 import WatchStar from "./WatchStar";
 import type { DailyRecommendResult } from "../types";
 import { pnlTone } from "../lib/tone";
+import Button from "./Button";
 
 function plainStatus(status: string): string {
   return status
@@ -60,19 +61,18 @@ export default function DailyRecommendCard({ onPick, collapsed = false }: Props)
   };
 
   const actions = data?.recommendations?.length ? (
-    <button
+    <Button variant="primary" size="sm"
       onClick={pickAll}
-      className="rounded-lg bg-brand px-3 py-1 text-xs font-medium text-white hover:bg-brand-dark"
-    >
+      >
       全部去分析 →
-    </button>
+    </Button>
   ) : null;
 
   const refreshBtn = (
     <button
       onClick={() => void load(true)}
       disabled={loading}
-      className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-ink-muted hover:text-ink disabled:opacity-50"
+      className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-ink-muted hover:text-ink"
     >
       {loading ? "生成中..." : "强制刷新"}
     </button>
@@ -84,7 +84,7 @@ export default function DailyRecommendCard({ onPick, collapsed = false }: Props)
 
       {data?.date && (
         <div className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-slate-800 bg-slate-800/40 px-3 py-2 text-xs text-ink-muted">
-          <CalendarDays className="h-3.5 w-3.5 shrink-0 text-ink-faint" />
+          <CalendarDays className="h-3.5 w-3.5 shrink-0 text-ink-faint" aria-hidden />
           <span>
             数据截至 <span className="font-medium text-ink">{fmtDayLabel(data.date)}</span> 收盘
             {data.target_date && (
@@ -173,7 +173,7 @@ export default function DailyRecommendCard({ onPick, collapsed = false }: Props)
           <div className="flex items-center justify-between gap-3">
             <div>
               <div className="flex items-center gap-1.5 text-sm font-semibold text-amber-200">
-                <Eye className="h-4 w-4" /> 先观察，别急着买
+                <Eye className="h-4 w-4" aria-hidden /> 先观察，别急着买
               </div>
               <p className="mt-0.5 text-xs text-ink-faint">这些股票接近条件，但现在买入风险仍偏高</p>
             </div>
@@ -197,7 +197,7 @@ export default function DailyRecommendCard({ onPick, collapsed = false }: Props)
                   <span className="text-xs font-semibold text-amber-300">{item.score.toFixed(1)}</span>
                 </div>
                 <div className="mt-2 flex items-center gap-1.5 text-xs text-ink-muted">
-                  <ShieldCheck className="h-3.5 w-3.5 text-amber-400" />
+                  <ShieldCheck className="h-3.5 w-3.5 text-amber-400" aria-hidden />
                   <span>{plainStatus(item.status)}</span>
                 </div>
                 <p className="mt-1.5 text-xs leading-relaxed text-ink-faint group-hover:text-ink-muted">{item.trigger}</p>

@@ -7,6 +7,7 @@ import StockCard from "./StockCard";
 import StockSearchInput from "./StockSearchInput";
 import { cardItem, stagger } from "../lib/motion";
 import type { StockAnalysis, StockInfo, SSEEvent } from "../types";
+import Button from "./Button";
 
 type Phase = "idle" | "running" | "done" | "error";
 
@@ -195,7 +196,7 @@ export default function AnalysisDrawer({ open, codes, requestId, onClose, onBatc
             {/* 抽屉头 */}
             <div className="flex items-center justify-between gap-3 border-b border-slate-800 px-4 py-3 sm:px-6">
               <div className="flex items-center gap-2">
-                <BarChart3 className="h-4 w-4 text-brand-light" />
+                <BarChart3 className="h-4 w-4 text-brand-light" aria-hidden />
                 <h2 className="text-sm font-semibold text-white">深度分析</h2>
                 <span className="hidden text-xs text-ink-faint sm:inline">AI 综合行情、K线趋势与最新新闻</span>
               </div>
@@ -235,12 +236,11 @@ export default function AnalysisDrawer({ open, codes, requestId, onClose, onBatc
                       停止
                     </button>
                   ) : (
-                    <button
+                    <Button variant="primary" size="xl"
                       onClick={() => void run(input)}
-                      className="rounded-lg bg-brand px-6 py-2.5 text-sm font-medium text-white hover:bg-brand-dark disabled:opacity-50"
-                    >
+                      >
                       开始分析
-                    </button>
+                    </Button>
                   )}
                 </div>
                 <p className="mt-2 text-xs text-ink-faint">提示：支持 Ctrl + Enter 快捷触发；Esc 关闭</p>
@@ -316,7 +316,7 @@ export default function AnalysisDrawer({ open, codes, requestId, onClose, onBatc
               {phase === "idle" && items.length === 0 && (
                 <div className="mt-10 text-center">
                   <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-800 bg-slate-900">
-                    <BarChart3 className="h-7 w-7 text-brand-light" />
+                    <BarChart3 className="h-7 w-7 text-brand-light" aria-hidden />
                   </div>
                   <p className="mt-3 text-sm text-ink-faint">
                     输入 A 股代码，AI 将综合行情、K线趋势与最新新闻给出选股评分

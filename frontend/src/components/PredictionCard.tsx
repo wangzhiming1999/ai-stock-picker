@@ -5,6 +5,7 @@ import KLineChart from "./KLineChart";
 import { safeArray, safeObj } from "../lib/safe";
 import type { IndexHistory, MarketPrediction, PredictionRecord, PredictionStats, StockHistory } from "../types";
 import { dirTone, pctTone, pnlTone } from "../lib/tone";
+import StatTile from "./StatTile";
 
 function fmtDate(iso: string): string {
   const d = new Date(iso);
@@ -59,7 +60,7 @@ export default function PredictionCard() {
       title="明日大盘推衍"
       subtitle="上证指数技术信号 + AI 预测 · 附准确率追踪"
       action={
-        <button onClick={() => void load(true)} disabled={loading} className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-ink-muted hover:text-ink disabled:opacity-50">
+        <button onClick={() => void load(true)} disabled={loading} className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-ink-muted hover:text-ink">
           {loading ? "分析中..." : "强制刷新"}
         </button>
       }
@@ -169,24 +170,14 @@ export default function PredictionCard() {
         <div className="mt-4 border-t border-slate-800 pt-3">
           <div className="mb-2 text-xs font-semibold text-ink-muted">预测准确率</div>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
-              <div className="text-lg font-bold text-ink">{stats.total}</div>
-              <div className="text-xs text-ink-faint">已记录</div>
-            </div>
-            <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
-              <div className="text-lg font-bold text-ink">{stats.settled}</div>
-              <div className="text-xs text-ink-faint">已结算</div>
-            </div>
-            <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
-              <div className="text-lg font-bold text-ink">{stats.hit}</div>
-              <div className="text-xs text-ink-faint">命中</div>
-            </div>
-            <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
-              <div className={`text-lg font-bold ${pctTone(stats.hit_rate)}`}>
-                {stats.hit_rate != null ? `${stats.hit_rate}%` : "-"}
-              </div>
-              <div className="text-xs text-ink-faint">命中率</div>
-            </div>
+            <StatTile value={stats.total} label="已记录" />
+            <StatTile value={stats.settled} label="已结算" />
+            <StatTile value={stats.hit} label="命中" />
+            <StatTile
+              value={stats.hit_rate != null ? `${stats.hit_rate}%` : "-"}
+              label="命中率"
+              valueClass={pctTone(stats.hit_rate)}
+            />
           </div>
           {Object.entries(stats.by_direction).length > 0 && (
             <div className="mt-2 flex flex-wrap gap-2 text-xs">
@@ -208,10 +199,10 @@ export default function PredictionCard() {
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-slate-900 text-left text-xs text-ink-muted">
                 <tr>
-                  <th className="px-3 py-2">时间</th>
-                  <th className="px-3 py-2">预测</th>
-                  <th className="px-3 py-2 text-right">实际</th>
-                  <th className="px-3 py-2 text-center">结果</th>
+                  <th scope="col" className="px-3 py-2">时间</th>
+                  <th scope="col" className="px-3 py-2">预测</th>
+                  <th scope="col" className="px-3 py-2 text-right">实际</th>
+                  <th scope="col" className="px-3 py-2 text-center">结果</th>
                 </tr>
               </thead>
               <tbody>

@@ -19,6 +19,9 @@ import {
   resetSimAccount,
   simTrade,
 } from "../api/client";
+import Input from "./Input";
+import Button from "./Button";
+import StatTile from "./StatTile";
 
 /** 收益折线（echarts，P1） */
 function PerfChart({ data }: { data: SimPerformance }) {
@@ -126,11 +129,11 @@ function TradeModal({
         <div className="space-y-3">
           <label className="block">
             <span className="mb-1 block text-xs text-ink-faint">股票代码</span>
-            <input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="6 位代码" disabled={!!initialCode} className="w-full rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-1.5 text-sm disabled:opacity-60" />
+            <Input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="6 位代码" disabled={!!initialCode} className="w-full rounded-lg bg-slate-800/70 px-3 py-1.5 text-sm" />
           </label>
           <label className="block">
             <span className="mb-1 block text-xs text-ink-faint">数量（股，100 的整数倍）</span>
-            <input value={shares} onChange={(e) => setShares(e.target.value.replace(/\D/g, ""))} type="number" placeholder="如 100" className="w-full rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-1.5 text-sm" />
+            <Input value={shares} onChange={(e) => setShares(e.target.value.replace(/\D/g, ""))} type="number" placeholder="如 100" className="w-full rounded-lg bg-slate-800/70 px-3 py-1.5 text-sm" />
           </label>
           <label className="block">
             <span className="mb-1 flex items-center justify-between text-xs text-ink-faint">
@@ -140,10 +143,10 @@ function TradeModal({
                 用实时价
               </label>
             </span>
-            <input value={price} onChange={(e) => setPrice(e.target.value)} type="number" step="0.01" disabled={priceAuto} placeholder={priceAuto ? "自动取当前价" : "如 12.50"} className="w-full rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-1.5 text-sm disabled:opacity-50" />
+            <Input value={price} onChange={(e) => setPrice(e.target.value)} type="number" step="0.01" disabled={priceAuto} placeholder={priceAuto ? "自动取当前价" : "如 12.50"} className="w-full rounded-lg bg-slate-800/70 px-3 py-1.5 text-sm" />
           </label>
           <div className="flex gap-2 pt-1">
-            <button onClick={submit} disabled={busy} className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-60 ${isBuy ? "bg-red-600 hover:bg-red-500" : "bg-green-600 hover:bg-green-500"}`}>
+            <button onClick={submit} disabled={busy} className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium text-white ${isBuy ? "bg-red-600 hover:bg-red-500" : "bg-green-600 hover:bg-green-500"}`}>
               {busy ? "提交中..." : isBuy ? "买入" : "卖出"}
             </button>
             <button onClick={onClose} className="rounded-lg border border-slate-600 px-4 py-2 text-sm text-ink-muted hover:text-ink">取消</button>
@@ -256,12 +259,11 @@ export default function SimPanel() {
               重置
             </button>
           )}
-          <button
+          <Button variant="primary" size="md"
             onClick={() => setModal({ side: "buy", code: "" })}
-            className="rounded-lg bg-brand px-4 py-1.5 text-xs font-medium text-white hover:bg-brand-dark"
-          >
+            >
             + 模拟买入
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -288,24 +290,14 @@ export default function SimPanel() {
       {account && account.initialized && (
         <>
           <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
-              <div className="text-lg font-bold text-ink">{safeNumber(account.total_value).toLocaleString()}</div>
-              <div className="text-xs text-ink-faint">总资产</div>
-            </div>
-            <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
-              <div className="text-lg font-bold text-ink">{safeNumber(account.cash).toLocaleString()}</div>
-              <div className="text-xs text-ink-faint">可用现金</div>
-            </div>
-            <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
-              <div className={`text-lg font-bold ${pnlTone(account.total_pnl)}`}>
-                {account.total_pnl != null ? `${account.total_pnl >= 0 ? "+" : ""}${safeNumber(account.total_pnl).toLocaleString()}` : "-"}
-              </div>
-              <div className="text-xs text-ink-faint">总盈亏</div>
-            </div>
-            <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
-              <div className={`text-lg font-bold ${pnlTone(account.total_pnl_pct)}`}>{fmtPct(account.total_pnl_pct)}</div>
-              <div className="text-xs text-ink-faint">盈亏率</div>
-            </div>
+            <StatTile value={safeNumber(account.total_value).toLocaleString()} label="总资产" />
+            <StatTile value={safeNumber(account.cash).toLocaleString()} label="可用现金" />
+            <StatTile
+              value={account.total_pnl != null ? `${account.total_pnl >= 0 ? "+" : ""}${safeNumber(account.total_pnl).toLocaleString()}` : "-"}
+              label="总盈亏"
+              valueClass={pnlTone(account.total_pnl)}
+            />
+            <StatTile value={fmtPct(account.total_pnl_pct)} label="盈亏率" valueClass={pnlTone(account.total_pnl_pct)} />
           </div>
           <div className="mb-3 flex gap-4 text-xs text-ink-faint">
             <span>已实现盈亏 <span className={pnlTone(account.realized_pnl)}>{account.realized_pnl >= 0 ? "+" : ""}{safeNumber(account.realized_pnl)}</span></span>
@@ -318,12 +310,12 @@ export default function SimPanel() {
               <table className="w-full text-sm">
                 <thead className="text-left text-xs text-ink-muted">
                   <tr>
-                    <th className="px-3 py-2">股票</th>
-                    <th className="px-3 py-2 text-right">现价</th>
-                    <th className="px-3 py-2 text-right">成本</th>
-                    <th className="px-3 py-2 text-right">数量</th>
-                    <th className="px-3 py-2 text-right">浮盈</th>
-                    <th className="px-3 py-2 text-right"></th>
+                    <th scope="col" className="px-3 py-2">股票</th>
+                    <th scope="col" className="px-3 py-2 text-right">现价</th>
+                    <th scope="col" className="px-3 py-2 text-right">成本</th>
+                    <th scope="col" className="px-3 py-2 text-right">数量</th>
+                    <th scope="col" className="px-3 py-2 text-right">浮盈</th>
+                    <th scope="col" className="px-3 py-2 text-right"></th>
                   </tr>
                 </thead>
                 <tbody>
