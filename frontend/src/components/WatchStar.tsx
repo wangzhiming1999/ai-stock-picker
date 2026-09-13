@@ -52,7 +52,7 @@ export default function WatchStar({ code, size = "sm" }: Props) {
         className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs transition-colors ${
           active
             ? "text-amber-400"
-            : "text-slate-500 hover:bg-slate-700/50 hover:text-amber-300"
+            : "text-ink-faint hover:bg-slate-700/50 hover:text-amber-300"
         }`}
       >
         <Star className={`h-3.5 w-3.5 ${active ? "fill-amber-400" : ""}`} strokeWidth={2} />

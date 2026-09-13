@@ -51,7 +51,7 @@ export default function PredictionCard() {
     void load();
   }, [load]);
 
-  const hitColor = (hit: boolean | undefined) => (hit ? "bg-brand/15 text-brand-light" : "bg-slate-800/40 text-slate-500");
+  const hitColor = (hit: boolean | undefined) => (hit ? "bg-brand/15 text-brand-light" : "bg-slate-800/40 text-ink-faint");
 
   return (
     <CollapsiblePanel
@@ -59,7 +59,7 @@ export default function PredictionCard() {
       title="明日大盘推衍"
       subtitle="上证指数技术信号 + AI 预测 · 附准确率追踪"
       action={
-        <button onClick={() => void load(true)} disabled={loading} className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-slate-400 hover:text-slate-200 disabled:opacity-50">
+        <button onClick={() => void load(true)} disabled={loading} className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-ink-muted hover:text-ink disabled:opacity-50">
           {loading ? "分析中..." : "强制刷新"}
         </button>
       }
@@ -67,25 +67,25 @@ export default function PredictionCard() {
 
       {err && <div className="rounded-lg border border-red-800 bg-red-950/40 px-3 py-2 text-sm text-red-300">{err}</div>}
 
-      {!data && !err && <div className="p-3 text-sm text-slate-500">正在基于上证指数技术信号推衍明日走势...</div>}
+      {!data && !err && <div className="p-3 text-sm text-ink-faint">正在基于上证指数技术信号推衍明日走势...</div>}
 
       {data && (
         <div className="space-y-3">
           {/* 方向 + 概率 */}
           <div className="flex items-center gap-4">
             <div>
-              <div className="text-xs text-slate-500">
+              <div className="text-xs text-ink-faint">
                 {data.technical?.target_date ? `${data.technical.target_date} 方向` : "下一个交易日方向"}
               </div>
               <div className={`text-2xl font-black ${dirTone(data.summary.direction).text}`}>
                 {data.summary.direction ?? "-"}
                 {data.summary.direction_score > 0 && (
-                  <span className="ml-1 text-sm font-semibold text-slate-400">({data.summary.direction_score.toFixed(1)})</span>
+                  <span className="ml-1 text-sm font-semibold text-ink-muted">({data.summary.direction_score.toFixed(1)})</span>
                 )}
               </div>
             </div>
             {data.summary.probability && (
-              <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-xs text-slate-300">
+              <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-xs text-ink-soft">
                 {data.summary.probability}
               </div>
             )}
@@ -95,12 +95,12 @@ export default function PredictionCard() {
           {chartHistory && (
             <div className="rounded-xl border border-slate-800 bg-slate-900 p-2">
               <div className="mb-1 flex items-center justify-between px-1">
-                <span className="text-xs text-slate-500">
+                <span className="text-xs text-ink-faint">
                   {indexHist?.index ?? "上证指数"} · 近 {indexHist?.days ?? 0} 个交易日
                 </span>
                 {indexHist?.latest != null && (
                   <span className="flex items-baseline gap-1.5">
-                    <span className="text-sm font-semibold text-slate-200">{indexHist.latest.toFixed(2)}</span>
+                    <span className="text-sm font-semibold text-ink">{indexHist.latest.toFixed(2)}</span>
                     <span
                       className={`text-xs font-medium ${pnlTone(indexHist.change_pct)}`}
                     >
@@ -119,21 +119,21 @@ export default function PredictionCard() {
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               {Object.entries(safeObj<Record<string, string | number>>(data.summary.key_levels, {})).map(([k, v]) => (
                 <div key={k} className="rounded-lg bg-slate-800/70 px-2 py-1.5 text-center">
-                  <div className="text-xs text-slate-500">{k}</div>
-                  <div className="text-sm font-semibold text-slate-200">{v ?? "-"}</div>
+                  <div className="text-xs text-ink-faint">{k}</div>
+                  <div className="text-sm font-semibold text-ink">{v ?? "-"}</div>
                 </div>
               ))}
             </div>
           )}
 
           {/* 研判 */}
-          <p className="text-sm leading-relaxed text-slate-300">{data.summary.summary ?? ""}</p>
+          <p className="text-sm leading-relaxed text-ink-soft">{data.summary.summary ?? ""}</p>
 
           {/* 驱动因素 */}
           {data.summary.drivers && data.summary.drivers.length > 0 && (
             <div>
-              <div className="mb-1 text-xs font-semibold text-slate-400">关键因素</div>
-              <ul className="list-disc pl-4 text-xs text-slate-300 space-y-0.5">
+              <div className="mb-1 text-xs font-semibold text-ink-muted">关键因素</div>
+              <ul className="list-disc pl-4 text-xs text-ink-soft space-y-0.5">
                 {safeArray<string>(data.summary.drivers).map((d, i) => (
                   <li key={i}>{d}</li>
                 ))}
@@ -150,7 +150,7 @@ export default function PredictionCard() {
           )}
 
           {/* 技术基础数据 */}
-          <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-slate-800 pt-2 text-xs text-slate-500">
+          <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-slate-800 pt-2 text-xs text-ink-faint">
             <span>收盘 {data.technical.price.toFixed(2)}</span>
             <span>当日 {data.technical.day_change > 0 ? "+" : ""}{data.technical.day_change}%</span>
             <span>量比 {data.technical.vol_ratio}</span>
@@ -167,31 +167,31 @@ export default function PredictionCard() {
       {/* 准确率统计 */}
       {stats && (stats.total > 0 || (stats.by_direction && Object.keys(stats.by_direction).length > 0)) && (
         <div className="mt-4 border-t border-slate-800 pt-3">
-          <div className="mb-2 text-xs font-semibold text-slate-400">预测准确率</div>
+          <div className="mb-2 text-xs font-semibold text-ink-muted">预测准确率</div>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
-              <div className="text-lg font-bold text-slate-200">{stats.total}</div>
-              <div className="text-xs text-slate-500">已记录</div>
+              <div className="text-lg font-bold text-ink">{stats.total}</div>
+              <div className="text-xs text-ink-faint">已记录</div>
             </div>
             <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
-              <div className="text-lg font-bold text-slate-200">{stats.settled}</div>
-              <div className="text-xs text-slate-500">已结算</div>
+              <div className="text-lg font-bold text-ink">{stats.settled}</div>
+              <div className="text-xs text-ink-faint">已结算</div>
             </div>
             <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
-              <div className="text-lg font-bold text-slate-200">{stats.hit}</div>
-              <div className="text-xs text-slate-500">命中</div>
+              <div className="text-lg font-bold text-ink">{stats.hit}</div>
+              <div className="text-xs text-ink-faint">命中</div>
             </div>
             <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
               <div className={`text-lg font-bold ${pctTone(stats.hit_rate)}`}>
                 {stats.hit_rate != null ? `${stats.hit_rate}%` : "-"}
               </div>
-              <div className="text-xs text-slate-500">命中率</div>
+              <div className="text-xs text-ink-faint">命中率</div>
             </div>
           </div>
           {Object.entries(stats.by_direction).length > 0 && (
             <div className="mt-2 flex flex-wrap gap-2 text-xs">
               {Object.entries(stats.by_direction).map(([d, b]) => (
-                <span key={d} className="rounded bg-slate-800/70 px-2 py-1 text-slate-400">
+                <span key={d} className="rounded bg-slate-800/70 px-2 py-1 text-ink-muted">
                   {d} {b.hit}/{b.total}（{b.hit_rate ?? "-"}%）
                 </span>
               ))}
@@ -203,42 +203,42 @@ export default function PredictionCard() {
       {/* 历史预测记录 */}
       {safeArray(history).length > 0 && (
         <div className="mt-4 border-t border-slate-800 pt-3">
-          <div className="mb-2 text-xs font-semibold text-slate-400">历史预测</div>
+          <div className="mb-2 text-xs font-semibold text-ink-muted">历史预测</div>
           <div className="max-h-64 overflow-y-auto rounded-xl border border-slate-800">
             <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-slate-900 text-left text-xs text-slate-400">
+              <thead className="sticky top-0 bg-slate-900 text-left text-xs text-ink-muted">
                 <tr>
-                  <th className="px-2 py-1.5">时间</th>
-                  <th className="px-2 py-1.5">预测</th>
-                  <th className="px-2 py-1.5 text-right">实际</th>
-                  <th className="px-2 py-1.5 text-center">结果</th>
+                  <th className="px-3 py-2">时间</th>
+                  <th className="px-3 py-2">预测</th>
+                  <th className="px-3 py-2 text-right">实际</th>
+                  <th className="px-3 py-2 text-center">结果</th>
                 </tr>
               </thead>
               <tbody>
                 {history.map((r) => (
                   <tr key={r.id} className="border-t border-slate-800/60">
-                    <td className="px-2 py-1.5 text-xs text-slate-500">{fmtDate(r.created_at)}</td>
-                    <td className="px-2 py-1.5">
+                    <td className="px-3 py-2 text-xs text-ink-faint">{fmtDate(r.created_at)}</td>
+                    <td className="px-3 py-2">
                       <span className={`text-xs font-medium ${dirTone(r.direction_raw || r.direction).text}`}>
                         {r.direction_raw || r.direction || "-"}
                       </span>
                     </td>
-                    <td className="px-2 py-1.5 text-right text-xs">
+                    <td className="px-3 py-2 text-right text-xs">
                       {r.actual_direction ? (
                         <span className={pnlTone(r.actual_change)}>
                           {r.actual_direction} {r.actual_change != null ? `${r.actual_change > 0 ? "+" : ""}${r.actual_change}%` : ""}
                         </span>
                       ) : (
-                        <span className="text-slate-600">待结算</span>
+                        <span className="text-ink-faint">待结算</span>
                       )}
                     </td>
-                    <td className="px-2 py-1.5 text-center">
+                    <td className="px-3 py-2 text-center">
                       {r.hit != null ? (
                         <span className={`rounded px-1.5 py-0.5 text-xs ${hitColor(r.hit)}`}>
                           {r.hit ? "命中" : "未中"}
                         </span>
                       ) : (
-                        <span className="text-slate-600">-</span>
+                        <span className="text-ink-faint">-</span>
                       )}
                     </td>
                   </tr>

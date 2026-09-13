@@ -21,7 +21,7 @@ function timeAgo(iso: string): string {
 const sevStyle: Record<string, string> = {
   danger: "text-red-400",
   warn: "text-amber-400",
-  info: "text-slate-400",
+  info: "text-ink-muted",
 };
 
 export default function AlertBell() {
@@ -88,7 +88,7 @@ export default function AlertBell() {
     <div className="relative">
       <button
         onClick={toggle}
-        className="relative rounded-lg p-2 text-slate-300 hover:bg-slate-800 hover:text-white"
+        className="relative rounded-lg p-2 text-ink-soft hover:bg-slate-800 hover:text-white"
         title="价格预警"
         aria-label="预警通知"
       >
@@ -112,17 +112,17 @@ export default function AlertBell() {
               className="absolute right-0 z-50 mt-2 w-80 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl"
             >
               <div className="flex items-center justify-between border-b border-slate-800 px-4 py-2.5">
-                <span className="text-sm font-semibold text-slate-100">价格预警</span>
-                <button onClick={readAll} className="flex items-center gap-1 text-xs text-slate-400 hover:text-brand">
+                <span className="text-sm font-semibold text-ink-strong">价格预警</span>
+                <button onClick={readAll} className="flex items-center gap-1 text-xs text-ink-muted hover:text-brand-light">
                   <CheckCheck className="h-3.5 w-3.5" />
                   全部已读
                 </button>
               </div>
               <div className="max-h-80 overflow-auto">
                 {loading && events.length === 0 ? (
-                  <div className="px-4 py-6 text-center text-xs text-slate-500">加载中...</div>
+                  <div className="px-4 py-6 text-center text-xs text-ink-faint">加载中...</div>
                 ) : events.length === 0 ? (
-                  <div className="px-4 py-6 text-center text-xs text-slate-500">暂无预警事件。在「持仓」页添加止损/目标价规则。</div>
+                  <div className="px-4 py-6 text-center text-xs text-ink-faint">暂无预警事件。在「持仓」页添加止损/目标价规则。</div>
                 ) : (
                   events.map((e) => (
                     <div
@@ -130,10 +130,10 @@ export default function AlertBell() {
                       className={`border-b border-slate-800/60 px-4 py-2.5 ${e.is_read ? "" : "bg-amber-950/10"}`}
                     >
                       <div className="flex items-center justify-between">
-                        <span className={`text-xs font-semibold ${sevStyle[e.severity] ?? "text-slate-200"}`}>{e.title}</span>
-                        <span className="text-xs text-slate-500">{timeAgo(e.created_at)}</span>
+                        <span className={`text-xs font-semibold ${sevStyle[e.severity] ?? "text-ink"}`}>{e.title}</span>
+                        <span className="text-xs text-ink-faint">{timeAgo(e.created_at)}</span>
                       </div>
-                      <p className="mt-0.5 text-xs text-slate-400">{e.message}</p>
+                      <p className="mt-0.5 text-xs text-ink-muted">{e.message}</p>
                     </div>
                   ))
                 )}

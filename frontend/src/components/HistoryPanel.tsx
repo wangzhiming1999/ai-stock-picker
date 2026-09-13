@@ -48,18 +48,18 @@ export default function HistoryPanel({ refreshKey }: Props) {
     <div className="space-y-5">
       <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
         <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-slate-200">分析历史记录</h3>
-          <button onClick={() => void load()} className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-slate-400 hover:text-slate-200">
+          <h3 className="text-sm font-semibold text-ink">分析历史记录</h3>
+          <button onClick={() => void load()} className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-ink-muted hover:text-ink">
             刷新
           </button>
         </div>
-        {loading && <div className="p-3 text-sm text-slate-500">加载中...</div>}
+        {loading && <div className="p-3 text-sm text-ink-faint">加载中...</div>}
         {err && <div className="rounded-lg border border-red-800 bg-red-950/40 px-3 py-2 text-sm text-red-300">{err}</div>}
-        {!loading && batches.length === 0 && <div className="p-3 text-sm text-slate-500">暂无历史记录，先运行一次分析吧</div>}
+        {!loading && batches.length === 0 && <div className="p-3 text-sm text-ink-faint">暂无历史记录，先运行一次分析吧</div>}
         {batches.length > 0 && (
           <div className="overflow-hidden rounded-xl border border-slate-800">
             <table className="w-full text-sm">
-              <thead className="bg-slate-900 text-left text-xs text-slate-400">
+              <thead className="bg-slate-900 text-left text-xs text-ink-muted">
                 <tr>
                   <th className="px-3 py-2">时间</th>
                   <th className="px-3 py-2">股票</th>
@@ -72,30 +72,30 @@ export default function HistoryPanel({ refreshKey }: Props) {
               <tbody>
                 {batches.map((b) => (
                   <tr key={b.id} className="border-t border-slate-800/60 hover:bg-slate-800/40">
-                    <td className="px-3 py-2 text-slate-400">{fmtTime(b.created_at)}</td>
+                    <td className="px-3 py-2 text-ink-muted">{fmtTime(b.created_at)}</td>
                     <td className="px-3 py-2">
                       {b.names ? (
                         <div className="max-w-[260px]">
-                          <div className="truncate text-slate-200" title={b.names}>
+                          <div className="truncate text-ink" title={b.names}>
                             {b.names}
                           </div>
-                          <div className="truncate text-xs text-slate-500" title={b.codes}>
+                          <div className="truncate text-xs text-ink-faint" title={b.codes}>
                             {b.codes}
                           </div>
                         </div>
                       ) : (
-                        <span className="text-slate-200">{b.codes}</span>
+                        <span className="text-ink">{b.codes}</span>
                       )}
                     </td>
                     <td className="px-3 py-2">
-                      <span className={`rounded px-1.5 py-0.5 text-xs ${b.mode === "llm" ? "bg-purple-900/50 text-purple-300" : "bg-slate-800 text-slate-400"}`}>
+                      <span className={`rounded px-1.5 py-0.5 text-xs ${b.mode === "llm" ? "bg-purple-900/50 text-purple-300" : "bg-slate-800 text-ink-muted"}`}>
                         {b.mode === "llm" ? "LLM" : "规则"}
                       </span>
                     </td>
-                    <td className="px-3 py-2 text-right text-slate-400">{b.total}</td>
-                    <td className="px-3 py-2 text-right font-semibold text-brand">{b.avg_score?.toFixed(1) ?? "-"}</td>
+                    <td className="px-3 py-2 text-right text-ink-muted">{b.total}</td>
+                    <td className="px-3 py-2 text-right font-semibold text-brand-light">{b.avg_score?.toFixed(1) ?? "-"}</td>
                     <td className="px-3 py-2 text-right">
-                      <button onClick={() => void openBatch(b.id)} className="rounded border border-slate-700 px-2 py-0.5 text-xs text-slate-400 hover:text-slate-200">
+                      <button onClick={() => void openBatch(b.id)} className="rounded border border-slate-700 px-2 py-0.5 text-xs text-ink-muted hover:text-ink">
                         查看
                       </button>
                     </td>
@@ -110,10 +110,10 @@ export default function HistoryPanel({ refreshKey }: Props) {
       {selectedBatch && (
         <div>
           <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-slate-300">
+            <h3 className="text-sm font-semibold text-ink-soft">
               批次 #{selectedBatch.id} · {fmtTime(selectedBatch.created_at)} · {selectedBatch.total} 只
             </h3>
-            <button onClick={() => setSelectedBatch(null)} className="text-xs text-slate-500 hover:text-slate-300">
+            <button onClick={() => setSelectedBatch(null)} className="text-xs text-ink-faint hover:text-ink-soft">
               收起
             </button>
           </div>

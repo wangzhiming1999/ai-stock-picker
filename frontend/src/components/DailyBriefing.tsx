@@ -40,7 +40,7 @@ function ReviewBlock({ review }: { review: NonNullable<Briefing["review"]> }) {
   };
   return (
     <>
-      {review.summary && <p className="text-xs leading-relaxed text-slate-300">{review.summary}</p>}
+      {review.summary && <p className="text-xs leading-relaxed text-ink-soft">{review.summary}</p>}
       {hp && (hp.total_pnl != null || hp.count) && (
         <div className="mt-2 grid grid-cols-3 gap-2">
           <div className={`${SUB_QUIET} px-2 py-1.5`}>
@@ -67,7 +67,7 @@ function ReviewBlock({ review }: { review: NonNullable<Briefing["review"]> }) {
       {review.alerts_today && review.alerts_today.length > 0 && (
         <div className="mt-2 space-y-1">
           {review.alerts_today.map((a, i) => (
-            <div key={i} className="flex items-center gap-2 text-xs text-slate-300">
+            <div key={i} className="flex items-center gap-2 text-xs text-ink-soft">
               <Bell
                 className={`h-3 w-3 shrink-0 ${a.severity === "danger" ? "text-red-400" : "text-amber-400"}`}
               />
@@ -92,7 +92,7 @@ function simErrMsg(e: unknown): string {
 /** 算法推导标识：不预判确定性，整卡只出现一次（放在卡片页脚），避免每个数字都挂标签 */
 function AlgoTag() {
   return (
-    <span className="text-slate-600" title="买点 / 止损 / 手数由技术位规则推导，非确定性建议">
+    <span className="text-ink-faint" title="买点 / 止损 / 手数由技术位规则推导，非确定性建议">
       算法推导
     </span>
   );
@@ -104,7 +104,7 @@ interface Props {
 }
 
 function Money({ v }: { v?: number | null }) {
-  if (v == null) return <span className="text-slate-500">—</span>;
+  if (v == null) return <span className="text-ink-faint">—</span>;
   return <span>{v.toFixed(2)}</span>;
 }
 
@@ -207,8 +207,8 @@ function MorningStockCard({ s, onPick }: { s: BriefingStock; onPick: (c: string)
             disabled={added}
             className={`flex items-center gap-1 rounded-lg border px-2 py-1 text-xs transition-colors ${
               added
-                ? "border-slate-700 text-slate-500"
-                : "border-slate-700 text-slate-300 hover:border-brand hover:text-brand"
+                ? "border-slate-700 text-ink-faint"
+                : "border-slate-700 text-ink-soft hover:border-brand hover:text-brand-light"
             }`}
           >
             <Plus className="h-3 w-3" />
@@ -221,14 +221,14 @@ function MorningStockCard({ s, onPick }: { s: BriefingStock; onPick: (c: string)
       {s.confidence != null && (
         <div className="mt-2 flex items-center gap-2">
           <span className={TEXT.meta}>置信</span>
-          <span className="text-xs font-semibold text-slate-200">{s.confidence}</span>
+          <span className="text-xs font-semibold text-ink">{s.confidence}</span>
           <span className="h-1 w-16 overflow-hidden rounded-full bg-slate-800/40">
             <span
               className="block h-full rounded-full bg-brand"
               style={{ width: `${Math.max(0, Math.min(10, s.confidence)) * 10}%` }}
             />
           </span>
-          <span className="text-xs text-slate-600">/ 10</span>
+          <span className="text-xs text-ink-faint">/ 10</span>
           {tip && <span className="ml-auto text-xs text-amber-300">{tip}</span>}
         </div>
       )}
@@ -256,17 +256,17 @@ function MorningStockCard({ s, onPick }: { s: BriefingStock; onPick: (c: string)
         </div>
       </div>
 
-      <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-slate-400">{s.reason}</p>
+      <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-ink-muted">{s.reason}</p>
 
       {(s.trigger || s.invalidation) && (
         <div className={`mt-2 space-y-1 ${DIVIDER} pt-2 text-xs`}>
           <div>
             <span className={TEXT.meta}>满足才关注　</span>
-            <span className="text-slate-200">{s.trigger}</span>
+            <span className="text-ink">{s.trigger}</span>
           </div>
           <div>
             <span className={TEXT.meta}>出现即放弃　</span>
-            <span className="text-slate-400">{s.invalidation}</span>
+            <span className="text-ink-muted">{s.invalidation}</span>
           </div>
         </div>
       )}
@@ -301,7 +301,7 @@ function PreMarketBlock({ data }: { data: Briefing }) {
           <div className="mt-1.5 grid grid-cols-3 gap-2">
             {overseas.map((o) => (
               <div key={o.name} className={`${SUB_QUIET} px-2 py-1.5`}>
-                <div className="truncate text-xs text-slate-400">{o.name}</div>
+                <div className="truncate text-xs text-ink-muted">{o.name}</div>
                 <div className={`text-sm font-semibold ${pnlTone(o.change_pct, 300)}`}>
                   {o.change_pct >= 0 ? "+" : ""}
                   {o.change_pct.toFixed(2)}%
@@ -403,8 +403,8 @@ function TailHoldingCard({ h }: { h: BriefingHolding }) {
             disabled={watching}
             className={`rounded-lg border px-2 py-1 text-xs transition-colors ${
               watching
-                ? "border-brand/50 text-brand"
-                : "border-slate-700 text-slate-300 hover:border-brand hover:text-brand"
+                ? "border-brand/50 text-brand-light"
+                : "border-slate-700 text-ink-soft hover:border-brand hover:text-brand-light"
             }`}
           >
             {watching ? "已盯盘" : busy ? "..." : "设提醒"}
@@ -434,10 +434,10 @@ function TailHoldingCard({ h }: { h: BriefingHolding }) {
       </div>
 
       {h.tips.length > 0 && (
-        <ul className="mt-2 space-y-1 text-xs text-slate-400">
+        <ul className="mt-2 space-y-1 text-xs text-ink-muted">
           {h.tips.slice(0, 3).map((t, i) => (
             <li key={i} className="flex gap-1">
-              <span className="text-slate-600">·</span>
+              <span className="text-ink-faint">·</span>
               <span>{t}</span>
             </li>
           ))}
@@ -456,11 +456,11 @@ function TailHoldingCard({ h }: { h: BriefingHolding }) {
             {h.order_action}挂单
           </span>
           {h.limit_price != null && (
-            <span className="text-slate-200">
+            <span className="text-ink">
               价 ≈ <Money v={h.limit_price} />
             </span>
           )}
-          <span className="text-slate-400">{h.order_hint}</span>
+          <span className="text-ink-muted">{h.order_hint}</span>
         </div>
       )}
       {tip && <div className="mt-2 text-xs text-amber-300">{tip}</div>}
@@ -482,7 +482,7 @@ function TacticsBlock({ tactics, onPick }: { tactics: BriefingTactics; onPick: (
 
   return (
     <>
-      {tactics.summary && <p className="text-xs leading-relaxed text-slate-400">{tactics.summary}</p>}
+      {tactics.summary && <p className="text-xs leading-relaxed text-ink-muted">{tactics.summary}</p>}
       <div className="mt-2 space-y-2">
         {groups.map((g) => (
           <div key={g.key}>
@@ -497,7 +497,7 @@ function TacticsBlock({ tactics, onPick }: { tactics: BriefingTactics; onPick: (
                   className={`${SUB_QUIET} w-full px-2 py-1.5 text-left transition-colors hover:bg-slate-800/70`}
                 >
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs font-medium text-slate-100">{it.name}</span>
+                    <span className="text-xs font-medium text-ink-strong">{it.name}</span>
                     <span className={TEXT.meta}>{it.code}</span>
                     {it.tactics.map((t) => (
                       <span
@@ -511,7 +511,7 @@ function TacticsBlock({ tactics, onPick }: { tactics: BriefingTactics; onPick: (
                       </span>
                     ))}
                   </div>
-                  <div className="mt-0.5 text-xs leading-relaxed text-slate-400">
+                  <div className="mt-0.5 text-xs leading-relaxed text-ink-muted">
                     {it.tactics.map((t) => t.action).join("；")}
                   </div>
                 </button>
@@ -571,14 +571,14 @@ export default function DailyBriefing({ onPick, onSettled }: Props) {
       {/* 卡片头：不套容器，靠字号与留白成层 */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <Target className="h-4 w-4 text-brand" />
+          <Target className="h-4 w-4 text-brand-light" />
           <h1 className={TEXT.title}>今天怎么做</h1>
           {data && <span className={TEXT.meta}>· {data.target_date ?? "下一个交易日"}</span>}
         </div>
         <button
           onClick={() => void load()}
           disabled={loading}
-          className="flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1 text-xs text-slate-400 transition-colors hover:text-slate-200 disabled:opacity-50"
+          className="flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1 text-xs text-ink-muted transition-colors hover:text-ink disabled:opacity-50"
         >
           <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
           刷新
@@ -590,13 +590,13 @@ export default function DailyBriefing({ onPick, onSettled }: Props) {
       )}
 
       {!data ? (
-        <div className="mt-4 text-sm text-slate-500">加载中…</div>
+        <div className="mt-4 text-sm text-ink-faint">加载中…</div>
       ) : (
         <>
           {/* ① 主结论：全屏唯一一处 24px，视线第一落点 */}
           <div className={`mt-4 ${TEXT.hero} ${hasPicks ? upTone(300) : "text-amber-300"}`}>{mainAction}</div>
           {m?.trading_advice && (
-            <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-400">{m.trading_advice}</p>
+            <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-ink-muted">{m.trading_advice}</p>
           )}
 
           {/* ② 三格关键数：方向 / 资金 / 持仓动作 */}
@@ -630,9 +630,9 @@ export default function DailyBriefing({ onPick, onSettled }: Props) {
 
           {/* ③ 分区：尾盘操作（有持仓才出现，避免空段占位） */}
           {phase === "tail" && (holdingCount > 0 || needLogin) && (
-            <Section icon={<Bell className="h-4 w-4 text-brand" />} title={`尾盘操作（${data.tail.summary ?? "持仓决策"}）`}>
+            <Section icon={<Bell className="h-4 w-4 text-brand-light" />} title={`尾盘操作（${data.tail.summary ?? "持仓决策"}）`}>
               {needLogin ? (
-                <div className={`${SUB} px-4 py-6 text-center text-sm text-slate-400`}>
+                <div className={`${SUB} px-4 py-6 text-center text-sm text-ink-muted`}>
                   登录后查看你的持仓尾盘操作建议
                 </div>
               ) : (
@@ -651,7 +651,7 @@ export default function DailyBriefing({ onPick, onSettled }: Props) {
               phase === "morning" ? (
                 <ArrowUpRight className={`h-4 w-4 ${upTone(400)}`} />
               ) : (
-                <ArrowDownRight className="h-4 w-4 text-slate-400" />
+                <ArrowDownRight className="h-4 w-4 text-ink-muted" />
               )
             }
             title={hasPicks ? "今天关注这几只" : "为什么今天没有推荐"}
@@ -671,7 +671,7 @@ export default function DailyBriefing({ onPick, onSettled }: Props) {
                 <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
                 <div>
                   <div className="text-sm font-medium text-amber-200">没有股票同时满足上涨趋势和风险控制要求</div>
-                  <p className="mt-1 text-xs leading-relaxed text-slate-400">
+                  <p className="mt-1 text-xs leading-relaxed text-ink-muted">
                     先不新开仓。下方"先观察，别急着买"会列出接近条件的股票，以及还要等待什么。
                   </p>
                 </div>
@@ -688,7 +688,7 @@ export default function DailyBriefing({ onPick, onSettled }: Props) {
 
           {/* ③ 分区：当日复盘 */}
           {reviewReady && data.review && (
-            <Section icon={<ClipboardCheck className="h-4 w-4 text-brand" />} title="当日复盘">
+            <Section icon={<ClipboardCheck className="h-4 w-4 text-brand-light" />} title="当日复盘">
               <ReviewBlock review={data.review} />
             </Section>
           )}
@@ -700,7 +700,7 @@ export default function DailyBriefing({ onPick, onSettled }: Props) {
             </Section>
           )}
 
-          <p className={`mt-4 ${DIVIDER} pt-3 text-center text-xs leading-relaxed text-slate-600`}>
+          <p className={`mt-4 ${DIVIDER} pt-3 text-center text-xs leading-relaxed text-ink-faint`}>
             买点 / 止损 / 手数均为算法推导，仅供参考，不构成投资建议；据此操作风险自担。
           </p>
         </>

@@ -32,14 +32,14 @@ export default function WinratePanel() {
       title="胜率看板"
       subtitle="预测与推荐的实际命中表现 · 每日自动结算"
       action={
-        <button onClick={() => void load()} disabled={loading} className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-slate-400 hover:text-slate-200 disabled:opacity-50">
+        <button onClick={() => void load()} disabled={loading} className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-ink-muted hover:text-ink disabled:opacity-50">
           {loading ? "加载中..." : "刷新"}
         </button>
       }
     >
 
       {err && <div className="rounded-lg border border-red-800 bg-red-950/40 px-3 py-2 text-sm text-red-300">{err}</div>}
-      {!data && !err && <div className="p-3 text-sm text-slate-500">加载中...</div>}
+      {!data && !err && <div className="p-3 text-sm text-ink-faint">加载中...</div>}
 
       {data && (
         <div className="space-y-4">
@@ -50,40 +50,40 @@ export default function WinratePanel() {
               闭环运行中 · 已结算 {data.prediction?.total ?? 0} 次预测 + {data.recommendation?.total ?? 0} 只推荐
             </div>
           ) : (
-            <div className="rounded-lg border border-slate-700 bg-slate-800/40 px-3 py-2 text-xs text-slate-400">
+            <div className="rounded-lg border border-slate-700 bg-slate-800/40 px-3 py-2 text-xs text-ink-muted">
               闭环待启动 · 首次结算将在今日收盘后自动执行
             </div>
           )}
 
           {/* 大盘预测胜率 */}
           <div>
-            <div className="mb-1.5 text-xs font-semibold text-slate-400">大盘推衍命中率</div>
+            <div className="mb-1.5 text-xs font-semibold text-ink-muted">大盘推衍命中率</div>
             {data.prediction && data.prediction.total > 0 ? (
               <div className="grid grid-cols-3 gap-2">
                 <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
-                  <div className="text-lg font-bold text-slate-200">{data.prediction.total}</div>
-                  <div className="text-xs text-slate-500">已结算</div>
+                  <div className="text-lg font-bold text-ink">{data.prediction.total}</div>
+                  <div className="text-xs text-ink-faint">已结算</div>
                 </div>
                 <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
-                  <div className="text-lg font-bold text-slate-200">{data.prediction.hit}</div>
-                  <div className="text-xs text-slate-500">命中</div>
+                  <div className="text-lg font-bold text-ink">{data.prediction.hit}</div>
+                  <div className="text-xs text-ink-faint">命中</div>
                 </div>
                 <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
                   <div className={`text-lg font-bold ${pctTone(data.prediction.hit_rate)}`}>
                     {data.prediction.hit_rate != null ? `${data.prediction.hit_rate}%` : "-"}
                   </div>
-                  <div className="text-xs text-slate-500">命中率</div>
+                  <div className="text-xs text-ink-faint">命中率</div>
                 </div>
               </div>
             ) : (
-              <div className="rounded-lg bg-slate-800/40 px-3 py-2 text-xs text-slate-500">
+              <div className="rounded-lg bg-slate-800/40 px-3 py-2 text-xs text-ink-faint">
                 暂无数据 · 每日收盘后自动结算（今日收盘后回来看第一批结果）
               </div>
             )}
             {data.prediction && Object.keys(data.prediction.by_direction || {}).length > 0 && (
               <div className="mt-2 flex flex-wrap gap-2 text-xs">
                 {Object.entries(safeObj<Record<string, { hit?: number; total?: number; hit_rate?: number }>>(data.prediction.by_direction, {})).map(([d, b]) => (
-                  <span key={d} className="rounded bg-slate-800/70 px-2 py-1 text-slate-400">
+                  <span key={d} className="rounded bg-slate-800/70 px-2 py-1 text-ink-muted">
                     {d} {b.hit}/{b.total}（{b.hit_rate ?? "-"}%）
                   </span>
                 ))}
@@ -96,26 +96,26 @@ export default function WinratePanel() {
 
           {/* 个股推荐胜率 */}
           <div>
-            <div className="mb-1.5 text-xs font-semibold text-slate-400">每日推荐次日胜率</div>
+            <div className="mb-1.5 text-xs font-semibold text-ink-muted">每日推荐次日胜率</div>
             {data.recommendation && data.recommendation.total > 0 ? (
               <div className="grid grid-cols-3 gap-2">
                 <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
-                  <div className="text-lg font-bold text-slate-200">{data.recommendation.total}</div>
-                  <div className="text-xs text-slate-500">已结算</div>
+                  <div className="text-lg font-bold text-ink">{data.recommendation.total}</div>
+                  <div className="text-xs text-ink-faint">已结算</div>
                 </div>
                 <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
-                  <div className="text-lg font-bold text-slate-200">{data.recommendation.hit}</div>
-                  <div className="text-xs text-slate-500">次日上涨</div>
+                  <div className="text-lg font-bold text-ink">{data.recommendation.hit}</div>
+                  <div className="text-xs text-ink-faint">次日上涨</div>
                 </div>
                 <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
                   <div className={`text-lg font-bold ${pctTone(data.recommendation.hit_rate)}`}>
                     {data.recommendation.hit_rate != null ? `${data.recommendation.hit_rate}%` : "-"}
                   </div>
-                  <div className="text-xs text-slate-500">次日胜率</div>
+                  <div className="text-xs text-ink-faint">次日胜率</div>
                 </div>
               </div>
             ) : (
-              <div className="rounded-lg bg-slate-800/40 px-3 py-2 text-xs text-slate-500">
+              <div className="rounded-lg bg-slate-800/40 px-3 py-2 text-xs text-ink-faint">
                 暂无数据 · 每日收盘后自动结算（推荐生成后次日判定涨跌）
               </div>
             )}
@@ -124,7 +124,7 @@ export default function WinratePanel() {
             )}
           </div>
 
-          <p className="text-xs text-slate-600">
+          <p className="text-xs text-ink-faint">
             数据由每日收盘后的定时任务自动结算。数据积累越多，胜率越有参考价值。
           </p>
         </div>

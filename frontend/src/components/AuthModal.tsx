@@ -64,14 +64,14 @@ export default function AuthModal({ open, onClose }: Props) {
           >
             <div className="mb-5 flex items-center justify-between">
               <h2 className="flex items-center gap-2 text-lg font-bold text-white">
-                {mode === "signin" ? <LogIn className="h-5 w-5 text-brand" /> : <UserPlus className="h-5 w-5 text-brand" />}
+                {mode === "signin" ? <LogIn className="h-5 w-5 text-brand-light" /> : <UserPlus className="h-5 w-5 text-brand-light" />}
                 {mode === "signin" ? "登录" : "注册"}
               </h2>
               <motion.button
                 onClick={onClose}
                 whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.9 }}
-                className="text-slate-500 hover:text-slate-300"
+                className="text-ink-faint hover:text-ink-soft"
                 aria-label="关闭"
               >
                 <X className="h-5 w-5" />
@@ -88,7 +88,7 @@ export default function AuthModal({ open, onClose }: Props) {
                     setNotice("");
                   }}
                   className={`relative flex-1 rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
-                    mode === m ? "text-white" : "text-slate-400 hover:text-slate-200"
+                    mode === m ? "text-white" : "text-ink-muted hover:text-ink"
                   }`}
                 >
                   {mode === m && (
@@ -103,7 +103,7 @@ export default function AuthModal({ open, onClose }: Props) {
             </div>
 
             <label className="mb-3 block">
-              <span className="mb-1 flex items-center gap-1.5 text-sm text-slate-400">
+              <span className="mb-1 flex items-center gap-1.5 text-sm text-ink-muted">
                 <Mail className="h-3.5 w-3.5" /> 邮箱
               </span>
               <input
@@ -115,7 +115,7 @@ export default function AuthModal({ open, onClose }: Props) {
               />
             </label>
             <label className="mb-4 block">
-              <span className="mb-1 flex items-center gap-1.5 text-sm text-slate-400">
+              <span className="mb-1 flex items-center gap-1.5 text-sm text-ink-muted">
                 <ShieldCheck className="h-3.5 w-3.5" /> 密码
               </span>
               <input

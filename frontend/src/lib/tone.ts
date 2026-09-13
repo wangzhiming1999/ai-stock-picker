@@ -13,25 +13,31 @@
  * 不要复用 pnlTone / dirTone。
  */
 
-/** 文本色强度档位：普通暗底用 400，浅色块内用 300，密集小字用 500 */
-export type ToneLevel = 300 | 400 | 500;
+/**
+ * 文本色强度档位（暗色主题）。
+ *
+ *   300 = 用在「带色底的芯片」内（底色已经抬亮了背景，文字要更亮才压得住）
+ *   400 = 默认（页面底色 / 主卡 / 子块上都达标）
+ *
+ * ⚠️ 曾经有第三档 500（更暗），本意是「密集小字用更弱的色」。这在暗色主题下是**反向的**：
+ * 更弱的色 = 更暗 = 对比度更低，而小字恰恰需要更高对比度。实测 red-500 在 slate-900 上
+ * 只有 3.89:1，低于 AA 的 4.5:1。该档已删除 —— 需要「更弱」时请用 300，或改用中性色。
+ */
+export type ToneLevel = 300 | 400;
 
 const UP_TEXT: Record<ToneLevel, string> = {
   300: "text-red-300",
   400: "text-red-400",
-  500: "text-red-500",
 };
 
 const DOWN_TEXT: Record<ToneLevel, string> = {
   300: "text-green-300",
   400: "text-green-400",
-  500: "text-green-500",
 };
 
 const NEUTRAL_TEXT: Record<ToneLevel, string> = {
-  300: "text-slate-300",
-  400: "text-slate-400",
-  500: "text-slate-500",
+  300: "text-ink-soft",
+  400: "text-ink-muted",
 };
 
 /** 数值涨跌配色（红涨绿跌）。null / NaN 返回中性色。 */
@@ -99,18 +105,18 @@ export function actionBadge(action: string | null | undefined): ActionBadge {
  * 高 = 主色浅档（达标）／ 中 = 琥珀（一般）／ 低 = 中性灰（不达标）
  */
 export function scoreTone(v: number | null | undefined): string {
-  if (v == null || Number.isNaN(v)) return "text-slate-400";
+  if (v == null || Number.isNaN(v)) return "text-ink-muted";
   if (v >= 6) return "text-brand-light";
   if (v >= 4) return "text-amber-400";
-  return "text-slate-500";
+  return "text-ink-faint";
 }
 
 /** 质量评分底色芯片（0–10 分制）。 */
 export function scoreChip(v: number | null | undefined): string {
-  if (v == null || Number.isNaN(v)) return "bg-slate-800/40 text-slate-400";
+  if (v == null || Number.isNaN(v)) return "bg-slate-800/40 text-ink-muted";
   if (v >= 6) return "bg-brand/15 text-brand-light";
   if (v >= 4) return "bg-amber-500/15 text-amber-300";
-  return "bg-slate-800/40 text-slate-400";
+  return "bg-slate-800/40 text-ink-muted";
 }
 
 /**
@@ -118,7 +124,7 @@ export function scoreChip(v: number | null | undefined): string {
  * 内部折算到十分制复用 scoreTone，保证 60% 与 6 分同色。
  */
 export function pctTone(v: number | null | undefined): string {
-  if (v == null || Number.isNaN(v)) return "text-slate-400";
+  if (v == null || Number.isNaN(v)) return "text-ink-muted";
   return scoreTone(v / 10);
 }
 
@@ -135,10 +141,10 @@ export function scoreBg(v: number | null | undefined): string {
  * 同样属于质量而非方向，所以不用红绿。
  */
 export function rrTone(v: number | null | undefined): string {
-  if (v == null || Number.isNaN(v)) return "text-slate-400";
+  if (v == null || Number.isNaN(v)) return "text-ink-muted";
   if (v >= 2) return "text-brand-light";
   if (v >= 1) return "text-amber-400";
-  return "text-slate-500";
+  return "text-ink-faint";
 }
 
 /**
@@ -159,5 +165,5 @@ export const CHIP = {
   /** 止损等风控阈值 */
   risk: { bg: "bg-amber-500/10", text: "text-amber-300" },
   /** 中性价位：支撑 / 压力 / 现价 */
-  neutral: { bg: "bg-slate-800/40", text: "text-slate-200" },
+  neutral: { bg: "bg-slate-800/40", text: "text-ink" },
 } as const;

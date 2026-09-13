@@ -47,7 +47,7 @@ export default function BrandLogo({ size = "md", withText = true, subtitle, onCl
             <span className="bg-gradient-to-r from-blue-400 via-indigo-400 to-violet-400 bg-clip-text text-transparent">AI 选股</span>
           </h1>
           {subtitle !== null && (
-            <p className={`mt-0.5 text-slate-400 ${c.sub}`}>{subtitle ?? "发现 · 扫描 · 分析 · 持仓"}</p>
+            <p className={`mt-0.5 text-ink-muted ${c.sub}`}>{subtitle ?? "发现 · 扫描 · 分析 · 持仓"}</p>
           )}
         </div>
       )}

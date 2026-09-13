@@ -108,7 +108,7 @@ export default function TacticPanel({ onPick, onImport }: Props) {
           <div className="flex items-center gap-2">
             <button
               onClick={() => onImport(items.map((s) => s.code))}
-              className="rounded-lg border border-slate-600 px-3 py-1 text-xs text-slate-300 hover:border-slate-400 hover:text-white"
+              className="rounded-lg border border-slate-600 px-3 py-1 text-xs text-ink-soft hover:border-slate-400 hover:text-white"
             >
               全部加自选
             </button>
@@ -129,17 +129,17 @@ export default function TacticPanel({ onPick, onImport }: Props) {
           disabled={running}
           aria-pressed={active === "all"}
           className={`rounded-lg border px-3 py-2 text-left text-sm transition disabled:opacity-60 ${
-            active === "all" ? "border-brand bg-brand/10 text-white" : "border-slate-700 text-slate-200 hover:border-slate-500"
+            active === "all" ? "border-brand bg-brand/10 text-white" : "border-slate-700 text-ink hover:border-slate-500"
           }`}
         >
           全部技巧
-          <span className="ml-2 text-xs text-slate-500">{tactics.length || 6} 条一起查</span>
+          <span className="ml-2 text-xs text-ink-faint">{tactics.length || 6} 条一起查</span>
         </button>
       </div>
 
       {categories.map((cat) => (
         <div key={cat} className="mb-3">
-          <p className="mb-1 text-xs font-semibold tracking-wide text-slate-500">{cat}</p>
+          <p className="mb-1 text-xs font-semibold tracking-wide text-ink-faint">{cat}</p>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {tactics
               .filter((t) => t.category === cat)
@@ -152,10 +152,10 @@ export default function TacticPanel({ onPick, onImport }: Props) {
                   className={`rounded-lg border p-3 text-left transition disabled:opacity-60 ${buttonClass(t.direction, active === t.key)}`}
                 >
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-slate-100">{t.name}</span>
+                    <span className="text-sm font-medium text-ink-strong">{t.name}</span>
                     <DirectionTag direction={t.direction} />
                   </div>
-                  <div className="mt-0.5 text-xs text-slate-500">{t.desc}</div>
+                  <div className="mt-0.5 text-xs text-ink-faint">{t.desc}</div>
                 </button>
               ))}
           </div>
@@ -163,7 +163,7 @@ export default function TacticPanel({ onPick, onImport }: Props) {
       ))}
 
       {running && (
-        <div role="status" className="rounded-lg bg-slate-800/70 px-3 py-2 text-sm text-slate-400">
+        <div role="status" className="rounded-lg bg-slate-800/70 px-3 py-2 text-sm text-ink-muted">
           形态扫描中（拉取行情与 K 线；多周期共振需约 900 根日线，耗时更久）...
         </div>
       )}
@@ -178,7 +178,7 @@ export default function TacticPanel({ onPick, onImport }: Props) {
       )}
 
       {!running && result && items.length === 0 && (
-        <div role="status" className="rounded-lg border border-slate-700 bg-slate-800/40 px-3 py-3 text-sm text-slate-300">
+        <div role="status" className="rounded-lg border border-slate-700 bg-slate-800/40 px-3 py-3 text-sm text-ink-soft">
           已检查 {result.checked} 只候选，当前没有「全部条件成立」的形态。形态识别宁缺毋滥，未命中属正常。
         </div>
       )}
@@ -187,7 +187,7 @@ export default function TacticPanel({ onPick, onImport }: Props) {
         <div className="max-h-[28rem] overflow-y-auto rounded-xl border border-slate-800">
           <table className="w-full text-sm">
             <caption className="sr-only">实战形态扫描结果</caption>
-            <thead className="sticky top-0 bg-slate-900 text-left text-xs text-slate-400">
+            <thead className="sticky top-0 bg-slate-900 text-left text-xs text-ink-muted">
               <tr>
                 <th scope="col" className="px-3 py-2">勾选</th>
                 <th scope="col" className="px-3 py-2">名称</th>
@@ -206,7 +206,7 @@ export default function TacticPanel({ onPick, onImport }: Props) {
                       selected.has(s.code) ? "bg-slate-800/70" : ""
                     }`}
                   >
-                    <td className="px-3 py-1.5">
+                    <td className="px-3 py-2">
                       <input
                         type="checkbox"
                         readOnly
@@ -215,18 +215,18 @@ export default function TacticPanel({ onPick, onImport }: Props) {
                         className="accent-brand"
                       />
                     </td>
-                    <td className="px-3 py-1.5 text-slate-200">{s.name}</td>
-                    <td className="px-3 py-1.5 text-slate-500">{s.code}</td>
+                    <td className="px-3 py-2 text-ink">{s.name}</td>
+                    <td className="px-3 py-2 text-ink-faint">{s.code}</td>
                     <td
                       className={`px-3 py-1.5 text-right ${pnlTone(s.change_pct)}`}
                     >
                       {(s.change_pct ?? 0) >= 0 ? "+" : ""}
                       {fmtNum(s.change_pct ?? 0)}%
                     </td>
-                    <td className="px-3 py-1.5">
+                    <td className="px-3 py-2">
                       <div className="flex flex-wrap items-center gap-1">
                         {s.tactics.map((t: TacticResult) => (
-                          <span key={t.key} className="rounded bg-slate-800 px-1.5 py-0.5 text-xs text-slate-300">
+                          <span key={t.key} className="rounded bg-slate-800 px-1.5 py-0.5 text-xs text-ink-soft">
                             {t.name}
                           </span>
                         ))}
@@ -236,13 +236,13 @@ export default function TacticPanel({ onPick, onImport }: Props) {
                             toggleExpand(s.code);
                           }}
                           aria-expanded={expanded.has(s.code)}
-                          className="cursor-pointer text-xs text-slate-400 underline hover:text-slate-200"
+                          className="cursor-pointer text-xs text-ink-muted underline hover:text-ink"
                         >
                           {expanded.has(s.code) ? "收起条件" : "看条件"}
                         </button>
                       </div>
                     </td>
-                    <td className="px-3 py-1.5 text-slate-300">{s.best_action ?? s.tactics[0]?.action}</td>
+                    <td className="px-3 py-2 text-ink-soft">{s.best_action ?? s.tactics[0]?.action}</td>
                   </tr>
                   {expanded.has(s.code) && (
                     <tr className="border-t border-slate-800/60 bg-slate-900">
@@ -251,20 +251,20 @@ export default function TacticPanel({ onPick, onImport }: Props) {
                           {s.tactics.map((t: TacticResult) => (
                             <div key={t.key}>
                               <div className="flex items-center gap-2">
-                                <span className="text-xs font-semibold text-slate-200">{t.name}</span>
+                                <span className="text-xs font-semibold text-ink">{t.name}</span>
                                 <DirectionTag direction={t.direction} />
-                                <span className="text-xs text-slate-500">
+                                <span className="text-xs text-ink-faint">
                                   {t.passed}/{t.total} 条件成立
                                 </span>
                               </div>
                               <ul className="mt-1 space-y-0.5">
                                 {t.conditions.map((cond, i) => (
                                   <li key={i} className="flex items-start gap-2 text-xs">
-                                    <span className={cond.passed ? "text-green-400" : "text-slate-500"}>
+                                    <span className={cond.passed ? "text-green-400" : "text-ink-faint"}>
                                       {cond.passed ? "✓" : "✗"}
                                     </span>
-                                    <span className="text-slate-300">{cond.name}</span>
-                                    <span className="text-slate-500">{cond.detail}</span>
+                                    <span className="text-ink-soft">{cond.name}</span>
+                                    <span className="text-ink-faint">{cond.detail}</span>
                                   </li>
                                 ))}
                               </ul>
@@ -281,7 +281,7 @@ export default function TacticPanel({ onPick, onImport }: Props) {
         </div>
       )}
 
-      <p className="mt-3 text-xs text-slate-500">
+      <p className="mt-3 text-xs text-ink-faint">
         形态由 K 线量价条件确定性推导，标注「算法推导」，不构成投资建议；命中不代表必然上涨，实盘请自行判断。
       </p>
     </CollapsiblePanel>

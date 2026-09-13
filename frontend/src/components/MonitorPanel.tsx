@@ -59,7 +59,7 @@ const toneClass: Record<string, string> = {
   danger: "border-red-800/70 bg-red-950/50 text-red-300",
   warn: "border-amber-800/60 bg-amber-950/40 text-amber-300",
   good: "border-green-800/60 bg-green-950/40 text-green-300",
-  neutral: "border-slate-700 bg-slate-800/70 text-slate-300",
+  neutral: "border-slate-700 bg-slate-800/70 text-ink-soft",
   info: "border-sky-800/60 bg-sky-950/40 text-sky-300",
 };
 
@@ -447,7 +447,7 @@ export default function MonitorPanel() {
             className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1 text-xs transition-colors ${
               notifyOn
                 ? "border-amber-700/60 bg-amber-950/40 text-amber-300 hover:bg-amber-950/60"
-                : "border-slate-700 text-slate-400 hover:text-slate-200"
+                : "border-slate-700 text-ink-muted hover:text-ink"
             }`}
           >
             {notifyOn ? <BellRing className="h-3.5 w-3.5" /> : <Bell className="h-3.5 w-3.5" />}
@@ -456,7 +456,7 @@ export default function MonitorPanel() {
           <button
             onClick={() => void refresh(false, true)}
             disabled={loading || codes.length === 0}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1 text-xs text-slate-400 hover:text-slate-200 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-1 text-xs text-ink-muted hover:text-ink disabled:opacity-50"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
             {loading ? "刷新中..." : "立即刷新"}
@@ -468,12 +468,12 @@ export default function MonitorPanel() {
       {summary && summary.total > 0 && (
         <div className="mb-3 rounded-xl border border-slate-800 bg-gradient-to-br from-slate-900 to-slate-950 p-3">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-semibold text-slate-200">现在要不要动</span>
+            <span className="text-xs font-semibold text-ink">现在要不要动</span>
             {summary.act_now === 0 ? (
-              <span className="text-xs text-slate-400">全部观望，暂无需要立刻操作的标的</span>
+              <span className="text-xs text-ink-muted">全部观望，暂无需要立刻操作的标的</span>
             ) : (
               <>
-                <span className="text-xs text-slate-300">
+                <span className="text-xs text-ink-soft">
                   共 <b className="text-base text-white">{summary.act_now}</b> 只要操作
                 </span>
                 {summary.stop > 0 && (
@@ -505,8 +505,8 @@ export default function MonitorPanel() {
               onClick={() => setOnlyAction((v) => !v)}
               className={`ml-auto rounded-lg border px-2.5 py-1 text-xs transition-colors ${
                 onlyAction
-                  ? "border-brand bg-brand/10 text-brand"
-                  : "border-slate-700 text-slate-400 hover:text-slate-200"
+                  ? "border-brand bg-brand/10 text-brand-light"
+                  : "border-slate-700 text-ink-muted hover:text-ink"
               }`}
             >
               {onlyAction ? "显示全部" : "只看要操作的"}
@@ -546,14 +546,14 @@ export default function MonitorPanel() {
               }}
               title={it.hint}
               className={`rounded-md px-3 py-1 text-xs transition-colors ${
-                interval === it.value ? "bg-brand/15 text-brand" : "text-slate-400 hover:text-slate-200"
+                interval === it.value ? "bg-brand/15 text-brand-light" : "text-ink-muted hover:text-ink"
               }`}
             >
               {it.label}
             </button>
           ))}
         </div>
-        <span className="text-xs text-slate-500">
+        <span className="text-xs text-ink-faint">
           {INTERVALS.find((i) => i.value === interval)?.hint}
         </span>
       </div>
@@ -578,11 +578,11 @@ export default function MonitorPanel() {
               }
             }}
             placeholder="输入股票代码，空格/逗号分隔，如 600519 000858"
-            className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-600 focus:border-brand focus:outline-none"
+            className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-ink placeholder:text-ink-faint focus:border-brand focus:outline-none"
           />
           <button
             onClick={addCodes}
-            className="inline-flex items-center gap-1 rounded-lg bg-slate-800 px-3 py-2 text-sm text-slate-200 hover:bg-slate-700"
+            className="inline-flex items-center gap-1 rounded-lg bg-slate-800 px-3 py-2 text-sm text-ink hover:bg-slate-700"
           >
             <Plus className="h-4 w-4" /> 添加
           </button>
@@ -591,39 +591,39 @@ export default function MonitorPanel() {
           <button
             onClick={() => void importWatchlist()}
             title="把自选股一次性加入监控名单"
-            className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-slate-400 hover:text-slate-200"
+            className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-ink-muted hover:text-ink"
           >
             <Download className="h-3.5 w-3.5" /> 导入自选
           </button>
           <button
             onClick={() => void importHoldings()}
             title="把持仓加入监控，并带上成本价（指令会显示浮盈浮亏）"
-            className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-slate-400 hover:text-slate-200"
+            className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-ink-muted hover:text-ink"
           >
             <Download className="h-3.5 w-3.5" /> 导入持仓
           </button>
         </div>
       </div>
 
-      <div className="mb-3 text-xs text-slate-500">
+      <div className="mb-3 text-xs text-ink-faint">
         {data && (
           <>
-            行情时间 <b className="text-slate-300">{fmtTime(data.quote_at || data.updated_at)}</b> ·{" "}
-            <span className={data.freshness === "stale" ? "text-amber-400" : data.freshness === "live" ? "text-green-400" : "text-slate-500"}>
+            行情时间 <b className="text-ink-soft">{fmtTime(data.quote_at || data.updated_at)}</b> ·{" "}
+            <span className={data.freshness === "stale" ? "text-amber-400" : data.freshness === "live" ? "text-green-400" : "text-ink-faint"}>
               {data.freshness === "stale" ? "行情可能延迟" : data.freshness === "live" ? "实时" : data.freshness === "closed" ? "收盘数据" : "时间未知"}
             </span>{" · "}
           </>
         )}
         {data?.market_open ? `每 ${data.poll_interval_seconds ?? 20} 秒刷新` : "休市低频刷新"} · {codes.length}/{MAX_CODES}
-        {Object.keys(costs).length > 0 && <span className="text-slate-600"> · 已加载 {Object.keys(costs).length} 只持仓成本</span>}
+        {Object.keys(costs).length > 0 && <span className="text-ink-faint"> · 已加载 {Object.keys(costs).length} 只持仓成本</span>}
       </div>
 
       {err && <div className="mb-2 rounded-lg border border-red-800 bg-red-950/40 px-3 py-2 text-xs text-red-300">{err}</div>}
 
       {codes.length === 0 && !data && (
         <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-slate-700 py-8 text-center">
-          <p className="text-sm text-slate-300">还没有监控的股票</p>
-          <p className="mt-1 max-w-sm text-xs text-slate-500">
+          <p className="text-sm text-ink-soft">还没有监控的股票</p>
+          <p className="mt-1 max-w-sm text-xs text-ink-faint">
             输入代码或一键导入自选/持仓。每只票会给出「挂多少买、挂多少卖、跌到哪里止损」，
             到价可一键设提醒
           </p>
@@ -631,7 +631,7 @@ export default function MonitorPanel() {
       )}
 
       {codes.length > 0 && data && visibleCodes.length === 0 && (
-        <div className="rounded-lg border border-dashed border-slate-700 py-6 text-center text-xs text-slate-500">
+        <div className="rounded-lg border border-dashed border-slate-700 py-6 text-center text-xs text-ink-faint">
           当前没有需要操作的标的（全部观望）
         </div>
       )}
@@ -639,15 +639,15 @@ export default function MonitorPanel() {
       {visibleCodes.length > 0 && (
         <div className="max-h-[520px] overflow-auto rounded-xl border border-slate-800">
           <table className="w-full text-sm" style={{ minWidth: 940 }}>
-            <thead className="sticky top-0 z-10 bg-slate-900 text-left text-xs text-slate-400">
+            <thead className="sticky top-0 z-10 bg-slate-900 text-left text-xs text-ink-muted">
               <tr>
-                <th className="px-2 py-2">#</th>
-                <th className="px-2 py-2">股票</th>
-                <th className="px-2 py-2 text-right">现价</th>
-                <th className="px-2 py-2 text-right">{interval === "1d" ? "支撑/压力" : "VWAP / 日内高低"}</th>
-                <th className="px-2 py-2">指令</th>
-                <th className="px-2 py-2">挂单计划</th>
-                <th className="px-2 py-2 text-right">操作</th>
+                <th className="px-3 py-2">#</th>
+                <th className="px-3 py-2">股票</th>
+                <th className="px-3 py-2 text-right">现价</th>
+                <th className="px-3 py-2 text-right">{interval === "1d" ? "支撑/压力" : "VWAP / 日内高低"}</th>
+                <th className="px-3 py-2">指令</th>
+                <th className="px-3 py-2">挂单计划</th>
+                <th className="px-3 py-2 text-right">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -656,17 +656,17 @@ export default function MonitorPanel() {
                 if (!it) {
                   return (
                     <tr key={code} className="border-t border-slate-800/60">
-                      <td className="px-2 py-2 text-xs text-slate-500">{idx + 1}</td>
-                      <td className="px-2 py-2">
-                        <span className="text-slate-400">{code}</span>
+                      <td className="px-3 py-2 text-xs text-ink-faint">{idx + 1}</td>
+                      <td className="px-3 py-2">
+                        <span className="text-ink-muted">{code}</span>
                       </td>
-                      <td colSpan={4} className="px-2 py-2 text-xs text-slate-500">
+                      <td colSpan={4} className="px-3 py-2 text-xs text-ink-faint">
                         {data ? "暂无行情（可能停牌或代码有误）" : "加载中..."}
                       </td>
-                      <td className="px-2 py-2 text-right">
+                      <td className="px-3 py-2 text-right">
                         <button
                           onClick={() => remove(code)}
-                          className="rounded p-1 text-slate-600 hover:bg-red-950/40 hover:text-red-400"
+                          className="rounded p-1 text-ink-faint hover:bg-red-950/40 hover:text-red-400"
                           title="移除"
                         >
                           <Trash2 className="h-4 w-4" />
@@ -683,10 +683,10 @@ export default function MonitorPanel() {
                 const trendMark = s?.trend === "up" ? "↑" : s?.trend === "down" ? "↓" : "→";
                 return (
                   <tr key={code} className="border-t border-slate-800/60 hover:bg-slate-800/30">
-                    <td className="px-2 py-2 text-xs text-slate-500">{idx + 1}</td>
-                    <td className="px-2 py-2">
-                      <div className="font-medium text-slate-100">{it.name}</div>
-                      <div className="text-xs text-slate-500">{code}</div>
+                    <td className="px-3 py-2 text-xs text-ink-faint">{idx + 1}</td>
+                    <td className="px-3 py-2">
+                      <div className="font-medium text-ink-strong">{it.name}</div>
+                      <div className="text-xs text-ink-faint">{code}</div>
                       {it.tactics && it.tactics.length > 0 && (
                         <div className="mt-1 flex flex-wrap gap-1">
                           {it.tactics.map((t) => (
@@ -703,48 +703,48 @@ export default function MonitorPanel() {
                         </div>
                       )}
                     </td>
-                    <td className="px-2 py-2 text-right">
-                      <div className="text-slate-200">{num(it.price)}</div>
+                    <td className="px-3 py-2 text-right">
+                      <div className="text-ink">{num(it.price)}</div>
                       <div className={`text-xs ${pnlTone(it.change_pct)}`}>
                         {up ? "+" : ""}
                         {num(it.change_pct, 2)}%
                       </div>
                       {pnl != null && (
-                        <div className={`text-xs ${pnlTone(pnl, 500)}`}>
+                        <div className={`text-xs ${pnlTone(pnl)}`}>
                           浮盈 {pnl >= 0 ? "+" : ""}
                           {num(pnl, 1)}%
                         </div>
                       )}
                     </td>
-                    <td className="px-2 py-2 text-right">
+                    <td className="px-3 py-2 text-right">
                       {intraday ? (
                         <>
-                          <div className="text-slate-200">
-                            <span className="text-xs text-slate-500">VWAP </span>
+                          <div className="text-ink">
+                            <span className="text-xs text-ink-faint">VWAP </span>
                             {num(s?.vwap)}
                           </div>
                           <div className="text-xs">
-                            <span className="text-slate-400/80">高 {num(s?.day_high)}</span>
-                            <span className="text-slate-600"> / </span>
-                            <span className="text-slate-400/80">低 {num(s?.day_low)}</span>
+                            <span className="text-ink-muted/80">高 {num(s?.day_high)}</span>
+                            <span className="text-ink-faint"> / </span>
+                            <span className="text-ink-muted/80">低 {num(s?.day_low)}</span>
                           </div>
-                          <div className="text-xs text-slate-600">
+                          <div className="text-xs text-ink-faint">
                             {trendMark} 强度 {num(s?.strength, 1)}
                             {s?.volume_ratio != null ? ` · 量比 ${num(s.volume_ratio, 2)}x` : ""}
                           </div>
                         </>
                       ) : (
                         <>
-                          <div className="text-slate-300">{num(s?.support)}</div>
-                          <div className="text-xs text-slate-500">{num(s?.resistance)}</div>
-                          <div className="text-xs text-slate-600">
+                          <div className="text-ink-soft">{num(s?.support)}</div>
+                          <div className="text-xs text-ink-faint">{num(s?.resistance)}</div>
+                          <div className="text-xs text-ink-faint">
                             强度 {num(s?.strength, 1)}
                             {s?.volume_ratio != null ? ` · 量比 ${num(s.volume_ratio, 2)}x` : ""}
                           </div>
                         </>
                       )}
                     </td>
-                    <td className="px-2 py-2">
+                    <td className="px-3 py-2">
                       <span
                         title={a?.hint}
                         className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium ${toneClass[a?.tone ?? "neutral"]}`}
@@ -752,13 +752,13 @@ export default function MonitorPanel() {
                         <span className={`h-1.5 w-1.5 rounded-full ${toneDot[a?.tone ?? "neutral"]}`} />
                         {a?.label ?? "等待信号"}
                       </span>
-                      <div className="mt-0.5 max-w-[240px] truncate text-xs text-slate-500" title={a?.hint}>
+                      <div className="mt-0.5 max-w-[240px] truncate text-xs text-ink-faint" title={a?.hint}>
                         {a?.hint ?? " "}
                       </div>
                     </td>
-                    <td className="px-2 py-2">
-                      <div className="text-xs font-medium text-slate-100">{a?.do ?? "—"}</div>
-                      <div className="mt-0.5 flex flex-wrap gap-x-2 text-xs text-slate-500">
+                    <td className="px-3 py-2">
+                      <div className="text-xs font-medium text-ink-strong">{a?.do ?? "—"}</div>
+                      <div className="mt-0.5 flex flex-wrap gap-x-2 text-xs text-ink-faint">
                         <span>
                           买 <b className="text-red-400/90">{num(plan?.buy)}</b>
                         </span>
@@ -771,17 +771,17 @@ export default function MonitorPanel() {
                         {plan?.position_pct ? <span>仓位 {plan.position_pct}%</span> : null}
                       </div>
                       {intraday && it.daily && (
-                        <div className="mt-0.5 text-xs text-slate-600">
+                        <div className="mt-0.5 text-xs text-ink-faint">
                           日线 支撑 {num(it.daily.support)} · 压力 {num(it.daily.resistance)}
                         </div>
                       )}
                     </td>
-                    <td className="px-2 py-2 text-right">
+                    <td className="px-3 py-2 text-right">
                       <div className="flex items-center justify-end gap-1">
                         <button
                           onClick={() => void quickAlert(it)}
                           disabled={alertBusy === code}
-                          className="rounded p-1 text-slate-500 hover:bg-slate-700/50 hover:text-amber-300 disabled:opacity-40"
+                          className="rounded p-1 text-ink-faint hover:bg-slate-700/50 hover:text-amber-300 disabled:opacity-40"
                           title="按建议价建到价提醒（到价后报警中心提醒）"
                         >
                           {alertBusy === code ? (
@@ -792,7 +792,7 @@ export default function MonitorPanel() {
                         </button>
                         <button
                           onClick={() => remove(code)}
-                          className="rounded p-1 text-slate-600 hover:bg-red-950/40 hover:text-red-400"
+                          className="rounded p-1 text-ink-faint hover:bg-red-950/40 hover:text-red-400"
                           title="移除监控"
                         >
                           <Trash2 className="h-4 w-4" />
@@ -807,7 +807,7 @@ export default function MonitorPanel() {
         </div>
       )}
 
-      <p className="mt-2 text-xs text-slate-600">
+      <p className="mt-2 text-xs text-ink-faint">
         {interval === "1d" ? (
           <>
             日线档：挂单计划由日 K 布林带/均线/斐波那契回撤推导（买入=回踩支撑、卖出=压力位、止损=支撑下方 3%），

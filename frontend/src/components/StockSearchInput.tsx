@@ -58,13 +58,13 @@ export default function StockSearchInput({ value, onChange, onPickCode, disabled
 
   return (
     <div className="relative flex-1" ref={boxRef}>
-      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder="输入 6 位代码或股票名称，如 600519 / 茅台"
         disabled={disabled}
-        className="w-full rounded-lg border border-slate-700 bg-slate-800/70 py-2.5 pl-9 pr-8 text-sm outline-none placeholder:text-slate-500 focus:border-brand disabled:opacity-50"
+        className="w-full rounded-lg border border-slate-700 bg-slate-800/70 py-2.5 pl-9 pr-8 text-sm outline-none placeholder:text-ink-faint focus:border-brand disabled:opacity-50"
       />
       {loading && (
         <span className="absolute right-3 top-1/2 -translate-y-1/2">
@@ -79,10 +79,10 @@ export default function StockSearchInput({ value, onChange, onPickCode, disabled
               onClick={() => pick(s)}
               className="flex w-full items-center justify-between px-4 py-2 text-left hover:bg-slate-800"
             >
-              <span className="text-sm text-slate-200">{s.name}</span>
+              <span className="text-sm text-ink">{s.name}</span>
               <span className="ml-3 flex items-center gap-3 text-xs">
-                <span className="text-slate-500">{s.code}</span>
-                <span className="text-slate-400">{s.price.toFixed(2)}</span>
+                <span className="text-ink-faint">{s.code}</span>
+                <span className="text-ink-muted">{s.price.toFixed(2)}</span>
                 <span className={pnlTone(s.change_pct)}>
                   {s.change_pct >= 0 ? "+" : ""}
                   {s.change_pct.toFixed(2)}%

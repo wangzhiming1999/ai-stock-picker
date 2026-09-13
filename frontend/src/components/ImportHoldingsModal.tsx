@@ -151,7 +151,7 @@ export default function ImportHoldingsModal({ open, onClose, onImported }: Props
                 onClick={onClose}
                 whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.9 }}
-                className="text-slate-500 hover:text-slate-300"
+                className="text-ink-faint hover:text-ink-soft"
                 aria-label="关闭"
               >
                 <X className="h-5 w-5" />
@@ -170,7 +170,7 @@ export default function ImportHoldingsModal({ open, onClose, onImported }: Props
                   key={key}
                   onClick={() => setMode(key)}
                   className={`flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors ${
-                    mode === key ? "bg-brand text-white" : "text-slate-400 hover:text-slate-200"
+                    mode === key ? "bg-brand text-white" : "text-ink-muted hover:text-ink"
                   }`}
                 >
                   <Icon className="h-4 w-4" />
@@ -202,23 +202,23 @@ export default function ImportHoldingsModal({ open, onClose, onImported }: Props
                   }}
                 />
                 {parsing ? (
-                  <div className="flex flex-col items-center gap-2 py-2 text-sm text-slate-300">
-                    <Loader2 className="h-6 w-6 animate-spin text-brand" />
+                  <div className="flex flex-col items-center gap-2 py-2 text-sm text-ink-soft">
+                    <Loader2 className="h-6 w-6 animate-spin text-brand-light" />
                     正在识别截图（约 5~15 秒）...
                   </div>
                 ) : (
                   <>
-                    <ImageUp className="mx-auto mb-2 h-8 w-8 text-slate-500" />
-                    <p className="text-sm text-slate-300">
+                    <ImageUp className="mx-auto mb-2 h-8 w-8 text-ink-faint" />
+                    <p className="text-sm text-ink-soft">
                       {fileName ? (
                         <>
-                          已识别 <b className="text-slate-100">{fileName}</b>，可重新上传
+                          已识别 <b className="text-ink-strong">{fileName}</b>，可重新上传
                         </>
                       ) : (
                         "上传券商 App 持仓页截图"
                       )}
                     </p>
-                    <p className="mt-1 text-xs text-slate-500">点击选择 / 拖入 / 直接 Ctrl+V 粘贴截图</p>
+                    <p className="mt-1 text-xs text-ink-faint">点击选择 / 拖入 / 直接 Ctrl+V 粘贴截图</p>
                     <button
                       onClick={() => fileRef.current?.click()}
                       className="mt-3 rounded-lg bg-brand px-4 py-1.5 text-xs font-medium text-white hover:bg-brand-dark"
@@ -235,10 +235,10 @@ export default function ImportHoldingsModal({ open, onClose, onImported }: Props
                   onChange={(e) => setText(e.target.value)}
                   rows={5}
                   placeholder={"从券商 App 复制持仓文本后粘贴到这里，每行一只，例如：\n贵州茅台 600519 1224.50 100\n五粮液 000858 成本128.5 数量200"}
-                  className="w-full resize-y rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-200 placeholder:text-slate-600 focus:border-brand focus:outline-none"
+                  className="w-full resize-y rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-ink placeholder:text-ink-faint focus:border-brand focus:outline-none"
                 />
                 <div className="mt-2 flex items-center justify-between">
-                  <span className="text-xs text-slate-500">支持 名称+代码+成本+数量 的任意组合顺序</span>
+                  <span className="text-xs text-ink-faint">支持 名称+代码+成本+数量 的任意组合顺序</span>
                   <button
                     onClick={() => void parseText()}
                     disabled={parsing || !text.trim()}
@@ -265,20 +265,20 @@ export default function ImportHoldingsModal({ open, onClose, onImported }: Props
             {rows.length > 0 && (
               <div className="mb-4 min-h-0 flex-1 overflow-auto rounded-xl border border-slate-800">
                 <table className="w-full text-sm" style={{ minWidth: 520 }}>
-                  <thead className="sticky top-0 z-10 bg-slate-900 text-left text-xs text-slate-400">
+                  <thead className="sticky top-0 z-10 bg-slate-900 text-left text-xs text-ink-muted">
                     <tr>
-                      <th className="px-2 py-2"></th>
-                      <th className="px-2 py-2">代码</th>
-                      <th className="px-2 py-2">名称</th>
-                      <th className="px-2 py-2 text-right">成本价</th>
-                      <th className="px-2 py-2 text-right">数量(股)</th>
-                      <th className="px-2 py-2 text-right">操作</th>
+                      <th className="px-3 py-2"></th>
+                      <th className="px-3 py-2">代码</th>
+                      <th className="px-3 py-2">名称</th>
+                      <th className="px-3 py-2 text-right">成本价</th>
+                      <th className="px-3 py-2 text-right">数量(股)</th>
+                      <th className="px-3 py-2 text-right">操作</th>
                     </tr>
                   </thead>
                   <tbody>
                     {rows.map((r, idx) => (
                       <tr key={`${r.code}-${idx}`} className={`border-t border-slate-800/60 ${!rowValid(r) ? "bg-red-950/20" : ""}`}>
-                        <td className="px-2 py-1.5">
+                        <td className="px-3 py-2">
                           <input
                             type="checkbox"
                             checked={r.selected}
@@ -286,17 +286,17 @@ export default function ImportHoldingsModal({ open, onClose, onImported }: Props
                             className="accent-brand"
                           />
                         </td>
-                        <td className="px-2 py-1.5">
+                        <td className="px-3 py-2">
                           <input
                             value={r.code}
                             onChange={(e) => updateRow(idx, { code: e.target.value.replace(/\D/g, "").slice(0, 6) })}
                             className={`w-20 rounded border bg-slate-950 px-1.5 py-1 text-xs ${
-                              /^\d{6}$/.test(r.code) ? "border-slate-700 text-slate-200" : "border-red-700 text-red-300"
+                              /^\d{6}$/.test(r.code) ? "border-slate-700 text-ink" : "border-red-700 text-red-300"
                             }`}
                           />
                         </td>
-                        <td className="px-2 py-1.5 text-xs text-slate-300">{r.name || "-"}</td>
-                        <td className="px-2 py-1.5 text-right">
+                        <td className="px-3 py-2 text-xs text-ink-soft">{r.name || "-"}</td>
+                        <td className="px-3 py-2 text-right">
                           <input
                             type="number"
                             step="any"
@@ -307,11 +307,11 @@ export default function ImportHoldingsModal({ open, onClose, onImported }: Props
                             }
                             placeholder="必填"
                             className={`w-20 rounded border bg-slate-950 px-1.5 py-1 text-right text-xs ${
-                              (r.cost_price ?? 0) > 0 ? "border-slate-700 text-slate-200" : "border-red-700 text-red-300"
+                              (r.cost_price ?? 0) > 0 ? "border-slate-700 text-ink" : "border-red-700 text-red-300"
                             }`}
                           />
                         </td>
-                        <td className="px-2 py-1.5 text-right">
+                        <td className="px-3 py-2 text-right">
                           <input
                             type="number"
                             min="0"
@@ -321,14 +321,14 @@ export default function ImportHoldingsModal({ open, onClose, onImported }: Props
                             }
                             placeholder="必填"
                             className={`w-20 rounded border bg-slate-950 px-1.5 py-1 text-right text-xs ${
-                              (r.shares ?? 0) > 0 ? "border-slate-700 text-slate-200" : "border-red-700 text-red-300"
+                              (r.shares ?? 0) > 0 ? "border-slate-700 text-ink" : "border-red-700 text-red-300"
                             }`}
                           />
                         </td>
-                        <td className="px-2 py-1.5 text-right">
+                        <td className="px-3 py-2 text-right">
                           <button
                             onClick={() => removeRow(idx)}
-                            className="rounded p-1 text-slate-600 hover:bg-red-950/40 hover:text-red-400"
+                            className="rounded p-1 text-ink-faint hover:bg-red-950/40 hover:text-red-400"
                             title="移除此行"
                           >
                             <Trash2 className="h-4 w-4" />
@@ -343,7 +343,7 @@ export default function ImportHoldingsModal({ open, onClose, onImported }: Props
 
             {/* 底部动作 */}
             <div className="flex items-center justify-between gap-3">
-              <button onClick={reset} disabled={rows.length === 0} className="text-xs text-slate-500 hover:text-slate-300 disabled:opacity-30">
+              <button onClick={reset} disabled={rows.length === 0} className="text-xs text-ink-faint hover:text-ink-soft disabled:opacity-30">
                 清空重来
               </button>
               <button

@@ -16,7 +16,7 @@ function fmtScore(v: number | undefined): string {
 
 function ScoreCell({ v, title }: { v: number | undefined; title: string }) {
   return (
-    <td className="px-2 py-2">
+    <td className="px-3 py-2">
       <span title={title} className={`inline-block min-w-[2.2rem] rounded px-1.5 py-0.5 text-center text-xs font-semibold ${scoreChip(v ?? 0)}`}>
         {fmtScore(v)}
       </span>
@@ -85,7 +85,7 @@ export default function QuadRankTable({ onPick }: Props) {
           <button
             onClick={() => void load(true)}
             disabled={loading}
-            className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-slate-400 hover:text-slate-200 disabled:opacity-50"
+            className="rounded-lg border border-slate-700 px-3 py-1 text-xs text-ink-muted hover:text-ink disabled:opacity-50"
           >
             {loading ? "重算中..." : "强制刷新"}
           </button>
@@ -94,36 +94,36 @@ export default function QuadRankTable({ onPick }: Props) {
     >
       {err && <div className="rounded-lg border border-red-800 bg-red-950/40 px-3 py-2 text-sm text-red-300">{err}</div>}
       {!data && !err && (
-        <div className="p-3 text-sm text-slate-500">正在计算四维评分，首次生成约 1~2 分钟，之后整日秒回...</div>
+        <div className="p-3 text-sm text-ink-faint">正在计算四维评分，首次生成约 1~2 分钟，之后整日秒回...</div>
       )}
-      {data && items.length === 0 && !err && <div className="p-3 text-sm text-slate-500">今日暂无符合四维条件的标的</div>}
+      {data && items.length === 0 && !err && <div className="p-3 text-sm text-ink-faint">今日暂无符合四维条件的标的</div>}
 
       {data && items.length > 0 && (
         <div>
-          <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+          <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-faint">
             <span>
-              候选池 <b className="text-slate-300">{data.pool_size}</b> 只
+              候选池 <b className="text-ink-soft">{data.pool_size}</b> 只
             </span>
             <span>
-              四维全优(各面≥7) <b className={data.strict_count > 0 ? "text-brand-light" : "text-slate-400"}>{data.strict_count}</b> 只
+              四维全优(各面≥7) <b className={data.strict_count > 0 ? "text-brand-light" : "text-ink-muted"}>{data.strict_count}</b> 只
             </span>
-            <span className="text-slate-600">评分口径：估值+趋势+量能+消息情绪，规则模型每日更新</span>
+            <span className="text-ink-faint">评分口径：估值+趋势+量能+消息情绪，规则模型每日更新</span>
           </div>
 
           <div className="max-h-[560px] overflow-auto rounded-xl border border-slate-800">
             <table className="w-full text-sm" style={{ minWidth: 760 }}>
-              <thead className="sticky top-0 z-10 bg-slate-900 text-left text-xs text-slate-400">
+              <thead className="sticky top-0 z-10 bg-slate-900 text-left text-xs text-ink-muted">
                 <tr>
-                  <th className="px-2 py-2"></th>
-                  <th className="px-2 py-2">#</th>
-                  <th className="px-2 py-2">股票</th>
-                  <th className="px-2 py-2 text-right">现价</th>
-                  <th className="px-2 py-2 text-center">基本面</th>
-                  <th className="px-2 py-2 text-center">技术面</th>
-                  <th className="px-2 py-2 text-center">资金面</th>
-                  <th className="px-2 py-2 text-center">消息面</th>
-                  <th className="px-2 py-2 text-center">综合</th>
-                  <th className="px-2 py-2 text-right">操作</th>
+                  <th className="px-3 py-2"></th>
+                  <th className="px-3 py-2">#</th>
+                  <th className="px-3 py-2">股票</th>
+                  <th className="px-3 py-2 text-right">现价</th>
+                  <th className="px-3 py-2 text-center">基本面</th>
+                  <th className="px-3 py-2 text-center">技术面</th>
+                  <th className="px-3 py-2 text-center">资金面</th>
+                  <th className="px-3 py-2 text-center">消息面</th>
+                  <th className="px-3 py-2 text-center">综合</th>
+                  <th className="px-3 py-2 text-right">操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -138,7 +138,7 @@ export default function QuadRankTable({ onPick }: Props) {
                         isSel ? "bg-brand/10" : "hover:bg-slate-800/40"
                       }`}
                     >
-                      <td className="px-2 py-2">
+                      <td className="px-3 py-2">
                         <input
                           type="checkbox"
                           readOnly
@@ -148,10 +148,10 @@ export default function QuadRankTable({ onPick }: Props) {
                           className="accent-green-500"
                         />
                       </td>
-                      <td className="px-2 py-2 text-xs text-slate-500">{it.rank}</td>
-                      <td className="px-2 py-2">
+                      <td className="px-3 py-2 text-xs text-ink-faint">{it.rank}</td>
+                      <td className="px-3 py-2">
                         <div className="flex items-center gap-1.5">
-                          <span className="font-medium text-slate-100">{it.name}</span>
+                          <span className="font-medium text-ink-strong">{it.name}</span>
                           {it.tags.map((t) => (
                             <span
                               key={t}
@@ -161,10 +161,10 @@ export default function QuadRankTable({ onPick }: Props) {
                             </span>
                           ))}
                         </div>
-                        <div className="text-xs text-slate-500">{it.code}</div>
+                        <div className="text-xs text-ink-faint">{it.code}</div>
                       </td>
-                      <td className="px-2 py-2 text-right">
-                        <div className="text-slate-200">{it.price.toFixed(2)}</div>
+                      <td className="px-3 py-2 text-right">
+                        <div className="text-ink">{it.price.toFixed(2)}</div>
                         <div className={`text-xs ${pnlTone(it.change_pct)}`}>
                           {up ? "+" : ""}
                           {it.change_pct.toFixed(2)}%
@@ -174,12 +174,12 @@ export default function QuadRankTable({ onPick }: Props) {
                       <ScoreCell v={it.scores?.technical} title={it.comments?.technical} />
                       <ScoreCell v={it.scores?.capital} title={it.comments?.capital} />
                       <ScoreCell v={it.scores?.news} title={it.comments?.news} />
-                      <td className="px-2 py-2 text-center">
-                        <span className={`text-base font-bold ${it.overall_score >= 7 ? "text-brand" : "text-slate-300"}`}>
+                      <td className="px-3 py-2 text-center">
+                        <span className={`text-base font-bold ${it.overall_score >= 7 ? "text-brand-light" : "text-ink-soft"}`}>
                           {it.overall_score.toFixed(1)}
                         </span>
                       </td>
-                      <td className="px-2 py-2 text-right" onClick={(e) => e.stopPropagation()}>
+                      <td className="px-3 py-2 text-right" onClick={(e) => e.stopPropagation()}>
                         <WatchStar code={it.code} />
                       </td>
                     </tr>

@@ -29,7 +29,7 @@ export default function StockCard({ analysis, info }: Props) {
         <div>
           <h3 className="text-lg font-bold text-white">
             {analysis.name}
-            <span className="ml-2 text-sm font-normal text-slate-500">{analysis.code}</span>
+            <span className="ml-2 text-sm font-normal text-ink-faint">{analysis.code}</span>
           </h3>
           {quote && (
             <div className="mt-1 flex items-baseline gap-2">
@@ -42,9 +42,9 @@ export default function StockCard({ analysis, info }: Props) {
           )}
         </div>
         <div className="text-right">
-          <div className="text-sm text-slate-400">综合评分</div>
-          <div className="text-4xl font-black text-brand">{fmtNum(analysis.overall_score, 1, "0")}</div>
-          <div className="text-xs text-slate-500">/ 10</div>
+          <div className="text-sm text-ink-muted">综合评分</div>
+          <div className="text-4xl font-black text-brand-light">{fmtNum(analysis.overall_score, 1, "0")}</div>
+          <div className="text-xs text-ink-faint">/ 10</div>
         </div>
       </div>
 
@@ -54,33 +54,33 @@ export default function StockCard({ analysis, info }: Props) {
       </div>
 
       {/* 综合点评 */}
-      <p className="mt-4 text-sm leading-relaxed text-slate-300">{analysis.summary ?? ""}</p>
+      <p className="mt-4 text-sm leading-relaxed text-ink-soft">{analysis.summary ?? ""}</p>
 
       {analysis.strategy && (
         <div className={`mt-4 ${SUB} p-3`}>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <div className="text-xs font-semibold text-white">趋势是否合格</div>
-              <div className="mt-0.5 text-xs text-slate-500">公开规则逐项检查，不由 AI 猜测</div>
+              <div className="mt-0.5 text-xs text-ink-faint">公开规则逐项检查，不由 AI 猜测</div>
             </div>
             <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
               analysis.strategy.status === "passed"
                 ? "bg-brand/15 text-brand-light"
                 : analysis.strategy.status === "watch"
                   ? "bg-amber-500/15 text-amber-300"
-                  : "bg-slate-700 text-slate-300"
+                  : "bg-slate-700 text-ink-soft"
             }`}>
               {analysis.strategy.passed}/{analysis.strategy.total} 项通过
             </span>
           </div>
-          <p className="mt-2 text-sm font-medium text-slate-200">{analysis.strategy.action}</p>
+          <p className="mt-2 text-sm font-medium text-ink">{analysis.strategy.action}</p>
           {analysis.strategy.conditions.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1.5">
               {analysis.strategy.conditions.map((condition) => (
                 <span
                   key={condition.label}
                   className={`rounded-lg px-2 py-1 text-xs ${
-                    condition.passed ? "bg-brand/10 text-brand-light" : "bg-slate-800/40 text-slate-500"
+                    condition.passed ? "bg-brand/10 text-brand-light" : "bg-slate-800/40 text-ink-faint"
                   }`}
                 >
                   {condition.passed ? "✓" : "×"} {condition.label}
@@ -95,7 +95,7 @@ export default function StockCard({ analysis, info }: Props) {
       {analysis.tactics && analysis.tactics.length > 0 && (
         <div className={`mt-4 ${SUB} p-3`}>
           <div className="text-xs font-semibold text-white">形态命中</div>
-          <div className="mt-0.5 text-xs text-slate-500">
+          <div className="mt-0.5 text-xs text-ink-faint">
             K 线量价条件逐条核对，全部成立才算命中 · 算法推导
           </div>
           <ul className="mt-2 space-y-2">
@@ -109,12 +109,12 @@ export default function StockCard({ analysis, info }: Props) {
                   >
                     {t.direction === "buy" ? "买点" : "卖点"}
                   </span>
-                  <span className="text-xs font-semibold text-slate-200">{t.name}</span>
-                  <span className="text-xs text-slate-500">
+                  <span className="text-xs font-semibold text-ink">{t.name}</span>
+                  <span className="text-xs text-ink-faint">
                     {t.passed}/{t.total} 条件
                   </span>
                 </div>
-                <p className="mt-1 text-xs leading-relaxed text-slate-300">{t.action}</p>
+                <p className="mt-1 text-xs leading-relaxed text-ink-soft">{t.action}</p>
               </li>
             ))}
           </ul>
@@ -127,11 +127,11 @@ export default function StockCard({ analysis, info }: Props) {
           <div className="mb-2 flex items-center justify-between">
             <span className="text-xs font-semibold text-amber-400">技术信号</span>
             <span className="flex items-center gap-1">
-              <span className="text-xs text-slate-500">强度</span>
+              <span className="text-xs text-ink-faint">强度</span>
               <span className={`text-sm font-bold ${scoreTone(analysis.signal.strength)}`}>
                 {fmtNum(analysis.signal.strength, 1)}
               </span>
-              <span className="text-xs text-slate-500">风报比</span>
+              <span className="text-xs text-ink-faint">风报比</span>
               <span className={`text-sm font-bold ${rrTone(analysis.signal.rr_ratio)}`}>
                 {fmtNum(analysis.signal.rr_ratio, 2)}
               </span>
@@ -139,28 +139,28 @@ export default function StockCard({ analysis, info }: Props) {
           </div>
           <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs sm:grid-cols-3">
             <div className="flex justify-between rounded-lg bg-slate-800/70 px-2 py-1">
-              <span className="text-slate-500">支撑位</span>
-              <span className="font-medium text-slate-200">{fmtNum(analysis.signal.support)}</span>
+              <span className="text-ink-faint">支撑位</span>
+              <span className="font-medium text-ink">{fmtNum(analysis.signal.support)}</span>
             </div>
             <div className="flex justify-between rounded-lg bg-slate-800/70 px-2 py-1">
-              <span className="text-slate-500">压力位</span>
-              <span className="font-medium text-slate-200">{fmtNum(analysis.signal.resistance)}</span>
+              <span className="text-ink-faint">压力位</span>
+              <span className="font-medium text-ink">{fmtNum(analysis.signal.resistance)}</span>
             </div>
             <div className={`flex justify-between rounded-lg px-2 py-1 ${CHIP.buy.bg}`}>
-              <span className="text-slate-400">买入区</span>
+              <span className="text-ink-muted">买入区</span>
               <span className={`font-medium ${CHIP.buy.text}`}>{fmtNum(analysis.signal.buy_point)}</span>
             </div>
             <div className={`flex justify-between rounded-lg px-2 py-1 ${CHIP.sell.bg}`}>
-              <span className="text-slate-400">卖出区</span>
+              <span className="text-ink-muted">卖出区</span>
               <span className={`font-medium ${CHIP.sell.text}`}>{fmtNum(analysis.signal.sell_point)}</span>
             </div>
             <div className={`flex justify-between rounded-lg px-2 py-1 ${CHIP.risk.bg}`}>
-              <span className="text-slate-400">止损位</span>
+              <span className="text-ink-muted">止损位</span>
               <span className={`font-medium ${CHIP.risk.text}`}>{fmtNum(analysis.signal.stop_loss)}</span>
             </div>
             <div className="flex justify-between rounded-lg bg-slate-800/70 px-2 py-1">
-              <span className="text-slate-500">现价</span>
-              <span className="font-medium text-slate-200">{fmtNum(analysis.signal.price)}</span>
+              <span className="text-ink-faint">现价</span>
+              <span className="font-medium text-ink">{fmtNum(analysis.signal.price)}</span>
             </div>
           </div>
         </div>
@@ -169,8 +169,8 @@ export default function StockCard({ analysis, info }: Props) {
       {/* 持有建议 */}
       {analysis.holding_advice && (
         <div className={`mt-3 ${SUB} p-3`}>
-          <div className="mb-1 text-xs font-semibold text-slate-300">持有建议</div>
-          <p className="text-xs leading-relaxed text-slate-400">{analysis.holding_advice}</p>
+          <div className="mb-1 text-xs font-semibold text-ink-soft">持有建议</div>
+          <p className="text-xs leading-relaxed text-ink-muted">{analysis.holding_advice}</p>
         </div>
       )}
 
@@ -196,8 +196,8 @@ export default function StockCard({ analysis, info }: Props) {
       {/* 建议 */}
       {suggestions.length > 0 && (
         <div className={`mt-3 ${SUB} p-3`}>
-          <div className="mb-1 text-xs font-semibold text-slate-400">操作建议</div>
-          <ul className="list-disc pl-4 text-xs text-slate-300 space-y-0.5">
+          <div className="mb-1 text-xs font-semibold text-ink-muted">操作建议</div>
+          <ul className="list-disc pl-4 text-xs text-ink-soft space-y-0.5">
             {suggestions.map((s, i) => (
               <li key={i}>{s}</li>
             ))}

@@ -121,21 +121,21 @@ function TradeModal({
           <span className={`text-sm font-bold ${isBuy ? "text-red-400" : "text-green-400"}`}>
             {isBuy ? "模拟买入" : "模拟卖出"}
           </span>
-          <button onClick={onClose} className="text-xs text-slate-500 hover:text-slate-300">关闭</button>
+          <button onClick={onClose} className="text-xs text-ink-faint hover:text-ink-soft">关闭</button>
         </div>
         <div className="space-y-3">
           <label className="block">
-            <span className="mb-1 block text-xs text-slate-500">股票代码</span>
+            <span className="mb-1 block text-xs text-ink-faint">股票代码</span>
             <input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="6 位代码" disabled={!!initialCode} className="w-full rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-1.5 text-sm disabled:opacity-60" />
           </label>
           <label className="block">
-            <span className="mb-1 block text-xs text-slate-500">数量（股，100 的整数倍）</span>
+            <span className="mb-1 block text-xs text-ink-faint">数量（股，100 的整数倍）</span>
             <input value={shares} onChange={(e) => setShares(e.target.value.replace(/\D/g, ""))} type="number" placeholder="如 100" className="w-full rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-1.5 text-sm" />
           </label>
           <label className="block">
-            <span className="mb-1 flex items-center justify-between text-xs text-slate-500">
+            <span className="mb-1 flex items-center justify-between text-xs text-ink-faint">
               成交价
-              <label className="flex items-center gap-1 text-slate-500">
+              <label className="flex items-center gap-1 text-ink-faint">
                 <input type="checkbox" checked={priceAuto} onChange={(e) => setPriceAuto(e.target.checked)} className="h-3 w-3 accent-brand" />
                 用实时价
               </label>
@@ -146,7 +146,7 @@ function TradeModal({
             <button onClick={submit} disabled={busy} className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-60 ${isBuy ? "bg-red-600 hover:bg-red-500" : "bg-green-600 hover:bg-green-500"}`}>
               {busy ? "提交中..." : isBuy ? "买入" : "卖出"}
             </button>
-            <button onClick={onClose} className="rounded-lg border border-slate-600 px-4 py-2 text-sm text-slate-400 hover:text-slate-200">取消</button>
+            <button onClick={onClose} className="rounded-lg border border-slate-600 px-4 py-2 text-sm text-ink-muted hover:text-ink">取消</button>
           </div>
         </div>
       </div>
@@ -199,7 +199,7 @@ export default function SimPanel() {
 
   if (!user) {
     return (
-      <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5 text-sm text-slate-400">
+      <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5 text-sm text-ink-muted">
         请先登录后使用模拟盘（虚拟资金，按用户隔离）。
       </div>
     );
@@ -218,8 +218,8 @@ export default function SimPanel() {
       <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div>
-            <h3 className="text-sm font-semibold text-slate-200">模拟盘</h3>
-            <p className="mt-0.5 text-xs text-slate-500">虚拟资金实操验证 · A 股费用规则 · T+1</p>
+            <h3 className="text-sm font-semibold text-ink">模拟盘</h3>
+            <p className="mt-0.5 text-xs text-ink-faint">虚拟资金实操验证 · A 股费用规则 · T+1</p>
           </div>
           {usingMock && (
             <span className="rounded border border-amber-700/40 bg-amber-950/40 px-1.5 py-0.5 text-xs font-medium text-amber-300" title="模拟盘后端当前不可用，前端展示固定演示数据">
@@ -228,7 +228,7 @@ export default function SimPanel() {
           )}
         </div>
         <div className="flex items-center gap-2">
-          {loading && <span className="text-xs text-slate-500">加载中…</span>}
+          {loading && <span className="text-xs text-ink-faint">加载中…</span>}
           {!usingMock && (
             <button
               onClick={async () => {
@@ -289,58 +289,58 @@ export default function SimPanel() {
         <>
           <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
             <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
-              <div className="text-lg font-bold text-slate-200">{safeNumber(account.total_value).toLocaleString()}</div>
-              <div className="text-xs text-slate-500">总资产</div>
+              <div className="text-lg font-bold text-ink">{safeNumber(account.total_value).toLocaleString()}</div>
+              <div className="text-xs text-ink-faint">总资产</div>
             </div>
             <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
-              <div className="text-lg font-bold text-slate-200">{safeNumber(account.cash).toLocaleString()}</div>
-              <div className="text-xs text-slate-500">可用现金</div>
+              <div className="text-lg font-bold text-ink">{safeNumber(account.cash).toLocaleString()}</div>
+              <div className="text-xs text-ink-faint">可用现金</div>
             </div>
             <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
               <div className={`text-lg font-bold ${pnlTone(account.total_pnl)}`}>
                 {account.total_pnl != null ? `${account.total_pnl >= 0 ? "+" : ""}${safeNumber(account.total_pnl).toLocaleString()}` : "-"}
               </div>
-              <div className="text-xs text-slate-500">总盈亏</div>
+              <div className="text-xs text-ink-faint">总盈亏</div>
             </div>
             <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-center">
               <div className={`text-lg font-bold ${pnlTone(account.total_pnl_pct)}`}>{fmtPct(account.total_pnl_pct)}</div>
-              <div className="text-xs text-slate-500">盈亏率</div>
+              <div className="text-xs text-ink-faint">盈亏率</div>
             </div>
           </div>
-          <div className="mb-3 flex gap-4 text-xs text-slate-500">
+          <div className="mb-3 flex gap-4 text-xs text-ink-faint">
             <span>已实现盈亏 <span className={pnlTone(account.realized_pnl)}>{account.realized_pnl >= 0 ? "+" : ""}{safeNumber(account.realized_pnl)}</span></span>
             <span>未实现盈亏 <span className={pnlTone(account.unrealized_pnl)}>{account.unrealized_pnl >= 0 ? "+" : ""}{safeNumber(account.unrealized_pnl)}</span></span>
-            <span>持仓市值 <span className="text-slate-300">{safeNumber(summary ?? account.market_value).toLocaleString()}</span></span>
+            <span>持仓市值 <span className="text-ink-soft">{safeNumber(summary ?? account.market_value).toLocaleString()}</span></span>
           </div>
 
           {positions && positions.positions.length > 0 && (
             <div className="mb-4 overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="text-left text-xs text-slate-400">
+                <thead className="text-left text-xs text-ink-muted">
                   <tr>
-                    <th className="px-2 py-2">股票</th>
-                    <th className="px-2 py-2 text-right">现价</th>
-                    <th className="px-2 py-2 text-right">成本</th>
-                    <th className="px-2 py-2 text-right">数量</th>
-                    <th className="px-2 py-2 text-right">浮盈</th>
-                    <th className="px-2 py-2 text-right"></th>
+                    <th className="px-3 py-2">股票</th>
+                    <th className="px-3 py-2 text-right">现价</th>
+                    <th className="px-3 py-2 text-right">成本</th>
+                    <th className="px-3 py-2 text-right">数量</th>
+                    <th className="px-3 py-2 text-right">浮盈</th>
+                    <th className="px-3 py-2 text-right"></th>
                   </tr>
                 </thead>
                 <tbody>
                   {positions.positions.map((p: SimPosition) => (
                     <tr key={p.code} className="border-t border-slate-800/60">
-                      <td className="px-2 py-2">
-                        <div className="font-medium text-slate-200">{p.name || p.code}</div>
-                        <div className="text-xs text-slate-500">{p.code}</div>
+                      <td className="px-3 py-2">
+                        <div className="font-medium text-ink">{p.name || p.code}</div>
+                        <div className="text-xs text-ink-faint">{p.code}</div>
                       </td>
-                      <td className="px-2 py-2 text-right text-slate-300">{p.current_price?.toFixed(2) ?? "-"}</td>
-                      <td className="px-2 py-2 text-right text-slate-400">{p.avg_cost?.toFixed(2)}</td>
-                      <td className="px-2 py-2 text-right text-slate-400">{p.shares}</td>
+                      <td className="px-3 py-2 text-right text-ink-soft">{p.current_price?.toFixed(2) ?? "-"}</td>
+                      <td className="px-3 py-2 text-right text-ink-muted">{p.avg_cost?.toFixed(2)}</td>
+                      <td className="px-3 py-2 text-right text-ink-muted">{p.shares}</td>
                       <td className={`px-2 py-2 text-right ${pnlTone(p.pnl_pct)}`}>
                         {p.pnl_pct != null ? `${p.pnl_pct >= 0 ? "+" : ""}${p.pnl_pct.toFixed(2)}%` : "-"}
                       </td>
-                      <td className="px-2 py-2 text-right">
-                        <button onClick={() => setModal({ side: "sell", code: p.code, price: p.current_price ?? undefined })} className="rounded border border-slate-600 px-2 py-1 text-xs text-slate-300 hover:border-green-400 hover:text-green-300">
+                      <td className="px-3 py-2 text-right">
+                        <button onClick={() => setModal({ side: "sell", code: p.code, price: p.current_price ?? undefined })} className="rounded border border-slate-600 px-2 py-1 text-xs text-ink-soft hover:border-green-400 hover:text-green-300">
                           卖出
                         </button>
                       </td>
@@ -355,7 +355,7 @@ export default function SimPanel() {
 
           {trades && trades.trades.length > 0 && (
             <div className="mt-4 border-t border-slate-800 pt-3">
-              <div className="mb-2 text-xs font-semibold text-slate-400">最近成交（{trades.total}）</div>
+              <div className="mb-2 text-xs font-semibold text-ink-muted">最近成交（{trades.total}）</div>
               <div className="max-h-48 space-y-1 overflow-y-auto">
                 {trades.trades.map((t) => (
                   <div key={t.id} className="flex items-center justify-between rounded bg-slate-800/40 px-3 py-1.5 text-xs">
@@ -363,10 +363,10 @@ export default function SimPanel() {
                       <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${t.side === "buy" ? "bg-red-900/40 text-red-300" : "bg-green-900/40 text-green-300"}`}>
                         {t.side === "buy" ? "买" : "卖"}
                       </span>
-                      <span className="text-slate-200">{t.name || t.code}</span>
-                      <span className="text-slate-500">{t.shares}股 @ {t.price}</span>
+                      <span className="text-ink">{t.name || t.code}</span>
+                      <span className="text-ink-faint">{t.shares}股 @ {t.price}</span>
                     </span>
-                    <span className="text-slate-500">{(t.executed_at || "").slice(0, 16).replace("T", " ")}</span>
+                    <span className="text-ink-faint">{(t.executed_at || "").slice(0, 16).replace("T", " ")}</span>
                   </div>
                 ))}
               </div>

@@ -6,11 +6,7 @@ import { useAuth } from "../auth/AuthContext";
 import { fmtNum } from "../lib/safe";
 import { pnlTone } from "../lib/tone";
 import CollapsiblePanel from "./CollapsiblePanel";
-import BacktestPanel from "./BacktestPanel";
-import MonitorPanel from "./MonitorPanel";
-import TacticBacktestPanel from "./TacticBacktestPanel";
 import TacticPanel from "./TacticPanel";
-import WinratePanel from "./WinratePanel";
 import type { OpportunityResult, ScanStock, StrategyDef, StrategyName, StrategyStock } from "../types";
 import { getScanViewAction } from "./scanPanelLogic";
 import type { ScanView } from "./scanPanelLogic";
@@ -199,33 +195,25 @@ export default function ScanPanel({ onPick }: Props) {
   return (
     <div className="space-y-5">
       <section className="rounded-xl border border-slate-800 bg-gradient-to-br from-slate-900 to-slate-950 p-5">
-        <p className="text-xs font-semibold text-brand">选股扫描</p>
+        <p className="text-xs font-semibold text-brand-light">选股扫描</p>
         <h2 className="mt-1 text-xl font-bold text-white">你今天想找什么？</h2>
-        <p className="mt-1 text-sm text-slate-400">先选一个目标。扫描结果只是候选池，进入深度分析确认后再决定是否操作。</p>
-        <div className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-5">
+        <p className="mt-1 text-sm text-ink-muted">先选一个目标。扫描结果只是候选池，进入深度分析确认后再决定是否操作。</p>
+        <div className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
           {([
             ["quick", "找今日候选", "新手建议从这里开始"],
             ["timing", "看早盘/尾盘", "只在对应时段使用"],
-            ["monitor", "看我的盯盘", "检查已有关注标的"],
             ["tactics", "看实战形态", "按技巧找买卖点"],
             ["advanced", "自己设条件", "适合熟悉指标的用户"],
           ] as Array<[ScanView, string, string]>).map(([value, label, desc]) => (
             <button key={value} onClick={() => selectScanView(value)} disabled={value === "quick" && strategyRunning} aria-busy={value === "quick" && strategyRunning} className={`cursor-pointer rounded-lg border p-3 text-left transition disabled:cursor-wait disabled:opacity-70 ${scanView === value ? "border-brand bg-brand/10" : "border-slate-700 hover:border-slate-500"}`}>
-              <div className="text-sm font-semibold text-slate-100">{label}</div>
-              <div className="mt-0.5 text-xs text-slate-500">{value === "quick" && strategyRunning ? "正在筛选今日候选…" : desc}</div>
+              <div className="text-sm font-semibold text-ink-strong">{label}</div>
+              <div className="mt-0.5 text-xs text-ink-faint">{value === "quick" && strategyRunning ? "正在筛选今日候选…" : desc}</div>
             </button>
           ))}
         </div>
       </section>
 
-      {scanView === "monitor" && <MonitorPanel />}
-
-      {scanView === "tactics" && (
-        <>
-          <TacticPanel onPick={onPick} onImport={importCodes} />
-          <TacticBacktestPanel />
-        </>
-      )}
+      {scanView === "tactics" && <TacticPanel onPick={onPick} onImport={importCodes} />}
 
       {/* 早盘竞价机会（9:15-9:30） */}
       {scanView === "timing" && <>
@@ -238,7 +226,7 @@ export default function ScanPanel({ onPick }: Props) {
             <div className="flex items-center gap-2">
               <button
                 onClick={() => void importCodes(auctionResult!.items.map((s) => s.code))}
-                className="rounded-lg border border-slate-600 px-3 py-1 text-xs text-slate-300 hover:border-slate-400 hover:text-white"
+                className="rounded-lg border border-slate-600 px-3 py-1 text-xs text-ink-soft hover:border-slate-400 hover:text-white"
               >
                 全部加自选
               </button>
@@ -261,7 +249,7 @@ export default function ScanPanel({ onPick }: Props) {
           {auctionLoading ? "扫描中..." : auctionResult?.cached ? "刷新缓存（强制重跑）" : "扫描早盘竞价（9:15-9:30）"}
         </button>
         {auctionResult?.cached && auctionResult.trade_date && (
-          <div className="mt-2 text-xs text-slate-500">
+          <div className="mt-2 text-xs text-ink-faint">
             缓存 {auctionResult.trade_date} ·{" "}
             {auctionResult.generated_at ? new Date(auctionResult.generated_at).toLocaleTimeString() : "-"} 生成
           </div>
@@ -274,7 +262,7 @@ export default function ScanPanel({ onPick }: Props) {
         {auctionResult?.items?.length ? (
           <div className="mt-4 max-h-96 overflow-y-auto rounded-xl border border-slate-800">
             <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-slate-900 text-left text-xs text-slate-400">
+              <thead className="sticky top-0 bg-slate-900 text-left text-xs text-ink-muted">
                 <tr>
                   <th className="px-3 py-2">勾选</th>
                   <th className="px-3 py-2">名称</th>
@@ -292,18 +280,18 @@ export default function ScanPanel({ onPick }: Props) {
                     onClick={() => toggleOpportunity(s.code)}
                     className={`cursor-pointer border-t border-slate-800/60 hover:bg-slate-800/40 ${opportunitySelected.has(s.code) ? "bg-slate-800/70" : ""}`}
                   >
-                    <td className="px-3 py-1.5">
+                    <td className="px-3 py-2">
                       <input type="checkbox" readOnly checked={opportunitySelected.has(s.code)} className="accent-brand" />
                     </td>
-                    <td className="px-3 py-1.5 text-slate-200">{s.name}</td>
-                    <td className="px-3 py-1.5 text-slate-500">{s.code}</td>
+                    <td className="px-3 py-2 text-ink">{s.name}</td>
+                    <td className="px-3 py-2 text-ink-faint">{s.code}</td>
                     <td className={`px-3 py-1.5 text-right ${pnlTone(s.change_pct)}`}>
                       {s.change_pct >= 0 ? "+" : ""}
                       {fmtNum(s.change_pct)}%
                     </td>
-                    <td className="px-3 py-1.5 text-right text-amber-400 font-semibold">{fmtNum(s.volume_ratio)}</td>
-                    <td className="px-3 py-1.5 text-right text-slate-400">{fmtNum(s.amount_yi)}</td>
-                    <td className="px-3 py-1.5 text-right font-semibold text-brand">{fmtNum(s.score)}</td>
+                    <td className="px-3 py-2 text-right text-amber-400 font-semibold">{fmtNum(s.volume_ratio)}</td>
+                    <td className="px-3 py-2 text-right text-ink-muted">{fmtNum(s.amount_yi)}</td>
+                    <td className="px-3 py-2 text-right font-semibold text-brand-light">{fmtNum(s.score)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -322,7 +310,7 @@ export default function ScanPanel({ onPick }: Props) {
             <div className="flex items-center gap-2">
               <button
                 onClick={() => void importCodes(closingResult!.items.map((s) => s.code))}
-                className="rounded-lg border border-slate-600 px-3 py-1 text-xs text-slate-300 hover:border-slate-400 hover:text-white"
+                className="rounded-lg border border-slate-600 px-3 py-1 text-xs text-ink-soft hover:border-slate-400 hover:text-white"
               >
                 全部加自选
               </button>
@@ -345,7 +333,7 @@ export default function ScanPanel({ onPick }: Props) {
           {closingLoading ? "扫描中..." : closingResult?.cached ? "刷新缓存（强制重跑）" : "扫描尾盘机会（14:45-15:00）"}
         </button>
         {closingResult?.cached && closingResult.trade_date && (
-          <div className="mt-2 text-xs text-slate-500">
+          <div className="mt-2 text-xs text-ink-faint">
             缓存 {closingResult.trade_date} ·{" "}
             {closingResult.generated_at ? new Date(closingResult.generated_at).toLocaleTimeString() : "-"} 生成
           </div>
@@ -358,7 +346,7 @@ export default function ScanPanel({ onPick }: Props) {
         {closingResult?.items?.length ? (
           <div className="mt-4 max-h-96 overflow-y-auto rounded-xl border border-slate-800">
             <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-slate-900 text-left text-xs text-slate-400">
+              <thead className="sticky top-0 bg-slate-900 text-left text-xs text-ink-muted">
                 <tr>
                   <th className="px-3 py-2">勾选</th>
                   <th className="px-3 py-2">名称</th>
@@ -377,11 +365,11 @@ export default function ScanPanel({ onPick }: Props) {
                     onClick={() => toggleOpportunity(s.code)}
                     className={`cursor-pointer border-t border-slate-800/60 hover:bg-slate-800/40 ${opportunitySelected.has(s.code) ? "bg-slate-800/70" : ""}`}
                   >
-                    <td className="px-3 py-1.5">
+                    <td className="px-3 py-2">
                       <input type="checkbox" readOnly checked={opportunitySelected.has(s.code)} className="accent-brand" />
                     </td>
-                    <td className="px-3 py-1.5 text-slate-200">{s.name}</td>
-                    <td className="px-3 py-1.5 text-slate-500">{s.code}</td>
+                    <td className="px-3 py-2 text-ink">{s.name}</td>
+                    <td className="px-3 py-2 text-ink-faint">{s.code}</td>
                     <td className={`px-3 py-1.5 text-right ${pnlTone(s.change_pct)}`}>
                       {s.change_pct >= 0 ? "+" : ""}
                       {fmtNum(s.change_pct)}%
@@ -390,9 +378,9 @@ export default function ScanPanel({ onPick }: Props) {
                       {s.change_5min >= 0 ? "+" : ""}
                       {fmtNum(s.change_5min)}%
                     </td>
-                    <td className="px-3 py-1.5 text-right text-amber-400">{fmtNum(s.volume_ratio)}</td>
-                    <td className="px-3 py-1.5 text-right text-slate-400">{fmtNum(s.turnover)}</td>
-                    <td className="px-3 py-1.5 text-right font-semibold text-brand">{fmtNum(s.score)}</td>
+                    <td className="px-3 py-2 text-right text-amber-400">{fmtNum(s.volume_ratio)}</td>
+                    <td className="px-3 py-2 text-right text-ink-muted">{fmtNum(s.turnover)}</td>
+                    <td className="px-3 py-2 text-right font-semibold text-brand-light">{fmtNum(s.score)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -412,7 +400,7 @@ export default function ScanPanel({ onPick }: Props) {
             <div className="flex items-center gap-2">
               <button
                 onClick={() => void importCodes(strategyResult.map((s) => s.code))}
-                className="rounded-lg border border-slate-600 px-3 py-1 text-xs text-slate-300 hover:border-slate-400 hover:text-white"
+                className="rounded-lg border border-slate-600 px-3 py-1 text-xs text-ink-soft hover:border-slate-400 hover:text-white"
               >
                 全部加自选
               </button>
@@ -439,12 +427,12 @@ export default function ScanPanel({ onPick }: Props) {
                   : "border-slate-700 hover:border-slate-500"
               }`}
             >
-              <div className="text-sm font-medium text-slate-200">{s.label}</div>
-              <div className="mt-0.5 text-xs text-slate-500">{s.desc}</div>
+              <div className="text-sm font-medium text-ink">{s.label}</div>
+              <div className="mt-0.5 text-xs text-ink-faint">{s.desc}</div>
             </button>
           ))}
         </div>
-        {strategyRunning && <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-sm text-slate-400">策略扫描中（拉取行情与K线计算指标）...</div>}
+        {strategyRunning && <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-sm text-ink-muted">策略扫描中（拉取行情与K线计算指标）...</div>}
         {!strategyRunning && strategyError && (
           <div role="alert" className="rounded-lg border border-red-800 bg-red-950/40 px-3 py-2 text-sm text-red-300">
             今日候选筛选失败：{strategyError}
@@ -452,14 +440,14 @@ export default function ScanPanel({ onPick }: Props) {
           </div>
         )}
         {!strategyRunning && strategyAttempted && !strategyError && strategyResult.length === 0 && (
-          <div role="status" className="rounded-lg border border-slate-700 bg-slate-800/40 px-3 py-3 text-sm text-slate-300">
+          <div role="status" className="rounded-lg border border-slate-700 bg-slate-800/40 px-3 py-3 text-sm text-ink-soft">
             当前条件没有筛出候选。可以换一个策略，或稍后等行情更新后重试。
           </div>
         )}
         {!strategyRunning && strategyResult.length > 0 && (
           <div className="max-h-96 overflow-y-auto rounded-xl border border-slate-800">
             <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-slate-900 text-left text-xs text-slate-400">
+              <thead className="sticky top-0 bg-slate-900 text-left text-xs text-ink-muted">
                 <tr>
                   <th className="px-3 py-2">勾选</th>
                   <th className="px-3 py-2">名称</th>
@@ -479,21 +467,21 @@ export default function ScanPanel({ onPick }: Props) {
                     }`}
                     onClick={() => toggleStrategy(s.code)}
                   >
-                    <td className="px-3 py-1.5">
+                    <td className="px-3 py-2">
                       <input type="checkbox" readOnly checked={strategySelected.has(s.code)} className="accent-brand" />
                     </td>
-                    <td className="px-3 py-1.5 text-slate-200">{s.name}</td>
-                    <td className="px-3 py-1.5 text-slate-500">{s.code}</td>
-                    <td className="px-3 py-1.5 text-right text-slate-300">{fmtNum(s.price)}</td>
+                    <td className="px-3 py-2 text-ink">{s.name}</td>
+                    <td className="px-3 py-2 text-ink-faint">{s.code}</td>
+                    <td className="px-3 py-2 text-right text-ink-soft">{fmtNum(s.price)}</td>
                     <td className={`px-3 py-1.5 text-right ${pnlTone(s.change_pct)}`}>
                       {s.change_pct >= 0 ? "+" : ""}
                       {fmtNum(s.change_pct)}%
                     </td>
-                    <td className="px-3 py-1.5 text-right font-semibold text-brand">{fmtNum(s.strategy_score, 1)}</td>
-                    <td className="px-3 py-1.5">
+                    <td className="px-3 py-2 text-right font-semibold text-brand-light">{fmtNum(s.strategy_score, 1)}</td>
+                    <td className="px-3 py-2">
                       <div className="flex flex-wrap gap-1">
                         {s.tags.map((t, i) => (
-                          <span key={i} className="rounded bg-slate-800 px-1.5 py-0.5 text-xs text-slate-300">
+                          <span key={i} className="rounded bg-slate-800 px-1.5 py-0.5 text-xs text-ink-soft">
                             {t}
                           </span>
                         ))}
@@ -516,23 +504,23 @@ export default function ScanPanel({ onPick }: Props) {
       >
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           <label className="block">
-            <span className="mb-1 block text-xs text-slate-500">最低涨幅 %</span>
+            <span className="mb-1 block text-xs text-ink-faint">最低涨幅 %</span>
             <input value={minChange} onChange={(e) => setMinChange(e.target.value)} className="w-full rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-1.5 text-sm outline-none focus:border-brand" />
           </label>
           <label className="block">
-            <span className="mb-1 block text-xs text-slate-500">最低成交额(亿)</span>
+            <span className="mb-1 block text-xs text-ink-faint">最低成交额(亿)</span>
             <input value={minAmount} onChange={(e) => setMinAmount(e.target.value)} className="w-full rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-1.5 text-sm outline-none focus:border-brand" />
           </label>
           <label className="block">
-            <span className="mb-1 block text-xs text-slate-500">最低股价</span>
+            <span className="mb-1 block text-xs text-ink-faint">最低股价</span>
             <input value={minPrice} onChange={(e) => setMinPrice(e.target.value)} className="w-full rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-1.5 text-sm outline-none focus:border-brand" />
           </label>
           <label className="block">
-            <span className="mb-1 block text-xs text-slate-500">最高股价</span>
+            <span className="mb-1 block text-xs text-ink-faint">最高股价</span>
             <input value={maxPrice} onChange={(e) => setMaxPrice(e.target.value)} className="w-full rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-1.5 text-sm outline-none focus:border-brand" />
           </label>
           <label className="block">
-            <span className="mb-1 block text-xs text-slate-500">数量上限</span>
+            <span className="mb-1 block text-xs text-ink-faint">数量上限</span>
             <input value={limit} onChange={(e) => setLimit(e.target.value)} className="w-full rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-1.5 text-sm outline-none focus:border-brand" />
           </label>
         </div>
@@ -549,11 +537,11 @@ export default function ScanPanel({ onPick }: Props) {
         {scanResult.length > 0 && (
           <div className="mt-4">
             <div className="mb-2 flex items-center justify-between">
-              <span className="text-sm text-slate-400">扫描结果 {scanResult.length} 只（按成交额排序）</span>
+              <span className="text-sm text-ink-muted">扫描结果 {scanResult.length} 只（按成交额排序）</span>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => void importCodes(scanResult.map((s) => s.code))}
-                  className="rounded-lg border border-slate-600 px-3 py-1 text-xs text-slate-300 hover:border-slate-400 hover:text-white"
+                  className="rounded-lg border border-slate-600 px-3 py-1 text-xs text-ink-soft hover:border-slate-400 hover:text-white"
                 >
                   全部加自选
                 </button>
@@ -568,7 +556,7 @@ export default function ScanPanel({ onPick }: Props) {
             </div>
             <div className="max-h-96 overflow-y-auto rounded-xl border border-slate-800">
               <table className="w-full text-sm">
-                <thead className="sticky top-0 bg-slate-900 text-left text-xs text-slate-400">
+                <thead className="sticky top-0 bg-slate-900 text-left text-xs text-ink-muted">
                   <tr>
                     <th className="px-3 py-2">勾选</th>
                     <th className="px-3 py-2">名称</th>
@@ -585,17 +573,17 @@ export default function ScanPanel({ onPick }: Props) {
                       className={`cursor-pointer border-t border-slate-800/60 hover:bg-slate-800/40 ${selected.has(s.code) ? "bg-slate-800/70" : ""}`}
                       onClick={() => toggle(s.code)}
                     >
-                      <td className="px-3 py-1.5">
+                      <td className="px-3 py-2">
                         <input type="checkbox" readOnly checked={selected.has(s.code)} className="accent-brand" />
                       </td>
-                      <td className="px-3 py-1.5 text-slate-200">{s.name}</td>
-                      <td className="px-3 py-1.5 text-slate-500">{s.code}</td>
-                      <td className="px-3 py-1.5 text-right text-slate-300">{fmtNum(s.price)}</td>
+                      <td className="px-3 py-2 text-ink">{s.name}</td>
+                      <td className="px-3 py-2 text-ink-faint">{s.code}</td>
+                      <td className="px-3 py-2 text-right text-ink-soft">{fmtNum(s.price)}</td>
                       <td className={`px-3 py-1.5 text-right ${pnlTone(s.change_pct)}`}>
                         {s.change_pct >= 0 ? "+" : ""}
                         {fmtNum(s.change_pct)}%
                       </td>
-                      <td className="px-3 py-1.5 text-right text-slate-400">{fmtNum(s.amount_yi)}</td>
+                      <td className="px-3 py-2 text-right text-ink-muted">{fmtNum(s.amount_yi)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -604,9 +592,6 @@ export default function ScanPanel({ onPick }: Props) {
           </div>
         )}
       </CollapsiblePanel>
-
-      <WinratePanel />
-      <BacktestPanel />
       </>}
     </div>
   );
