@@ -1,12 +1,13 @@
-import { lazy, Suspense, useState } from "react";
+import { Suspense, useState } from "react";;
 import { motion } from "framer-motion";
 import { History, LineChart, Star, Wallet } from "lucide-react";
 import PanelSkeleton from "./PanelSkeleton";
+import { lazyRetry } from "../lib/lazyRetry";
 
-const WatchlistPanel = lazy(() => import("./WatchlistPanel"));
-const SimPanel = lazy(() => import("./SimPanel"));
-const PortfolioPanel = lazy(() => import("./PortfolioPanel"));
-const HistoryPanel = lazy(() => import("./HistoryPanel"));
+const WatchlistPanel = lazyRetry(() => import("./WatchlistPanel"));
+const SimPanel = lazyRetry(() => import("./SimPanel"));
+const PortfolioPanel = lazyRetry(() => import("./PortfolioPanel"));
+const HistoryPanel = lazyRetry(() => import("./HistoryPanel"));
 
 type SubTab = "position" | "sim" | "watch" | "history";
 

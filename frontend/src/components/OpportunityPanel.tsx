@@ -1,10 +1,11 @@
-import { lazy, Suspense, useState } from "react";
+import { Suspense, useState } from "react";;
 import { Lightbulb, ScanSearch, ShieldCheck } from "lucide-react";
 import PanelSkeleton from "./PanelSkeleton";
 import RecommendPanel from "./RecommendPanel";
+import { lazyRetry } from "../lib/lazyRetry";
 
-const ScanPanel = lazy(() => import("./ScanPanel"));
-const VerifyPanel = lazy(() => import("./VerifyPanel"));
+const ScanPanel = lazyRetry(() => import("./ScanPanel"));
+const VerifyPanel = lazyRetry(() => import("./VerifyPanel"));
 
 type SubTab = "recommend" | "scan" | "verify";
 

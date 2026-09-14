@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useState } from "react";
+import { Suspense, useCallback, useState } from "react";;
 import { Radar } from "lucide-react";
 import { fetchIndustries } from "../api/client";
 import CollapsiblePanel from "./CollapsiblePanel";
@@ -7,9 +7,10 @@ import PanelSkeleton from "./PanelSkeleton";
 import type { Industry } from "../types";
 import { pnlTone } from "../lib/tone";
 import Button from "./Button";
+import { lazyRetry } from "../lib/lazyRetry";
 
-const PredictionCard = lazy(() => import("./PredictionCard"));
-const QuadRankTable = lazy(() => import("./QuadRankTable"));
+const PredictionCard = lazyRetry(() => import("./PredictionCard"));
+const QuadRankTable = lazyRetry(() => import("./QuadRankTable"));
 
 interface Props {
   onPick: (codes: string[]) => void;
