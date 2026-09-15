@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import json
+import math
 
 from openai import AsyncOpenAI
 
@@ -15,7 +16,12 @@ from app.services.cache_utils import put_bounded
 # 每日推荐缓存：key=日期，value=(生成时间, data)。一天只跑一次。
 _recommendation_cache: dict[str, tuple[str, dict]] = {}
 _RECOMMENDATION_CACHE_MAX = 7
-_RECOMMENDATION_SCHEMA_VERSION = 3
+# v4：观察候选（watchlist）改为「拦截原因 + 解锁条件」，不再复用买入计划文案。
+# 旧快照里存的是矛盾文案（提醒盈亏比不足，却给出买点），必须强制重算。
+_RECOMMENDATION_SCHEMA_VERSION = 4
+
+# 盈亏比硬门槛：观察候选的解锁价按同一门槛反推，两处必须一致
+_RR_MIN_RATIO = 1.2
 
 RECOMMEND_SYSTEM_PROMPT = """你是一位资深的 A 股投资顾问，类似同花顺/指南针的"明日机会股"专栏主编，擅长从候选股票中挑选下一个交易日最值得关注的标的。
 
@@ -78,9 +84,97 @@ def _quality_gate(candidate: dict) -> tuple[bool, list[str]]:
         flags.append("策略强度不足")
     # 突破票的旧压力位天然贴近现价，用旧压力位算回踩风报比会误杀。
     # 仅当趋势、量能、位置和信号强度同时确认时，允许走条件突破路径。
-    if rr < 1.2 and not _is_breakout_setup(candidate):
+    if rr < _RR_MIN_RATIO and not _is_breakout_setup(candidate):
         flags.append("风险收益比不足")
     return not flags, flags
+
+
+def _num(value) -> float | None:
+    """安全转 float：缺失或脏数据一律当 None，不抛异常。"""
+    try:
+        if value is None:
+            return None
+        out = float(value)
+        return out if math.isfinite(out) else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _rr_unlock_price(signal: dict) -> float | None:
+    """反推「盈亏比恢复到 _RR_MIN_RATIO」所允许的最高买入价。
+
+    rr = (resistance - price) / (price - stop_loss) >= K
+      ⇔ resistance + K × stop_loss >= (1 + K) × price
+      ⇔ price <= (resistance + K × stop_loss) / (1 + K)
+
+    现价高于该值时，任何「回踩买点关注」的说法只要买点仍高于它，盈亏比依旧不达标 ——
+    这正是「提示盈亏比不足、却又让你在原买点关注」这类自相矛盾的来源。
+    """
+    resistance = _num(signal.get("resistance"))
+    stop = _num(signal.get("stop_loss"))
+    if not resistance or not stop or resistance <= stop:
+        return None
+    return round((resistance + _RR_MIN_RATIO * stop) / (1 + _RR_MIN_RATIO), 2)
+
+
+# 拦截原因 -> 解除该拦截所必须满足的条件。观察候选只能给条件，不能给买点。
+def _watch_unlock_part(candidate: dict, blocker: str) -> str | None:
+    signal = candidate.get("signal") or {}
+    price = _num(candidate.get("price")) or 0.0
+    if blocker == "风险收益比不足":
+        paths: list[str] = []
+        unlock = _rr_unlock_price(signal)
+        resistance = _num(signal.get("resistance"))
+        if unlock and price > unlock:
+            paths.append(f"回落到 {unlock:.2f} 下方")
+        if resistance:
+            paths.append(f"放量突破 {resistance:.2f} 打开上行空间")
+        if paths:
+            return "或".join(paths) + f"，使盈亏比回到 {_RR_MIN_RATIO}"
+        return f"等盈亏比回到 {_RR_MIN_RATIO} 以上"
+    if blocker == "策略强度不足":
+        score = _num(candidate.get("strategy_score"))
+        return f"策略分回到 4 分以上（当前 {score:g}）" if score is not None else "策略分回到 4 分以上"
+    if blocker == "动量不足":
+        return "动量转强"
+    if blocker == "趋势未确认":
+        return "均线转多头、站稳 MA20"
+    if blocker == "涨幅过高":
+        return "先回调消化涨幅"
+    if blocker == "流动性异常":
+        return "换手回到正常区间"
+    return None
+
+
+def _watch_unlock(candidate: dict, blockers: list[str]) -> str:
+    """观察候选的「解锁条件」：由真实拦截原因推出，而不是买入计划。
+
+    原实现直接复用 ``_build_action_plan``（"回踩 X 附近企稳，或放量确认后再关注"），
+    于是被风控拦下的票反而拿到了一份买入计划：既说「上涨空间不够覆盖下跌风险」，
+    又让用户在买点关注。这里只回答「要变成什么样才值得再看」。
+    """
+    parts: list[str] = []
+    for blocker in blockers[:2]:
+        part = _watch_unlock_part(candidate, blocker)
+        if part and part not in parts:
+            parts.append(part)
+    if not parts:
+        return "等待技术信号进一步确认后再评估"
+    return "；".join(parts)
+
+
+def _merge_blockers(merge_blockers: list[str], flags: list[str]) -> list[str]:
+    """合并「策略势头」与「风控硬门槛」两级拦截原因，风控原因优先。
+
+    策略分本身已含动量维度，两者同时出现时只保留更硬的那条，避免同一件事说两遍。
+    """
+    if "策略强度不足" in flags:
+        merge_blockers = [b for b in merge_blockers if b != "动量不足"]
+    merged: list[str] = []
+    for item in [*flags, *merge_blockers]:
+        if item and item not in merged:
+            merged.append(item)
+    return merged[:3]
 
 
 def _is_breakout_setup(candidate: dict) -> bool:
@@ -197,6 +291,14 @@ def _build_watchlist_candidates(
         if momentum < 3 and trend < 3.5:
             continue
         merged["strategy_score"] = round(min(10, momentum * 0.7 + trend * 0.3), 2)
+        # 记下这一层被拦下的真实原因，否则卡片只能显示风控文案，
+        # 让人误以为「唯一的问题就是盈亏比」。
+        merged["blockers"] = [
+            label for label, blocked in (
+                ("动量不足", momentum < 4),
+                ("趋势未确认", trend < 3.5),
+            ) if blocked
+        ]
         merged["status"] = "等待趋势确认" if trend < 3.5 else "等待动量确认"
         watchlist.append(merged)
     return sorted(watchlist, key=lambda item: item["strategy_score"], reverse=True)
@@ -271,6 +373,9 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
     # A strict recommendation may legitimately be empty. Preserve useful
     # near-misses as a separate observation layer so the UI can explain what
     # is close and exactly what still needs confirmation.
+    #
+    # 注意：观察层给的是「拦截原因 + 解锁条件」，不是买入计划。被风控拦下的票
+    # 若配上一句「回踩 X 附近企稳再关注」，就等于自相矛盾（用户明确反馈过）。
     accepted_codes = {candidate["code"] for candidate in qualified}
     watchlist = []
     for candidate in _build_watchlist_candidates(successful_results, accepted_codes)[:8]:
@@ -279,8 +384,16 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
         signal = signal_service.compute_signals(closes, float(candidate["price"])) if closes else None
         candidate["signal"] = signal
         _, flags = _quality_gate(candidate)
-        status = "、".join(flags[:2]) if flags else candidate.get("status", "等待信号确认")
-        plan = _build_action_plan(candidate, target_day)
+        blockers = _merge_blockers(candidate.get("blockers") or [], flags)
+        status = "、".join(blockers) if blockers else candidate.get("status", "等待信号确认")
+        sig = signal or {}
+        price = _num(candidate.get("price")) or 0.0
+        stop = _num(sig.get("stop_loss"))
+        resistance = _num(sig.get("resistance"))
+        rr = _num(sig.get("rr_ratio"))
+        upside_pct = round((resistance - price) / price * 100, 1) if price and resistance else None
+        downside_pct = round((price - stop) / price * 100, 1) if price and stop and price > stop else None
+        unlock = _watch_unlock(candidate, blockers)
         watchlist.append(
             {
                 "code": candidate["code"],
@@ -290,7 +403,13 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
                 "score": candidate["strategy_score"],
                 "tags": candidate.get("tags", []),
                 "status": status,
-                "trigger": plan["trigger"],
+                "blockers": blockers,
+                # unlock 是语义字段；trigger 作为旧字段名保留同一份文案，避免老前端读到空值
+                "unlock": unlock,
+                "trigger": unlock,
+                "rr_ratio": rr,
+                "upside_pct": upside_pct,
+                "downside_pct": downside_pct,
                 "valid_until": target_day,
             }
         )
@@ -298,8 +417,14 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
     # 2. 按策略分排序取 top 16，允许 LLM 精选但不强制凑满 10 只。
     ranked = sorted(qualified, key=lambda x: x["strategy_score"], reverse=True)[:16]
     if not ranked:
-        result = {"schema_version": _RECOMMENDATION_SCHEMA_VERSION, "date": today, "target_date": target_day, "source": "empty", "recommendations": [], "watchlist": watchlist, "candidates": 0, "rejected": len(rejected), "message": "当前没有达到直接行动级别的标的，以下观察候选等待条件确认"}
+        result = {"schema_version": _RECOMMENDATION_SCHEMA_VERSION, "date": today, "target_date": target_day, "source": "empty", "recommendations": [], "watchlist": watchlist, "candidates": 0, "watch_candidates": len(watchlist), "rejected": len(rejected), "message": "今天没有达到行动级别的标的。下列标的未过门槛，卡片写明拦截原因与解锁条件——条件未满足前不建议买入。"}
         put_bounded(_recommendation_cache, today, (dt.datetime.now().isoformat(), result), max_entries=_RECOMMENDATION_CACHE_MAX)
+        # 空结果同样落库：否则每次访问都要重扫全市场，且「拦截原因 + 解锁条件」
+        # 这份修正过的文案无法跨实例复用。
+        try:
+            await _save_db_recommendation(today, result)
+        except Exception as e:
+            print(f"[recommend] 空推荐快照写入失败: {e}")
         return result
 
     # 3. 构造候选上下文
@@ -398,6 +523,7 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
         "recommendations": recs,
         "watchlist": watchlist,
         "candidates": len(ranked),
+        "watch_candidates": len(watchlist),
         "rejected": len(rejected),
         "generated_at": dt.datetime.now(dt.timezone(dt.timedelta(hours=8))).isoformat(timespec="seconds"),
     }

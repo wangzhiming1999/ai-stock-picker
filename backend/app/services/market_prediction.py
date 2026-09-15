@@ -1,24 +1,54 @@
-"""明日大盘推衍：基于上证指数技术信号 + LLM 生成次日走势预判，并记录/结算预测准确率。"""
+"""明日大盘推衍：市场状态 + 市场宽度 + 技术信号 + LLM 解释，生成次日走势预判。
+
+方向分的产生方式（这是本模块的核心契约）：
+
+    evidence_score = regime_score(HMM 市场状态) + 市场宽度修正
+    raw_score      = 0.7 × evidence_score + 0.3 × LLM 分   （LLM 单独影响力限 ±0.5）
+    direction_score= apply_inertia(raw_score, 昨日方向分)   （禁止单日跳变 > 1.0）
+    direction      = score_to_direction(direction_score)
+
+设计意图：**方向由量化证据决定，LLM 只负责解释与有限微调**。
+原来的实现是反过来的（LLM 直接给方向、规则兜底），单次采样 + 窄证据面
+导致同一个市场状态下方向每天摆动。
+
+结算口径与展示口径统一走 ``direction_score``，不再出现「展示震荡偏强、
+结算按上涨算」这类不一致。
+"""
 from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import math
 
 import akshare as ak
 from openai import AsyncOpenAI
 
 from app.config import get_settings
-from app.services import akshare_guard, signal_service, supabase_store, trade_calendar_service
+from app.services import (
+    akshare_guard,
+    regime_service,
+    signal_service,
+    supabase_store,
+    trade_calendar_service,
+)
 from app.services.cache_utils import put_bounded
 
 MARKET_INDEX = "sh000001"
 MARKET_NAME = "上证指数"
 
+# 判涨/判跌的中性带宽（%）：日涨跌幅落在这个区间内算「震荡」。
+#
+# 原值是 0.2%，太窄 —— 实际结算时「震荡」几乎不出现，而模型有约 1/3 的概率
+# 预测震荡，标签空间严重不匹配（预测震荡几乎必然判错，胜率因此失真）。
+# 放宽到 0.5% 后与 regime_service.SCORE_UP / SCORE_DOWN 的三分类阈值对齐。
+# 注意：本次调整之前落库的历史记录仍按 0.2% 结算，跨口径比较胜率时需留意。
+DIRECTION_FLAT_BAND_PCT = 0.5
+
 # 每日大盘推衍缓存：key=日期，value=(生成时间, data)。一天只跑一次。
 _prediction_cache: dict[str, tuple[str, dict]] = {}
 _PREDICTION_CACHE_MAX = 7
 
-PREDICTION_SYSTEM_PROMPT = """你是一位擅长 A 股大盘研判的资深策略分析师，风格类似同花顺/指南针的收盘复盘研报。基于用户提供的上证指数【最新交易日收盘后】技术数据，研判【下一个交易日】的走势。
+PREDICTION_SYSTEM_PROMPT = """你是一位擅长 A 股大盘研判的资深策略分析师，风格类似同花顺/指南针的收盘复盘研报。基于用户提供的上证指数【最新交易日收盘后】技术数据与【市场宽度】数据，研判【下一个交易日】的走势。
 
 【核心概念：交易日（T 日）】
 - A 股只在交易日开盘（周一至周五，法定节假日休市）
@@ -26,12 +56,21 @@ PREDICTION_SYSTEM_PROMPT = """你是一位擅长 A 股大盘研判的资深策�
 - 你要预测的是 T 之后的下一个交易日（T+1）
 - 如果 T 是周五，T+1 就是下周一，中间周末不预测
 
+【关键：方向不是由你定的】
+输入中已经给出系统量化证据分（市场状态分 + 市场宽度分 → 证据分，0~10）。
+- 方向标签（上涨/震荡/下跌）**完全由证据分决定，你无法改变它**，你只需读懂并解释它
+- 你的 direction_score 只影响「方向分的强弱」，权重 0.3，影响力**上限 ±0.5 分**：
+  5.0 = 不改变系统结论（默认值）· 3.3~6.7 按 0.3 权重线性生效 · 超出 6.7 或低于 3.3 的部分直接截断
+- 所以：**除非你发现了证据分没有覆盖的重大信息，否则 direction_score 请直接填 5.0**
+- direction 字段请**照抄**输入中「系统量化结论」给出的方向标签，不要自行改写
+- 你的主要价值在于**解释与风险条件**（summary / drivers / trading_advice），而不是争夺方向
+
 【输出要求】
 只输出一个合法 JSON 对象，不要任何其他文字。结构如下：
 
 {
-  "direction": "上涨/震荡/下跌",
-  "direction_score": 0到10的小数(>5偏多,<5偏空,=5中性),
+  "direction": "照抄系统量化结论给出的方向标签",
+  "direction_score": 0到10的小数，5.0=不改变系统结论（默认值），3.3~6.7=轻微倾向,
   "expected_range": {"low": 预计最低点位, "high": 预计最高点位},
   "probability": "各方向概率，如：上涨40%/震荡35%/下跌25%",
   "key_levels": {"support1": "第一支撑", "support2": "第二支撑", "resistance1": "第一压力", "resistance2": "第二压力"},
@@ -41,13 +80,16 @@ PREDICTION_SYSTEM_PROMPT = """你是一位擅长 A 股大盘研判的资深策�
 }
 
 【分析维度】
+- 市场状态：输入已给出状态（上行/震荡/下行）、状态分、状态自转移概率与期望持续时间 ——
+  自转移概率高说明状态粘性强，下一个交易日大概率延续，不要因为单日小波动就推翻它
+- 市场宽度：涨跌家数比、涨停/跌停家数、全市场成交额环比 —— 判断是普涨普跌还是结构性行情
 - 技术面：均线多头/空头排列、MACD 金叉死叉状态、RSI 是否超买超卖、布林带位置、量价是否配合
 - 位置与空间：指数处于近期 60 日区间的高位还是低位，距离支撑/压力位的空间
 - 情绪与节奏：结合当日涨跌幅、量比、5日/20日动量判断市场情绪强弱
 - 多空博弈：结合关键点位给出多空分水岭
 【写作风格】
 - summary 要像专业股评：先给结论方向，再用数据支撑逻辑，避免空话套话
-- drivers 要具体可验证（技术信号/量能/位置），不要泛泛而谈
+- drivers 要具体可验证（状态/宽度/技术信号/量能/位置），不要泛泛而谈
 【注意】
 - 仅基于提供的数据研判，数据不足时如实说明，绝不编造
 - 预测仅供研究参考，不构成投资建议"""
@@ -70,14 +112,28 @@ def get_index_history(days: int = 180) -> list[dict]:
     ]
 
 
-def build_market_context(hist: list[dict], data_day: dt.date | None = None, next_day: dt.date | None = None) -> tuple[str, dict]:
-    """组装指数上下文 + 技术信号 + 交易日信息。"""
+def build_market_context(
+    hist: list[dict],
+    data_day: dt.date | None = None,
+    next_day: dt.date | None = None,
+    breadth: dict | None = None,
+) -> tuple[str, dict]:
+    """组装指数上下文 + 技术信号 + 市场状态 + 市场宽度 + 交易日信息。
+
+    breadth 由 ``regime_service.fetch_breadth()`` 提供（需要网络），为 None 时
+    只影响宽度维度的证据，状态分照常参与合成。
+    """
     closes = [h["close"] for h in hist]
     volumes = [h["volume"] for h in hist]
     last = hist[-1]
     price = last["close"]
 
     sig = signal_service.compute_signals(closes, price)
+
+    # 市场状态（HMM 优先）：用后验概率对各状态基准分加权 → 连续状态分，自带惯性
+    regime = regime_service.compute_regime(closes, volumes)
+    breadth_score = (breadth or {}).get("breadth_score") if breadth else None
+    evidence_score = regime_service.blend_evidence(regime.get("regime_score"), breadth_score)
 
     # 当日涨跌
     prev = hist[-2]["close"] if len(hist) > 1 else price
@@ -109,7 +165,8 @@ def build_market_context(hist: list[dict], data_day: dt.date | None = None, next
             f"RSI 由 MACD 等综合评估，布林上轨 {sig['bb_upper']}，下轨 {sig['bb_lower']}，"
             f"信号强度 {sig['strength']}\n"
         )
-    ctx += f"近5日收盘：{', '.join(f'{c:.0f}' for c in closes[-5:])}"
+    ctx += f"近5日收盘：{', '.join(f'{c:.0f}' for c in closes[-5:])}\n"
+    ctx += _quantitative_block(breadth, regime, evidence_score)
 
     summary = {
         "price": price,
@@ -119,10 +176,65 @@ def build_market_context(hist: list[dict], data_day: dt.date | None = None, next
         "ret20": round(ret20, 2),
         "position_60d": round(pos, 1),
         "signal": sig,
+        "regime": regime,
+        "breadth": breadth,
+        "evidence_score": evidence_score,
         "data_date": data_day_s,
         "target_date": next_day_s,
     }
     return ctx, summary
+
+
+def _quantitative_block(breadth: dict | None, regime: dict, evidence_score: float) -> str:
+    """组装「系统量化结论」文本：市场状态 + 状态稳定性 + 市场宽度 + 证据分锚点。
+
+    这一段是给 LLM 的**约束条件**，不是参考信息 —— prompt 里已明确它只做 ±0.5 微调，
+    这里把锚点摆到它眼前，避免它凭想象另起一套方向。
+    """
+    lines = [
+        f"【系统量化结论】市场状态「{regime.get('state', '未知')}」"
+        f"（方法 {regime.get('method', '-')}），状态分 {regime.get('regime_score', '-')}/10，"
+        f"证据分 {evidence_score}/10（0-10，>6.2 判上涨、<3.8 判下跌、其间为震荡）"
+    ]
+
+    probs = regime.get("state_probs") or {}
+    if probs:
+        lines.append("状态概率：" + "，".join(f"{key} {val:.0%}" for key, val in probs.items()))
+    if regime.get("state_persistence") is not None:
+        duration = regime.get("expected_duration")
+        if duration:
+            lines.append(
+                f"状态粘性：当前状态自转移概率 {regime['state_persistence']}，"
+                f"期望维持约 {duration} 个交易日（不要因为单日小波动就推翻该状态）"
+            )
+        else:
+            lines.append(
+                f"状态粘性：当前状态自转移概率 {regime['state_persistence']}"
+                "（样本区间内该状态未被打破，倾向于延续）"
+            )
+    features = regime.get("features") or {}
+    if features:
+        lines.append(
+            "状态特征："
+            + "，".join(f"{key} {val}" for key, val in features.items())
+        )
+
+    if breadth:
+        parts = [
+            f"上涨 {breadth.get('up_count')} 家 / 下跌 {breadth.get('down_count')} 家"
+            f"（上涨占比 {float(breadth.get('up_down_ratio') or 0) * 100:.1f}%）",
+            f"涨停 {breadth.get('limit_up_count')} 家 / 跌停 {breadth.get('limit_down_count')} 家",
+            f"全市场成交额 {float(breadth.get('total_amount_yi') or 0):.0f} 亿",
+        ]
+        if breadth.get("amount_change_pct") is not None:
+            parts.append(f"成交额环比 {float(breadth['amount_change_pct']):+.1f}%")
+        lines.append("市场宽度：" + "，".join(parts) + f"（宽度分 {breadth.get('breadth_score')}/10）")
+    else:
+        lines.append("市场宽度：数据暂不可用（不影响状态分结论）")
+
+    if regime.get("note"):
+        lines.append(f"状态识别备注：{regime['note']}")
+    return "\n".join(lines) + "\n"
 
 
 async def predict_tomorrow(force_refresh: bool = False) -> dict:
@@ -159,62 +271,71 @@ async def predict_tomorrow(force_refresh: bool = False) -> dict:
         return cached
 
     hist = await asyncio_hist()
-    ctx, summary = build_market_context(hist, data_day=data_day, next_day=next_day)
 
+    # 上一交易日快照：既给方向分提供「昨日锚」（惯性平滑），也提供成交额环比的基期
+    prev_result = await _load_prev_snapshot(today)
+    breadth = await regime_service.fetch_breadth(prev_amount_yi=_prev_amount_yi(prev_result))
+
+    ctx, summary = build_market_context(
+        hist, data_day=data_day, next_day=next_day, breadth=breadth
+    )
+
+    llm_score: float | None = None
     if not settings.deepseek_api_key:
-        # 未配置 LLM：返回基于规则的基础预判
-        return _rule_based_prediction(summary)
-
-    client = AsyncOpenAI(
-        api_key=settings.deepseek_api_key,
-        base_url=settings.deepseek_base_url,
-    )
-    stream = await client.chat.completions.create(
-        model=settings.deepseek_model,
-        messages=[
-            {"role": "system", "content": PREDICTION_SYSTEM_PROMPT},
-            {"role": "user", "content": ctx},
-        ],
-        stream=True,
-        temperature=0.3,
-    )
-    parts: list[str] = []
-    async for chunk in stream:
-        if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
-            parts.append(chunk.choices[0].delta.content)
-    text = "".join(parts)
-
-    import json
-    import re
-
-    prediction = {}
-    start, end = text.find("{"), text.rfind("}")
-    if start != -1 and end > start:
-        try:
-            prediction = json.loads(text[start : end + 1])
-        except json.JSONDecodeError:
-            cleaned = text[start : end + 1].replace("```json", "").replace("```", "").strip()
-            try:
-                prediction = json.loads(cleaned)
-            except json.JSONDecodeError:
-                prediction = {}
-
-    # LLM 输出缺失或损坏时回退规则预判
-    if not prediction or "direction" not in prediction:
-        rule = _rule_based_prediction(summary)
-        rule["summary"]["summary"] = (
-            "LLM 预测输出异常，已回退规则预判。"
-            + rule["summary"].get("summary", "")
-        )
-        result = rule
+        # 未配置 LLM：方向完全由量化证据分（状态 + 宽度）决定
+        result = _rule_based_prediction(summary)
     else:
-        result = {
-            "index": MARKET_NAME,
-            "date": hist[-1]["date"],
-            "summary": prediction,
-            "technical": summary,
-            "source": "llm",
-        }
+        client = AsyncOpenAI(
+            api_key=settings.deepseek_api_key,
+            base_url=settings.deepseek_base_url,
+        )
+        stream = await client.chat.completions.create(
+            model=settings.deepseek_model,
+            messages=[
+                {"role": "system", "content": PREDICTION_SYSTEM_PROMPT},
+                {"role": "user", "content": ctx},
+            ],
+            stream=True,
+            temperature=0.3,
+        )
+        parts: list[str] = []
+        async for chunk in stream:
+            if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
+                parts.append(chunk.choices[0].delta.content)
+        text = "".join(parts)
+
+        import json
+
+        prediction: dict = {}
+        start, end = text.find("{"), text.rfind("}")
+        if start != -1 and end > start:
+            try:
+                prediction = json.loads(text[start : end + 1])
+            except json.JSONDecodeError:
+                cleaned = text[start : end + 1].replace("```json", "").replace("```", "").strip()
+                try:
+                    prediction = json.loads(cleaned)
+                except json.JSONDecodeError:
+                    prediction = {}
+
+        # LLM 输出缺失或损坏时回退规则预判
+        if not prediction or "direction" not in prediction:
+            result = _rule_based_prediction(summary, note="LLM 预测输出异常，已回退规则预判。")
+        else:
+            result = {
+                "index": MARKET_NAME,
+                "date": hist[-1]["date"],
+                "summary": prediction,
+                "technical": summary,
+                "source": "llm",
+            }
+            # LLM 只提供「相对中性的微调量」，最终方向仍由证据分主导
+            llm_score = _to_float(prediction.get("direction_score"))
+
+    if not result.get("date"):
+        result["date"] = hist[-1]["date"]
+    # 统一合成方向（LLM / 规则两个分支共用同一套口径与惯性约束）
+    _finalize_direction(result, summary, prev_result, llm_score=llm_score)
 
     # 统一补齐日期语义字段（LLM 与规则回退两个分支共用）：
     # - date：行情 K 线最后一根的日期（数据源可能滞后一日，仅作参考）
@@ -284,12 +405,119 @@ def clear_prediction_cache() -> None:
     _prediction_cache.clear()
 
 
+def _to_float(value) -> float | None:
+    """安全转 float：脏数据一律当缺失，不抛异常。"""
+    try:
+        if value is None:
+            return None
+        out = float(value)
+        return out if math.isfinite(out) else None
+    except (TypeError, ValueError):
+        return None
+
+
+async def _load_prev_snapshot(current_data_day: str) -> dict | None:
+    """读取「上一交易日」的完整预测快照。
+
+    用途有两个：给方向分提供昨日锚（惯性平滑）、给成交额环比提供基期。
+    优先数据库（跨实例共享），未配置/失败时回退内存缓存；都没有则返回 None ——
+    此时不做平滑，等价于冷启动第一天。
+    """
+    if supabase_store.is_configured():
+        try:
+            sb = await supabase_store.get_service_client()
+            res = (
+                await sb.table("daily_predictions")
+                .select("pred_date", "result")
+                .lt("pred_date", current_data_day)
+                .order("pred_date", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if res.data:
+                return res.data[0].get("result")
+        except Exception as e:
+            print(f"[prediction] 读取上一交易日快照失败: {e}")
+
+    keys = [key for key in _prediction_cache if key < current_data_day]
+    if keys:
+        return _prediction_cache[max(keys)][1]
+    return None
+
+
+def _prev_amount_yi(prev_result: dict | None) -> float | None:
+    """上一交易日全市场成交额（亿），缺失返回 None（宽度环比维度自动不计分）。"""
+    if not prev_result:
+        return None
+    technical = prev_result.get("technical") or {}
+    breadth = technical.get("breadth") or {}
+    return _to_float(breadth.get("total_amount_yi"))
+
+
+def _prev_direction_score(prev_result: dict | None) -> float | None:
+    """上一交易日的最终方向分（惯性锚点）。"""
+    if not prev_result:
+        return None
+    return _to_float((prev_result.get("summary") or {}).get("direction_score"))
+
+
+def _finalize_direction(
+    result: dict,
+    summary: dict,
+    prev_result: dict | None,
+    llm_score: float | None = None,
+) -> None:
+    """统一合成最终方向标签与方向分，并写回 result["summary"]。
+
+    这是全系统方向的**唯一出口**，结算、展示、仓位三处口径都取自这里。
+    具体合成规则见 ``regime_service.resolve_direction``，要点：
+      direction   = score_to_direction(证据分)                    ← LLM 与惯性都改不了
+      raw_score   = 证据分 + LLM 微调（LLM 权重 0.3、上限 ±0.5）
+      final_score = 夹到标签分数带(惯性平滑(raw_score, 昨日分))     ← 禁止单日跳变 > 1.0
+
+    同时把中间量写进 ``summary.direction_model``，供前端/排查复核方向是怎么来的。
+    """
+    s = result.setdefault("summary", {})
+    regime = summary.get("regime") or {}
+    breadth = summary.get("breadth") or {}
+    evidence = _to_float(summary.get("evidence_score"))
+    if evidence is None:
+        evidence = regime_service.NEUTRAL_SCORE
+
+    # 保留 LLM 的原始方向文案（供历史记录 `direction_raw` 展示），
+    # 但对外方向标签只认分数，不认文案。
+    llm_direction = str(s.get("direction") or "").strip() if result.get("source") == "llm" else None
+
+    prev_score = _prev_direction_score(prev_result)
+    direction, final_score = regime_service.resolve_direction(evidence, llm_score, prev_score)
+
+    s["direction"] = direction
+    s["direction_score"] = final_score
+    s["llm_direction"] = llm_direction or None
+    s["direction_model"] = {
+        "evidence_score": round(evidence, 2),
+        "regime_state": regime.get("state"),
+        "regime_score": regime.get("regime_score"),
+        "regime_method": regime.get("method"),
+        "breadth_score": breadth.get("breadth_score"),
+        "llm_score": llm_score,
+        "llm_direction": llm_direction or None,
+        "llm_contribution": regime_service.llm_contribution(llm_score),
+        "raw_score": regime_service.blend_direction_score(evidence, llm_score),
+        "prev_score": prev_score,
+        "final_score": final_score,
+    }
+
+
 async def save_prediction_record(pred: dict, data_date: str | None = None, target_date: str | None = None) -> None:
     """将预测结果写入 Supabase prediction_records 表。"""
     if not supabase_store.is_configured():
         return
     s = pred.get("summary", {})
     norm = normalize_direction(str(s.get("direction", "震荡")))
+    # direction_raw 存最终方向标签（与结算口径一致，避免历史表里展示的方向与结算方向打架）；
+    # LLM 的原始文案留在 daily_predictions 快照的 summary.direction_model.llm_direction 里备查。
+    raw_direction = str(s.get("direction", ""))
     # target_date：显式传入的下一交易日；否则回退次日（兼容旧逻辑）
     target = target_date or (dt.date.today() + dt.timedelta(days=1)).isoformat()
     try:
@@ -299,7 +527,7 @@ async def save_prediction_record(pred: dict, data_date: str | None = None, targe
                 "data_date": data_date or dt.date.today().isoformat(),
                 "target_date": target,
                 "direction": norm,
-                "direction_raw": str(s.get("direction", "")),
+                "direction_raw": raw_direction,
                 "direction_score": s.get("direction_score"),
                 "probability": str(s.get("probability", "")),
                 "expected_low": (s.get("expected_range") or {}).get("low") if isinstance(s.get("expected_range"), dict) else None,
@@ -312,8 +540,18 @@ async def save_prediction_record(pred: dict, data_date: str | None = None, targe
 
 
 def normalize_direction(raw: str) -> str:
-    """将方向描述归一化为 上涨/震荡/下跌。"""
+    """将方向**文案**归一化为 上涨/震荡/下跌。
+
+    **先判「震荡」**：「震荡偏强」「弱势震荡」「横盘整理」这类描述带方向倾向词，
+    但本质仍是区间震荡。按倾向词优先匹配会误归成单边方向
+    （历史 bug：「震荡偏强」含「强」被判成上涨，与结算口径矛盾，胜率统计因此失真）。
+
+    注意：这只是解析 LLM 原始文案的兜底工具。对外方向标签以
+    ``regime_service.score_to_direction(direction_score)`` 为准 —— 由分数决定，不由文案决定。
+    """
     raw = raw.strip()
+    if any(k in raw for k in ("震荡", "横盘", "盘整", "整理", "中性", "胶着", "反复")):
+        return "震荡"
     if any(k in raw for k in ("上涨", "涨", "偏多", "强", "看多")):
         return "上涨"
     if any(k in raw for k in ("下跌", "跌", "偏空", "弱", "看空")):
@@ -366,7 +604,13 @@ async def settle_predictions() -> int:
             continue  # 该日行情缺失，留待下次
         close, prev_close = pair
         actual_change = (close / prev_close - 1) * 100
-        actual_dir = "上涨" if actual_change >= 0.2 else ("下跌" if actual_change <= -0.2 else "震荡")
+        # 判涨/判跌的中性带宽度与方向标签阈值对齐（见 DIRECTION_FLAT_BAND_PCT 说明）
+        if actual_change >= DIRECTION_FLAT_BAND_PCT:
+            actual_dir = "上涨"
+        elif actual_change <= -DIRECTION_FLAT_BAND_PCT:
+            actual_dir = "下跌"
+        else:
+            actual_dir = "震荡"
         hit = row["direction"] == actual_dir
         await (
             sb.table("prediction_records")
@@ -438,40 +682,64 @@ async def asyncio_hist() -> list[dict]:
     return await asyncio.to_thread(get_index_history, 180)
 
 
-def _rule_based_prediction(summary: dict) -> dict:
-    """无 LLM 时的规则预判。"""
-    sig = summary.get("signal") or {}
-    strength = sig.get("strength", 5)
-    price = summary["price"]
-    ret5 = summary["ret5"]
+def _rule_based_prediction(summary: dict, note: str | None = None) -> dict:
+    """无 LLM（或 LLM 输出异常）时的规则预判。
 
-    if strength >= 6 and ret5 > 0:
-        direction, score = "上涨", 6.5
-    elif strength >= 6:
-        direction, score = "震荡偏强", 5.8
-    elif strength >= 4:
-        direction, score = "震荡", 5.0
+    这里**不再自造方向分**：方向分统一由 ``_finalize_direction`` 从证据分合成，
+    本函数只负责文案、关键点位与驱动因素。旧实现用 ``信号强度/近5日涨幅`` 直接
+    切出方向与分数，与 LLM 路径各说各话，是方向口径分裂的来源之一。
+    """
+    sig = summary.get("signal") or {}
+    regime = summary.get("regime") or {}
+    breadth = summary.get("breadth") or {}
+    price = summary["price"]
+    ret5 = summary.get("ret5", 0)
+    evidence = summary.get("evidence_score")
+    state = regime.get("state", "未知")
+
+    if breadth:
+        breadth_txt = (
+            f"涨跌家数 {breadth.get('up_count')}/{breadth.get('down_count')}、"
+            f"涨停 {breadth.get('limit_up_count')} 家、"
+            f"成交额 {float(breadth.get('total_amount_yi') or 0):.0f} 亿"
+        )
+        breadth_bullet = (
+            f"市场宽度：上涨占比 {float(breadth.get('up_down_ratio') or 0) * 100:.1f}%、"
+            f"涨停 {breadth.get('limit_up_count')} 家 / 跌停 {breadth.get('limit_down_count')} 家"
+        )
     else:
-        direction, score = "偏弱", 4.0
+        breadth_txt = "市场宽度数据缺失"
+        breadth_bullet = "市场宽度：数据缺失，未计入证据"
+
+    text = (
+        f"量化预判：市场状态「{state}」（状态分 {regime.get('regime_score', '-')}/10），"
+        f"证据分 {evidence}/10；{breadth_txt}；近5日指数 {ret5:+.2f}%。"
+        f"方向完全由状态与市场宽度证据决定，未叠加主观判断。"
+    )
 
     return {
         "index": MARKET_NAME,
         "date": "",
         "summary": {
-            "direction": direction,
-            "direction_score": score,
+            # direction / direction_score 仅为占位，_finalize_direction 会统一覆盖
+            "direction": "震荡",
+            "direction_score": regime_service.NEUTRAL_SCORE,
             "expected_range": {
                 "low": round(sig.get("support", price * 0.99), 0),
                 "high": round(sig.get("resistance", price * 1.01), 0),
             },
-            "probability": "请配置 LLM API Key 获取概率研判",
+            "probability": "规则模式：未做概率研判",
             "key_levels": {
                 "support1": sig.get("support"),
                 "resistance1": sig.get("resistance"),
             },
-            "summary": f"基于技术信号强度 {strength} 与近期走势 {ret5:+.1f}% 的规则预判。配置 LLM 后可获得更详细研判。",
-            "drivers": ["规则模式未分析驱动因素"],
-            "trading_advice": "规则模式：建议控制仓位，等待 LLM 深度研判",
+            "summary": (f"{note}{text}" if note else text),
+            "drivers": [
+                f"市场状态：{state}（状态分 {regime.get('regime_score', '-')}/10，方法 {regime.get('method', '-')}）",
+                breadth_bullet,
+                f"技术信号强度 {sig.get('strength', '-')}，支撑 {sig.get('support', '-')} / 压力 {sig.get('resistance', '-')}",
+            ],
+            "trading_advice": "规则模式：仓位跟随证据分与市场状态，配置 LLM 后可获得更详细研判",
         },
         "technical": summary,
         "source": "rule",

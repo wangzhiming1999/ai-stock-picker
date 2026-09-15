@@ -66,9 +66,14 @@ export interface DirTone {
  * 大盘 / 指数方向配色。
  * 关键词与后端 `market_prediction.normalize_direction()` 严格对齐，
  * 避免 raw 文案（如「建议空仓」）与归一化结果（震荡）配色不一致。
+ *
+ * 判定顺序也必须和后端一致：**先判「震荡」**。像「震荡偏强」带倾向词「强」，
+ * 若先匹配方向词会被染成上涨红，而后端归一化结果是「震荡」—— 同一份数据
+ * 在不同位置呈现相反语义，正是这条规则要拦住的。
  */
 export function dirTone(direction: string | null | undefined): DirTone {
   const d = direction ?? "";
+  if (/震荡|横盘|盘整|整理|中性|胶着|反复/.test(d)) return { text: "text-amber-300", bg: "bg-amber-500/10" };
   if (/涨|偏多|强|看多/.test(d)) return { text: UP_TEXT[400], bg: "bg-red-500/10" };
   if (/跌|偏空|弱|看空/.test(d)) return { text: DOWN_TEXT[400], bg: "bg-green-500/10" };
   return { text: "text-amber-300", bg: "bg-amber-500/10" };

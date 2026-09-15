@@ -213,11 +213,22 @@ export interface DailyRecommendResult {
     change_pct: number;
     score: number;
     tags?: string[];
+    /** 拦截原因（风控硬门槛 + 策略势头），卡片要如实展示，不能只给买入指令 */
     status: string;
-    trigger: string;
+    /** 拦截原因的结构化列表，供前端逐条转成白话 */
+    blockers?: string[];
+    /** 解锁条件：满足什么才值得重新评估（旧字段名为 trigger） */
+    unlock?: string;
+    trigger?: string;
+    /** 现价口径的盈亏比 / 上行空间 / 下行风险（%），用来解释「为什么不买」 */
+    rr_ratio?: number | null;
+    upside_pct?: number | null;
+    downside_pct?: number | null;
     valid_until?: string;
   }>;
   candidates: number;
+  /** 观察层数量（被拦下但接近条件的标的） */
+  watch_candidates?: number;
   rejected?: number;
   message?: string;
   generated_at?: string;
@@ -596,6 +607,55 @@ export interface IndexHistory {
   days: number;
 }
 
+/**
+ * 市场状态识别结果。
+ *
+ * method：rule = 仅确定性规则；rule+hmm = 规则判定得到 HMM 印证，此时才带
+ * state_persistence / expected_duration；neutral = 数据不足。
+ * hmm_state 为 HMM 的独立意见，用于复核两者是否一致（不一致时以规则为准）。
+ */
+export interface MarketRegime {
+  state: string; // 上行 / 震荡 / 下行
+  regime_score: number; // 0-10
+  method: string; // rule | rule+hmm | neutral
+  hmm_state?: string | null;
+  hmm_state_probs?: Record<string, number>;
+  state_probs?: Record<string, number>;
+  state_persistence?: number | null;
+  expected_duration?: number | null;
+  features?: Record<string, number>;
+  note?: string | null;
+}
+
+/** 市场宽度（涨跌家数 / 涨停跌停 / 成交额环比）。 */
+export interface MarketBreadth {
+  up_count: number;
+  down_count: number;
+  flat_count: number;
+  up_down_ratio: number;
+  limit_up_count: number;
+  limit_down_count: number;
+  total_amount_yi: number;
+  amount_change_pct: number | null;
+  breadth_score: number;
+  sample_size: number;
+}
+
+/** 方向分的合成明细，用于复核「方向是怎么来的」。 */
+export interface DirectionModel {
+  evidence_score: number;
+  regime_state?: string;
+  regime_score?: number;
+  regime_method?: string;
+  breadth_score?: number | null;
+  llm_score?: number | null;
+  llm_direction?: string | null;
+  llm_contribution: number;
+  raw_score: number;
+  prev_score?: number | null;
+  final_score: number;
+}
+
 export interface MarketPrediction {
   index: string;
   date: string;
@@ -609,6 +669,9 @@ export interface MarketPrediction {
     summary: string;
     drivers?: string[];
     trading_advice?: string;
+    /** LLM 的原始方向文案（如「震荡偏强」）；对外标签以 direction 为准 */
+    llm_direction?: string | null;
+    direction_model?: DirectionModel;
   };
   technical: {
     price: number;
@@ -618,6 +681,9 @@ export interface MarketPrediction {
     ret20: number;
     position_60d: number;
     signal?: TradeSignal;
+    regime?: MarketRegime;
+    breadth?: MarketBreadth | null;
+    evidence_score?: number;
     data_date?: string;
     target_date?: string;
   };

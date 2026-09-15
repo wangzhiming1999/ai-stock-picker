@@ -1,19 +1,34 @@
 import { useCallback, useEffect, useState } from "react";
-import { CalendarDays, Eye, ShieldCheck } from "lucide-react";
+import { CalendarDays, Eye, ShieldCheck, Unlock } from "lucide-react";
 import { fetchDailyRecommend } from "../api/client";
 import { fmtDate, fmtDayLabel, isTodayCN } from "../lib/dates";
 import CollapsiblePanel from "./CollapsiblePanel";
 import WatchStar from "./WatchStar";
 import type { DailyRecommendResult } from "../types";
-import { pnlTone } from "../lib/tone";
+import { downTone, pnlTone, upTone } from "../lib/tone";
 import Button from "./Button";
 
-function plainStatus(status: string): string {
-  return status
-    .replace("风险收益比不足", "上涨空间暂时不够覆盖下跌风险")
-    .replace("策略强度不足", "上涨信号还不够强")
-    .replace("等待趋势确认", "还没形成稳定上涨趋势")
-    .replace("等待动量确认", "上涨力度还需要确认");
+/** 拦截原因 -> 白话。逐条映射，不能整串替换（否则多条原因会串味）。 */
+const BLOCKER_LABELS: Record<string, string> = {
+  风险收益比不足: "上涨空间暂时不够覆盖下跌风险",
+  策略强度不足: "上涨信号还不够强",
+  动量不足: "上涨力度还需要确认",
+  趋势未确认: "还没形成稳定上涨趋势",
+  等待趋势确认: "还没形成稳定上涨趋势",
+  等待动量确认: "上涨力度还需要确认",
+  涨幅过高: "短期涨幅偏高，别追",
+  流动性异常: "成交不够活跃，进出不便",
+};
+
+/** 把 status / blockers 转成白话；后端新增原因时原样透出，不吞信息。 */
+function plainStatus(status: string, blockers?: string[]): string {
+  const raw = blockers?.length ? blockers.join("、") : status;
+  return raw
+    .split(/[、,，]/)
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .map((t) => BLOCKER_LABELS[t] ?? t)
+    .join("、");
 }
 
 interface Props {
@@ -99,8 +114,10 @@ export default function DailyRecommendCard({ onPick, collapsed = false }: Props)
             <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-xs text-amber-400">最近交易日</span>
           )}
           <span className="ml-auto rounded bg-slate-900 px-1.5 py-0.5 text-xs text-ink-muted">
-            {data.source === "llm" ? "AI 精选" : data.source === "rule" ? "规则推荐" : "暂无推荐"} · {data.candidates} 个通过
-            {data.rejected ? ` · ${data.rejected} 个被风控过滤` : ""}
+            {data.source === "llm" ? "AI 精选" : data.source === "rule" ? "规则推荐" : "暂无推荐"} ·{" "}
+            {data.candidates} 只达到行动级别
+            {(data.watch_candidates ?? data.watchlist?.length ?? 0) > 0 &&
+              ` · ${data.watch_candidates ?? data.watchlist?.length} 只被拦下待解锁`}
           </span>
         </div>
       )}
@@ -174,34 +191,73 @@ export default function DailyRecommendCard({ onPick, collapsed = false }: Props)
               <div className="flex items-center gap-1.5 text-sm font-semibold text-amber-200">
                 <Eye className="h-4 w-4" aria-hidden /> 先观察，别急着买
               </div>
-              <p className="mt-0.5 text-xs text-ink-faint">这些股票接近条件，但现在买入风险仍偏高</p>
+              <p className="mt-0.5 text-xs text-ink-faint">
+                下列标的都被门槛拦下，卡片写明拦住它的原因和解除条件；条件没满足就不要买
+              </p>
             </div>
             <span className="rounded-full border border-amber-800/60 bg-amber-500/10 px-2.5 py-1 text-xs text-amber-300">
-              {data.watchlist.length} 只待确认
+              {data.watchlist.length} 只待解锁
             </span>
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
-            {data.watchlist.map((item) => (
-              <button
-                key={item.code}
-                type="button"
-                onClick={() => onPick([item.code])}
-                className="group rounded-xl border border-slate-800 bg-slate-800/70 p-3 text-left transition hover:border-amber-700/70 hover:bg-amber-950/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <span className="font-medium text-ink-strong">{item.name}</span>
-                    <span className="ml-1.5 text-xs text-ink-faint">{item.code}</span>
+            {data.watchlist.map((item) => {
+              const unlock = item.unlock ?? item.trigger;
+              const hasRR =
+                item.rr_ratio != null || item.upside_pct != null || item.downside_pct != null;
+              return (
+                <button
+                  key={item.code}
+                  type="button"
+                  onClick={() => onPick([item.code])}
+                  className="group rounded-xl border border-slate-800 bg-slate-800/70 p-3 text-left transition hover:border-amber-700/70 hover:bg-amber-950/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <span className="font-medium text-ink-strong">{item.name}</span>
+                      <span className="ml-1.5 text-xs text-ink-faint">{item.code}</span>
+                    </div>
+                    <span className="text-xs font-semibold text-amber-300">{item.score.toFixed(1)}</span>
                   </div>
-                  <span className="text-xs font-semibold text-amber-300">{item.score.toFixed(1)}</span>
-                </div>
-                <div className="mt-2 flex items-center gap-1.5 text-xs text-ink-muted">
-                  <ShieldCheck className="h-3.5 w-3.5 text-amber-400" aria-hidden />
-                  <span>{plainStatus(item.status)}</span>
-                </div>
-                <p className="mt-1.5 text-xs leading-relaxed text-ink-faint group-hover:text-ink-muted">{item.trigger}</p>
-              </button>
-            ))}
+                  <div className="mt-2 flex items-start gap-1.5 text-xs text-ink-muted">
+                    <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400" aria-hidden />
+                    <span>
+                      <span className="text-ink-faint">拦截原因：</span>
+                      {plainStatus(item.status, item.blockers)}
+                    </span>
+                  </div>
+                  {hasRR && (
+                    <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
+                      {item.upside_pct != null && (
+                        <span className="text-ink-faint">
+                          上行 <span className={upTone()}>+{item.upside_pct}%</span>
+                        </span>
+                      )}
+                      {item.downside_pct != null && (
+                        <span className="text-ink-faint">
+                          下行 <span className={downTone()}>-{item.downside_pct}%</span>
+                        </span>
+                      )}
+                      {item.rr_ratio != null && (
+                        <span className="text-ink-faint">
+                          盈亏比{" "}
+                          <span className={item.rr_ratio >= 1.2 ? upTone() : downTone()}>
+                            {item.rr_ratio.toFixed(2)}
+                          </span>
+                          <span className="text-ink-faint"> / 门槛 1.2</span>
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  <div className="mt-1.5 flex items-start gap-1.5 text-xs text-ink-faint group-hover:text-ink-muted">
+                    <Unlock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500/80" aria-hidden />
+                    <span>
+                      <span className="text-ink-faint">解锁条件：</span>
+                      {unlock || "等待技术信号进一步确认后再评估"}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </div>
       )}

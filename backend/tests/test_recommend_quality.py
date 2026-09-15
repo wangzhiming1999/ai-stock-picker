@@ -3,9 +3,12 @@ import unittest
 from app.services.recommend_service import (
     _build_action_plan,
     _build_watchlist_candidates,
+    _merge_blockers,
     _merge_strategy_results,
     _quality_gate,
+    _rr_unlock_price,
     _should_use_cached_recommendation,
+    _watch_unlock,
 )
 
 
@@ -15,7 +18,9 @@ class RecommendQualityTests(unittest.TestCase):
             _should_use_cached_recommendation({"source": "empty", "recommendations": []})
         )
         self.assertFalse(_should_use_cached_recommendation({"schema_version": 2, "source": "empty", "recommendations": [], "watchlist": []}))
-        self.assertTrue(_should_use_cached_recommendation({"schema_version": 3, "source": "empty", "recommendations": [], "watchlist": []}))
+        # v3 快照存的是「盈亏比不足 + 买点关注」的矛盾文案，必须重算
+        self.assertFalse(_should_use_cached_recommendation({"schema_version": 3, "source": "empty", "recommendations": [], "watchlist": []}))
+        self.assertTrue(_should_use_cached_recommendation({"schema_version": 4, "source": "empty", "recommendations": [], "watchlist": []}))
 
     def test_rejects_high_chase_candidate(self) -> None:
         candidate = {"price": 20, "change_pct": 8.5, "turnover": 4, "strategy_score": 8, "signal": {"rr_ratio": 2}}
@@ -114,6 +119,50 @@ class RecommendQualityTests(unittest.TestCase):
         ]
 
         self.assertEqual(_build_watchlist_candidates(results, excluded_codes=set()), [])
+
+    def test_watchlist_exposes_merge_stage_blockers(self) -> None:
+        """观察层必须交代「策略势头」这一层为什么没达标，不能只透出风控文案。"""
+        results = [
+            ("momentum", [{"code": "600000", "name": "浦发银行", "price": 10, "strategy_score": 3.5, "tags": [], "indicators": {}}]),
+            ("trend", [{"code": "600000", "name": "浦发银行", "price": 10, "strategy_score": 3, "tags": [], "indicators": {}}]),
+        ]
+
+        watchlist = _build_watchlist_candidates(results, excluded_codes=set())
+
+        self.assertEqual(watchlist[0]["blockers"], ["动量不足", "趋势未确认"])
+
+    def test_merge_blockers_prefers_hard_gate_and_drops_redundant_momentum(self) -> None:
+        merged = _merge_blockers(["动量不足", "趋势未确认"], ["策略强度不足", "风险收益比不足"])
+
+        self.assertEqual(merged, ["策略强度不足", "风险收益比不足", "趋势未确认"])
+
+    def test_rr_unlock_price_restores_the_gate_threshold(self) -> None:
+        signal = {"resistance": 110.0, "stop_loss": 95.0}
+        unlock = _rr_unlock_price(signal)
+
+        self.assertIsNotNone(unlock)
+        rr_at_unlock = (110.0 - unlock) / (unlock - 95.0)
+        self.assertAlmostEqual(rr_at_unlock, 1.2, delta=0.01)
+        self.assertEqual(_rr_unlock_price({}), None)
+
+    def test_watch_unlock_never_tells_a_rejected_stock_to_buy(self) -> None:
+        """核心回归：被风控拦下的票不能再拿到「回踩买点企稳再关注」这种买入指令。"""
+        candidate = {
+            "price": 108.0,
+            "strategy_score": 6.3,
+            "signal": {"resistance": 110.0, "stop_loss": 95.0, "buy_point": 106.9, "rr_ratio": 0.15},
+        }
+
+        text = _watch_unlock(candidate, ["风险收益比不足"])
+
+        self.assertIn("101.82", text)  # 真正修复盈亏比的价格
+        self.assertIn("110.00", text)  # 或者放量突破打开上行空间
+        self.assertNotIn("106.90", text)  # 旧买点高于解锁价，盈亏比依旧不达标
+        self.assertNotIn("企稳", text)
+        self.assertNotIn("再关注", text)
+
+    def test_watch_unlock_falls_back_without_signal(self) -> None:
+        self.assertEqual(_watch_unlock({"signal": None}, []), "等待技术信号进一步确认后再评估")
 
 
 if __name__ == "__main__":

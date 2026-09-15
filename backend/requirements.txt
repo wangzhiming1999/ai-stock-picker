@@ -2,6 +2,8 @@ fastapi==0.115.6
 uvicorn[standard]==0.34.0
 akshare==1.16.94
 pandas==2.2.3
+# regime_service 直接 import numpy；版本区间放宽，避免与既有环境里的 numpy 2.x 冲突
+numpy>=1.26,<3
 pydantic==2.13.5
 pydantic-settings==2.7.1
 openai==1.59.7
@@ -9,6 +11,10 @@ python-dotenv==1.0.1
 httpx==0.28.1
 supabase==2.31.0
 email-validator==2.2.0
+# 市场状态识别（regime_service 用高斯 HMM 识别 上行/震荡/下行）
+# 可选依赖：未安装时 regime_service 自动降级为确定性规则状态，功能不缺失，只是
+# 状态惯性的建模能力变弱。装不上（缺少 C 编译器）时可以删掉本行。
+hmmlearn==0.3.3
 # 可选：/api/admin/migrate 走 DATABASE_URL 直连 Postgres 执行建表 SQL 时使用
 # （走 SUPABASE_MANAGEMENT_API_KEY 则不需要）
 asyncpg==0.30.0
