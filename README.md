@@ -21,7 +21,7 @@ AI 选股分析工具用 AI 结合实时行情、K 线趋势与最新新闻，�
 
 ### 数据闭环 & 验证
 - **每日收盘推荐**：策略候选 + LLM 精选 10 只（含推荐理由 / 置信分），按交易日缓存
-- **胜率看板**：预测命中率 + 推荐次日胜率
+- **胜率看板**：预测命中率 + 推荐次日胜率（每个数字随接口下发自己的**测量口径**，见「口径与证据」）
 - **策略回测引擎**：历史 K 线 → 策略信号 → 模拟调仓 → 收益 / 回撤 / 夏普 / 胜率，对比沪深 300 基准
 - **模拟盘（Paper Trading）**：现金账户 + 买卖成交 + 持仓聚合（平均成本）+ 实时盈亏 + 净值曲线，支持 A 股费用与 T+1
 
@@ -82,9 +82,9 @@ npm run dev                 # http://localhost:5173
 
 ### 2. 接入 Supabase（完整能力）
 
-1. 在 Supabase 新建项目，按顺序执行 `backend/supabase-schema.sql`（v1）及 `supabase-schema-v2.sql` … `supabase-schema-v7.sql`；
+1. 在 Supabase 新建项目，按顺序执行 `backend/supabase-schema.sql`（v1）及 `supabase-schema-v2.sql` … `supabase-schema-v8.sql`；
    或部署后端后调用 `POST /api/admin/migrate` 自动执行全部迁移（需先配置 `ADMIN_TOKEN` 与 `SUPABASE_MANAGEMENT_API_KEY`）。
-   所有脚本均幂等，可重复执行。
+   所有脚本均幂等，可重复执行。v8（`market_source_state`）可选：不执行则行情源冷却降级为单实例可见。
 2. 在项目设置中获取 URL 与 anon / service_role Key，写入 `backend/.env`：
    ```ini
    SUPABASE_URL=https://xxxx.supabase.co
@@ -111,6 +111,82 @@ npm run dev                 # http://localhost:5173
 
 ---
 
+## 🧪 测试与校验
+
+改动后至少跑一遍下面四步（CI 也是这四步，见 `.github/workflows/ci.yml`）：
+
+```bash
+# 后端（256 个用例）
+cd backend
+pip install -r requirements-dev.txt   # 含 pytest / pytest-asyncio
+pytest -q
+
+# 前端
+cd frontend
+npm run typecheck   # tsc --noEmit -p tsconfig.app.json && -p tsconfig.node.json
+npm test            # node --test（内置 runner，无需额外依赖）
+npm run build       # tsc -b && vite build
+```
+
+**两个必须知道的坑**：
+
+| 坑 | 说明 |
+|---|---|
+| 类型检查必须用 `tsconfig.app.json` | 根 `tsconfig.json` 是 `{"files":[],"references":[...]}` 的项目引用模式，`tsc --noEmit -p .` **一个文件都不检查、永远 exit 0** |
+| `vite build` 不检查类型 | esbuild 只转译不做类型校验，**build 通过 ≠ 类型正确**，两个都要跑 |
+
+> 前端单测用 Node 内置 `node --test`（需 Node ≥ 22.18，靠内置类型擦除直接跑 `.ts`），不引入 vitest。
+
+---
+
+## 📐 口径与证据（两条硬约定）
+
+这一节约束的不是「怎么算」，而是「算出来的数字能不能拿来下结论 」。
+用户反馈的「数据不准确」有两类：一类是数字算错，一类是**数字没错但可信度没被区分**。
+下面两条针对后者，改动相关代码前请先读完。
+
+### 1. 每个「率」都必须登记测量口径
+
+「验证」页同屏会出现 4 个都叫「胜率 / 命中率」的数字，它们的标的 / 持有期 / 分类数 / 有无基准全都不一样：
+
+| 出处 | 标的 | 持有期 | 分类数 | 基准 |
+|---|---|---|---|---|
+| 大盘推衍 | 上证指数 | 预测日当日 | 3（含震荡，±0.5% 中性带） | 无 |
+| 每日推荐 | 个股 | T+1 收盘 | 2 | 无 |
+| 策略回测 | 组合 | 每个调仓期 | 2 | 沪深300 |
+| 形态回测 | 个股 | N 个交易日 | 2（按方向） | 同区间同持有期 |
+
+**它们不可比较、不可相加。** 口径定义集中在 `backend/app/services/calibers.py`，
+随接口一起下发（`caliber` + `caliber_note`），前端只展示不自己解释，渲染统一走
+`frontend/src/components/CaliberNote.tsx`。
+
+> 新增任何「率」之前，先在 `calibers.py` 登记口径；**没有登记的百分比不允许出现在界面上**。
+
+### 2. 形态命中 ≠ 形态有效：证据闸门
+
+`services/tactic_evidence.py` 是形态可信度的**唯一来源**，按回测结果分 5 档：
+
+| tier | 判定 | 能否进入买卖点 |
+|---|---|---|
+| `verified` | n ≥ 30 且 \|z\| ≥ 1.96 且各持有期收益超额为正 | ✅ |
+| `preliminary` | n < 30，但超额方向一致为正 | ❌（只作线索，带「初步」角标） |
+| `unsupported` | n ≥ 30 未达显著，或超额为负 | ❌ |
+| `unknown` | 尚未用当前实现回测过 | ❌ |
+| `not_testable` | 当前数据源无法回测 | ❌ |
+
+`_pack()` 给每条形态结果挂 `evidence` / `executable`（= 命中 && 证据达标）/ `gate_note`，
+所以扫描 / 深度分析 / 盯盘 / 持仓 / 简报的结论必然一致；前端未验证的命中**不使用方向色**
+（红绿只表达方向，用它渲染未验证形态会被读成「该动手了」），改中性「观察」角标。
+`pattern_service.ESCALATE_SELL_KEYS` 也由这张表推导，不再手写。
+
+> ⚠️ 当前（2026-09-16 复跑）**没有任何形态达到 `verified`**，因此全部命中都进观察池。
+> 想放开某条形态，改 `tactic_evidence.EVIDENCE` 里的 tier 并写明依据 —— 不要直接改闸门代码。
+
+**证据快照**：42 只行业分散大中盘 · 每只 640 根日线 · 240 个评估日 · 持有 5/10/20 日，
+随 `GET /api/market/tactic-evidence` 返回。重跑 `POST /api/backtest/tactic` 后需同步更新表中数字。
+
+---
+
 ## 📁 项目结构
 
 ```
@@ -121,9 +197,9 @@ ai-stock-picker/
 │   │   ├── config.py             # pydantic-settings 配置
 │   │   ├── models.py             # 数据模型
 │   │   ├── store.py              # SQLite 本地分析历史
-│   │   ├── routes/               # 14 个路由模块（见下）
-│   │   └── services/            # 18 个服务模块（见下）
-│   ├── supabase-schema*.sql      # 建表脚本 v1–v6（幂等，可重复执行）
+│   │   ├── routes/               # 15 个路由模块（见下）
+│   │   └── services/            # 28 个服务模块（见下）
+│   ├── supabase-schema*.sql      # 建表脚本 v1–v8（幂等，可重复执行）
 │   ├── requirements.txt
 │   └── vercel.json
 ├── frontend/
@@ -171,6 +247,8 @@ ai-stock-picker/
 | 简报 | GET | `/api/briefing/today` | 今日作战简报 |
 | 回测 | POST | `/api/backtest/run` | 运行策略回测 |
 | 回测 | POST | `/api/backtest/tactic` | 实战形态回测验证（walk-forward + 基准对比） |
+| 市场 | GET | `/api/market/tactic-evidence` | 形态证据等级总览（分级口径 + 覆盖计数 + 证据快照） |
+| 市场 | GET | `/api/market/spot-status` | 行情源冷却状态（强制刷新前判断） |
 | 持仓 | GET / POST | `/api/portfolio/holdings` | 持仓 CRUD |
 | 持仓 | GET | `/api/portfolio/advice` | 持仓建议 |
 | 模拟盘 | POST | `/api/sim/trade` | 模拟买卖 |

@@ -1,7 +1,7 @@
 # 迭代日志 Changelog
 
 > 格式参考 [Keep a Changelog](https://keepachangelog.com/)，版本号遵循产品里程碑（V1 ~ V5.x）。
-> 代码仓库版本见 `backend/app/main.py` 的 `version` 字段，**当前为 `0.2.0`，对应产品里程碑 V1–V5.13**。
+> 代码仓库版本见 `backend/app/main.py` 的 `version` 字段，**当前为 `0.2.0`，对应产品里程碑 V1–V5.20**。
 >
 > 说明：历史条目按 ROADMAP 的「已完成」章节整理；里程碑日期以 ROADMAP 末次更新（2026-09-02）为最新基准，早期里程碑未逐日记录，具体提交时间以 git 历史为准。
 
@@ -10,6 +10,86 @@
 ## [Unreleased]
 
 ### Added
+- **V5.20 · 产品可信度：多周期共振修复 + 形态证据闸门 + 胜率口径登记**（2026-09-16）
+  > 目标：解决用户反馈的「数据不准确」。这一轮修的不是算错的数字，而是**可信度没有被区分**：
+  > 一条数学上永远不可能命中的形态、一批没有统计支持的买卖点、四个都叫「胜率」却互相不可比的数字。
+  - **多周期共振此前在任何股票、任何时点都不可能命中**（口径级 bug，非行情原因）：
+    腾讯历史 K 线端点日线硬上限 **640 根**，从 640 根日线重采样最多得到 ~33 根月线，
+    而 MACD(12,26,9) 需要 slow+signal = **35 根**才成形 → `detect_cycle_resonance` 恒返回
+    `insufficient_data`，既不命中也不报错。实测同一端点在**相同主机**上支持 `week`（300 根）/ `month`
+    （120 根，回溯至 2016-10）：改为按周期直接取数即可，不是新增数据源
+    - `data_service.get_history(code, days, period="day"|"week"|"month")`；周线 6h / 月线 24h 长缓存
+    - `pattern_service.needed_periods()` / `load_tactic_periods()`：**只有声明了 `extra_periods`
+      的技巧才产生额外请求**（当前仅多周期共振），其余技巧零额外流量；全部走 `gather_limited` 闸门
+    - 5 个调用面统一取周期数据：`check_codes`（扫描）、`analysis.py`（深度分析）、`briefing_service`（简报）、
+      `portfolio_service`（持仓）、`routes/monitor`（盯盘）—— 保证同一只票在各页面结论一致
+    - `history_days` 900 → 120、`warmup` 750 → 60：原值只服务于「重采样出月线」的旧口径，
+      且 750 的预热期让该技巧在回测里被**静默跳过**（`stocks_evaluated = 0`）
+    - 实测（600519 / 000001）：三周期各得真实 K 线 120/300/120 根，平安银行月线金叉被正确识别
+  - **形态证据闸门**：新增 `services/tactic_evidence.py`，把回测结论变成展示层必须遵守的闸门
+    - 5 档分级：`verified`（n ≥ 30 且 \\|z\\| ≥ 1.96 且各持有期收益超额为正）/ `preliminary` /
+      `unsupported` / `unknown` / `not_testable`；**只有 `verified` 允许进入买卖点位置**，当前**一条都没有**
+    - `_pack()` 统一挂 `evidence` / `executable` / `gate_note`，因此扫描 / 深度分析 / 盯盘 / 持仓 / 简报
+      拿到的可信度标签必然一致；`executable = 命中 && 证据达标`
+    - `ESCALATE_SELL_KEYS` 改为由登记表**推导**（原来手写的空集合，存在「表里写了已验证、代码里仍是空集」的静默不一致风险）
+    - 新增 `GET /api/market/tactic-evidence`：分级口径 + 覆盖计数 + 证据快照（跑批日期 / 股票池 / 持有期）
+    - 前端收口为共享组件 `components/TacticHit.tsx`：未验证的命中**不使用方向色**（红绿只表达方向，
+      用它渲染未验证形态会被读成「该动手了」），改中性「观察」角标 + 观察池说明；
+      修复 `TacticPanel` 条件清单里 ✓/✗ 占用红绿的问题（通过项属质量语义）
+  - **回测口径修复 + 复跑**（`tactic_backtest_service`）：
+    - 新增 `_PREFIX_LOOKBACK = 390`：评估窗口之外必须留足「相对量」所需的历史
+      （天量要区间最大量、地量要 60 日高点）。原实现由 `warmup` 隐式决定，
+      改 `warmup` 会连带改变其他技巧的回测结果
+    - 新增 `_PeriodCursor`：周线/月线按评估日**切片回放**，并把进行中那根的收盘替换为当日收盘
+      （接口返回的是该周期最终收盘，直接用等于偷看未来）
+    - 历史长度覆盖不了预热期时改为**明说**「未纳入评估」，不再混进「0 次命中」
+    - **复跑结论（42 只池 · 每只 640 根日线 · 240 个评估日 · 持有 5/10/20 日，`failed = 0`）**：
+      没有任何形态达到统计显著。多周期共振首次有信号（n=5，胜率超额 +35.7/+37.1/+39.1pt，z≈2.0），
+      但样本远不足；**揉搓线洗盘的「唯一稳定正超额」未能复现**（当年 +4.7/+6.0/+9.5pt → 本次 +3.4/+2.3/+0.8pt，
+      z=0.56/0.30/0.10），当年的正值落在噪音范围内
+  - **胜率口径登记**：新增 `services/calibers.py`，把「胜率」这个词在本系统内的定义写死
+    - 「验证」页同屏有 **4 个都叫「胜率 / 命中率」**的数字：大盘单日命中（三分类、含 ±0.5% 中性带）、
+      推荐 T+1（二分类、无基准）、策略回测（调仓期、对比沪深300）、形态回测（N 日前向、对比同区间基准）。
+      标的 / 持有期 / 分类数 / 有无基准全不同，**不可比较、不可相加**
+    - 每个统计块随接口下发自己的 `caliber`（标的 / 窗口 / 分类数 / 基准 / 判定规则 / 样本单位 / 易骗点）；
+      `caliber_note` 给出不可比声明
+    - 前端新增共享组件 `components/CaliberNote.tsx`；不可比声明统一在 `VerifyPanel` 顶部只写一次，
+      各面板展示自己的口径；策略回测的「胜率」标签改为「期胜率」（样本单位是调仓期而不是个股）
+  - 新增测试：`tests/test_tactic_periods.py`（12 例，含「周/月线切片不偷看未来」「小样本不再静默跳过」）、
+    `tests/test_tactic_evidence.py`（18 例，含「闸门双向可用：verified 要能解锁动作」）、
+    `tests/test_calibers.py`（17 例，含「真正使用该胜率的接口都带口径」）。后端用例 **202 → 256**
+  - 文档：README schema 版本与测试章节已同步
+- **V5.19 · 行情源护栏：并发闸门 + 跨实例冷却 + 强制刷新闸门 + 可运行的测试/CI**（2026-09-16）
+  - **并发闸门**：新增 `services/concurrency.py`，所有「按 code 逐只打行情源」的批量拉取统一走
+    `gather_limited` / `limited()`，进程级上限 `FETCH_CONCURRENCY = 8`。此前 6 处调用**并发无上限**
+    （策略扫描 30 只候选 → 30 个并发请求直打行情源），是 IP 级风控的主要触发条件。
+    收口点：`routes/market._apply_strategy`、`pattern_service`（日线 / 分钟线）、`recommend_service`、
+    `portfolio_service`、`winrate_service`、`routes/monitor`（原各自 `Semaphore(12)` / `(8)`，已统一配额）、
+    `quad_service`（原 `Semaphore(12)`）、`tactic_backtest_service`（原 `_FETCH_CONCURRENCY`）
+  - **跨实例冷却**：行情源失败标记从进程内变量改为落 `market_source_state` 表（新增 `supabase-schema-v8.sql`），
+    冷却窗口对全部 Serverless 实例生效。原实现下「A 实例已被风控、B 实例仍去撞行情源」，
+    每个请求空等数十秒才 502 并持续刷新封禁窗口。**表未建时静默降级为纯进程内冷却**，不影响上线
+  - **新增接口 `GET /api/market/spot-status`**：返回剩余冷却秒数 / 快照年龄与规模 / 冷却窗口参数，
+    供前端在强制刷新前判断能否安全触发
+  - **前端强制刷新闸门**（新增 `lib/spotGuard.ts`）：二次确认 + 冷却倒计时。
+    `confirmForceRefresh()` 给「强制刷新」类按钮（冷却拦截 + 代价说明确认 + 确认后本地 60s 节流）；
+    `ensureNotCooling()` 给盯盘「立即刷新」这类高频核心动作（只拦冷却，不弹确认，不打断盘中节奏）
+  - **修掉 3 处硬编码 `force: true`**：`ScanPanel` 策略选股 / 全市场扫描、`TacticPanel` 形态扫描
+    此前**每次点击都跳过两层缓存直打行情源** —— 这是 2026-09-15 那次全站 502 的前端侧根因。
+    现在默认走缓存（内存 5min → Supabase 6h），需要最新数据用面板上的「强制刷新」（过闸门）
+  - **前端错误详情统一**：新增 `errorFrom(res, fallback)`，26 处「只抛状态码」的接口改为读取后端 `detail`。
+    此前用户只看到 `502`，看不到「行情源被风控，冷却中（63s 后重试）」，
+    会把临时冷却误判成服务故障而反复重试 —— 恰好是延长封禁的动作
+  - **后端测试可运行**：新增 `backend/pytest.ini` 与 `backend/requirements-dev.txt`（pytest / pytest-asyncio）。
+    此前 19 个测试文件既无依赖声明也无 pytest 配置，换台机器无法复现，「测试」等于不存在；
+    测试依赖刻意与 `requirements.txt` 分开，避免撑大 Vercel Serverless 安装体积
+  - **前端单测跑起来了**：`scanPanelLogic.test.ts` 此前因 package.json 没有 `test` script 而永远跑不起来。
+    实测 Node 内置 `node --test`（Node ≥ 22.18 内置类型擦除，可直接跑 `.ts`）即可，**无需引入 vitest**
+  - **新增 `npm run typecheck`**：固定走 `tsconfig.app.json` + `tsconfig.node.json`，
+    避免再踩「根 tsconfig 是 references 模式、tsc 空跑永远 exit 0」的坑
+  - **新增 CI**（`.github/workflows/ci.yml`）：后端 `pytest` + 前端 `typecheck` / `test` / `build`
+  - 新增测试：`tests/test_concurrency.py`（6 例，含「配额跨并发批次共享」「策略扫描峰值并发受限」两条回归）
+    与 `tests/test_market_spot_cache.py` 新增 6 例冷却共享 / 降级用例。后端用例 **190 → 202**
 - **V5.18 形态校准 + 新增 3 条技巧 + 建议闸门**（2026-09-13）
   - **回测闸门**：新增 `pattern_service.ESCALATE_SELL_KEYS`，只有回测达到显著（`confidence == "significant"`）的卖出形态才允许把「持有观察」升级为「建议减仓」。首次回测无形态达标，闸门为空 —— 断头铡刀不再自动触发减仓建议
   - **文案降级**：断头铡刀 / 天量见天价的命中提示从「无条件减仓 70% / 清仓离场」改为风险提示口径（回测未显示显著超额）
