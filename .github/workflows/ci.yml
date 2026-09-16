@@ -1,0 +1,53 @@
+name: CI
+
+# 为什么现在才加：2026-09-16 之前仓库零 CI，前端 typecheck 曾因「用了根 tsconfig.json
+# 的项目引用模式」而连续多轮空跑通过（一个文件都没检查），后端 19 个测试文件也没有
+# 依赖声明、换台机器跑不起来。两件事都是「本地假象」，只有 CI 能拦住。
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  backend:
+    name: 后端测试
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+      - name: 安装依赖
+        run: pip install -r requirements-dev.txt
+      - name: 运行测试
+        run: pytest -q
+
+  frontend:
+    name: 前端类型检查 / 测试 / 构建
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # 需要 >=22.18：node --test 直接跑 .ts 依赖内置类型擦除
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: 安装依赖
+        run: npm ci
+      # 必须走 tsconfig.app.json：根 tsconfig.json 是 references 模式，会空跑通过
+      - name: 类型检查
+        run: npm run typecheck
+      - name: 单元测试
+        run: npm test
+      # vite build 只转译不检查类型，所以上面 typecheck 与这里缺一不可
+      - name: 构建
+        run: npm run build
