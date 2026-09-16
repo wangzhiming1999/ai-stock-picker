@@ -91,8 +91,9 @@ async def _enrich_morning_stock(
         closes = hist.closes if hist and hist.closes else None
         sig = signal_service.compute_signals(closes, float(price)) if closes else None
         if hist and hist.closes:
+            extra = await pattern_service.load_tactic_periods([code])
             base["tactics"] = pattern_service.matched_tactics(
-                {"daily": hist, "intraday": None, "price": float(price), "turnover": None}
+                {"daily": hist, "intraday": None, "price": float(price), "turnover": None, **(extra.get(code) or {})}
             )
         if sig:
             base["buy_point"] = sig.get("buy_point")

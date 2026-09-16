@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 
-from app.services import data_service, pattern_service, signal_service, supabase_store
+from app.services import concurrency, data_service, pattern_service, signal_service, supabase_store
 
 RISK_LEVELS = {"保守", "稳健", "进取", "激进"}
 
@@ -239,11 +239,13 @@ async def list_holdings(user_id: str) -> list[dict]:
     codes = [h["code"] for h in holdings]
     quotes = await asyncio.to_thread(data_service.get_spot_quote, codes)
     quote_map = {q.code: q for q in quotes}
-    # K 线并发预取（原为循环内逐只同步请求，N+1 且阻塞）
-    hists = await asyncio.gather(
-        *(asyncio.to_thread(data_service.get_history, h["code"], _HOLDING_DAYS) for h in holdings),
+    # K 线并发预取（原为循环内逐只同步请求，N+1 且阻塞；并发上限走全局闸门）
+    hists = await concurrency.gather_limited(
+        (asyncio.to_thread(data_service.get_history, h["code"], _HOLDING_DAYS) for h in holdings),
         return_exceptions=True,
     )
+    # 周线/月线：多周期共振需要，其余技巧不产生请求；长缓存，持仓轮询代价极低
+    period_map = await pattern_service.load_tactic_periods(codes)
 
     enriched = []
     total_value = 0.0
@@ -272,6 +274,7 @@ async def list_holdings(user_id: str) -> list[dict]:
                         "intraday": None,
                         "price": price,
                         "turnover": q.turnover if q else None,
+                        **(period_map.get(h["code"]) or {}),
                     }
                 )
         except Exception:

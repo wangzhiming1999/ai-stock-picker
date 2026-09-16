@@ -109,17 +109,47 @@ def get_stock_name(code: str) -> str:
 # K 线盘中变化很小（只有当日那根在动），但每只票一次 akshare 请求要 1~4s，
 # 简报(6只)/个股详情/持仓建议/盯盘都会重复拉取，是首屏延迟的主要来源。
 # 成功缓存 5 分钟，失败短缓存 30s（避免瞬时故障被反复重试放大）。
-_hist_cache: dict[tuple[str, int], tuple[float, StockHistory | None]] = {}
+_hist_cache: dict[tuple[str, int, str], tuple[float, StockHistory | None]] = {}
 _HIST_TTL_OK = 300
 _HIST_TTL_FAIL = 30
 _HIST_CACHE_MAX = 400
 
+# 腾讯同一端点支持 day / week / month 三个周期（实测 2026-09-16）：
+#   day   → 硬上限 640 根（请求 900/1200 都只返回 640，约 2.5 年）
+#   week  → 300 根（约 5.7 年）
+#   month → 120 根（回溯至 2016-10）
+# 之前「多周期共振」是从 640 根日线重采样出周/月线，月线只得 33 根 < MACD(12,26,9) 所需的
+# 35 根，导致该技巧**数学上永远无法命中**。改为直接按周期取数即可（同一主机，不是新数据源）。
+_QQ_HIST_PERIODS = ("day", "week", "month")
 
-def _parse_qq_history_payload(payload: dict, symbol: str, days: int) -> StockHistory | None:
+# 周线/月线变化极慢（一根周线一周才更新、月线一月），缓存远长于日线：
+# 周线 6 小时、月线 24 小时。否则「多周期共振」每次扫描都要为每只候选多打两次请求。
+_HIST_TTL_PERIOD = {"week": 6 * 3600, "month": 24 * 3600}
+
+# 各周期可直接取到的上限（用于把 days 收敛到合理值，避免无效放大请求量）
+_HIST_PERIOD_MAX = {"day": 640, "week": 300, "month": 120}
+
+
+def _rows_for_period(node: dict, period: str) -> list:
+    """腾讯按周期返回不同字段名：day→qfqday、week→qfqweek、month→qfqmonth。"""
+    for key in (f"qfq{period}", period):
+        rows = node.get(key)
+        if isinstance(rows, list) and rows:
+            return rows
+    if period == "day":  # 历史兼容：早期字段
+        rows = node.get("hfqday")
+        if isinstance(rows, list):
+            return rows
+    return []
+
+
+def _parse_qq_history_payload(
+    payload: dict, symbol: str, days: int, period: str = "day"
+) -> StockHistory | None:
     """校验并解析腾讯 K 线响应。第三方响应异常时返回 None。"""
     try:
         node = payload.get("data", {}).get(symbol, {})
-        rows = node.get("qfqday") or node.get("day") or node.get("hfqday") or []
+        rows = _rows_for_period(node, period)
         if not isinstance(rows, list):
             return None
         valid = []
@@ -159,11 +189,15 @@ def _parse_qq_history_payload(payload: dict, symbol: str, days: int) -> StockHis
         return None
 
 
-def _fetch_history(code: str, days: int) -> StockHistory | None:
-    """直接拉取腾讯历史日 K，避免 AkShare 的 JS 解析器导致进程级崩溃。"""
+def _fetch_history(code: str, days: int, period: str = "day") -> StockHistory | None:
+    """直接拉取腾讯历史 K 线（day/week/month），避免 AkShare 的 JS 解析器导致进程级崩溃。"""
+    if period not in _QQ_HIST_PERIODS:
+        period = "day"
     symbol = _code_to_symbol(code)
+    # days 收敛到该周期实际可返回的上限，避免用 900 这种数字去请求月线（无意义放大请求）
+    want = max(min(days, _HIST_PERIOD_MAX.get(period, 640)), 60)
     url = "https://proxy.finance.qq.com/ifzqgtimg/appstock/app/newfqkline/get"
-    params = {"param": f"{symbol},day,,,{max(days, 60)},qfq", "_var": "kline_dayqfq"}
+    params = {"param": f"{symbol},{period},,,{want},qfq", "_var": f"kline_{period}qfq"}
     try:
         resp = requests.get(url, params=params, headers={"User-Agent": _UA, "Referer": "https://gu.qq.com/"}, timeout=10)
         resp.raise_for_status()
@@ -171,24 +205,35 @@ def _fetch_history(code: str, days: int) -> StockHistory | None:
         json_start = text.find("{")
         if json_start < 0:
             return None
-        return _parse_qq_history_payload(json.loads(text[json_start:]), symbol, days)
+        payload = json.loads(text[json_start:])
+        # 解析上限按实际请求量给，避免 days 语义被 max(days,60) 放大后误删尾部
+        return _parse_qq_history_payload(payload, symbol, days, period)
     except (requests.RequestException, json.JSONDecodeError) as e:
-        logger.warning("获取 %s 历史K线失败: %s", code, e)
+        logger.warning("获取 %s 历史K线失败(%s): %s", code, period, e)
         return None
 
 
-def get_history(code: str, days: int = 120) -> StockHistory | None:
-    """获取历史日 K 数据（腾讯接口），带 TTL 缓存。"""
-    key = (code, days)
+def get_history(code: str, days: int = 120, *, period: str = "day") -> StockHistory | None:
+    """获取历史 K 线（腾讯接口），带 TTL 缓存。
+
+    period: `day`（默认）/ `week` / `month`。周线与月线变化极慢，用长缓存
+    （6h / 24h），因此调用方可以放心按周期取数，不会显著增加行情源压力。
+    """
+    if period not in _QQ_HIST_PERIODS:
+        period = "day"
+    key = (code, days, period)
     now = time.time()
     hit = _hist_cache.get(key)
     if hit:
         cached_at, cached_val = hit
-        ttl = _HIST_TTL_OK if cached_val is not None else _HIST_TTL_FAIL
+        if cached_val is not None:
+            ttl = _HIST_TTL_PERIOD.get(period, _HIST_TTL_OK)
+        else:
+            ttl = _HIST_TTL_FAIL
         if now - cached_at < ttl:
             return cached_val
 
-    result = _fetch_history(code, days)
+    result = _fetch_history(code, days, period)
 
     # 容量控制：超过上限淘汰最旧的一半，避免 serverless 实例内存无限增长
     if len(_hist_cache) >= _HIST_CACHE_MAX:

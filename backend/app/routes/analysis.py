@@ -38,14 +38,34 @@ def _tail_history(hist: StockHistory | None, days: int) -> StockHistory | None:
     )
 
 
-def _tactic_ctx(quote, history: StockHistory | None, intraday=None) -> dict:
-    """组装形态判定上下文（与 pattern_service 的 ctx 约定一致）。"""
-    return {
+def _tactic_ctx(quote, history: StockHistory | None, intraday=None, extra: dict | None = None) -> dict:
+    """组装形态判定上下文（与 pattern_service 的 ctx 约定一致）。
+
+    extra 为按周期取到的周线/月线（`pattern_service.load_tactic_periods`），
+    多周期共振要靠它才能用真实月线判定；其余技巧忽略该字段。
+    """
+    ctx = {
         "daily": history,
         "intraday": intraday,
         "price": quote.price,
         "turnover": quote.turnover,
     }
+    if extra:
+        ctx.update(extra)
+    return ctx
+
+
+def _cache_needs_tactics(cached: dict) -> bool:
+    """缓存里的形态结果是否需要重算。
+
+    两种情况：完全没有形态字段；或有但缺 `evidence`（证据闸门上线前的旧行）。
+    旧行必须重算而不是沿用 —— 前端对缺字段的结果只能兜底成「未验证」，
+    那会让用户看到错误的等级（真实等级可能是「初步」）。
+    """
+    tactics = cached.get("tactics")
+    if not isinstance(tactics, list):
+        return True
+    return any(isinstance(t, dict) and "evidence" not in t for t in tactics)
 
 
 def _sse(event_type: str, message: str = "", payload: dict | None = None) -> str:
@@ -132,8 +152,11 @@ async def analyze_stocks(req: AnalysisRequest, request: Request):
             # 1. 缓存命中：直接返回（force=False 时）
             if not req.force and q.code in cached_map:
                 cached = cached_map[q.code]
-                # 旧缓存缺少规则字段（趋势模板 / 形态命中）时就地补齐，避免用户要等到次日才看到新结果。
-                if "strategy" not in cached or "tactics" not in cached:
+                # 旧缓存缺少规则字段（趋势模板 / 形态命中 / 形态证据等级）时就地补齐，
+                # 避免用户要等到次日才看到新结果 —— 尤其是证据等级：缺失会让前端把
+                # 未验证形态按「买点」渲染（前端虽有兜底，但缓存里补上才是真正的修复）。
+                needs_patch = _cache_needs_tactics(cached)
+                if "strategy" not in cached or needs_patch:
                     cached_history = await asyncio.to_thread(data_service.get_history, q.code, _ANALYSIS_DAYS)
                     if cached_history and cached_history.closes:
                         if "strategy" not in cached:
@@ -141,8 +164,11 @@ async def analyze_stocks(req: AnalysisRequest, request: Request):
                             cached["strategy"] = trend_template_service.assess_trend_template(
                                 context_history.closes, q.price
                             )
-                        if "tactics" not in cached:
-                            cached["tactics"] = pattern_service.matched_tactics(_tactic_ctx(q, cached_history))
+                        if needs_patch:
+                            cached_extra = await pattern_service.load_tactic_periods([q.code])
+                            cached["tactics"] = pattern_service.matched_tactics(
+                                _tactic_ctx(q, cached_history, extra=cached_extra.get(q.code))
+                            )
                 yield _sse(
                     "stock_start",
                     f"{q.name}（{q.code}）命中今日缓存...",
@@ -162,7 +188,7 @@ async def analyze_stocks(req: AnalysisRequest, request: Request):
             yield _sse("stock_start", f"正在分析 {q.name}（{q.code}）...", {"code": q.code, "name": q.name})
 
             # 2. 组装上下文（K线 + 新闻 + 技术信号 + 形态）
-            # 日线取 900 根以支撑多周期共振（月线 MACD）；下游一律传最近 260 根切片，
+            # 日线请求 900 根（行情源硬上限 640），下游一律传最近 260 根切片，
             # 保证技术信号 / 趋势模板 / LLM 上下文的输入与改动前完全一致。
             long_history = await asyncio.to_thread(data_service.get_history, q.code, _ANALYSIS_DAYS)
             history = _tail_history(long_history, _CONTEXT_DAYS)
@@ -187,7 +213,10 @@ async def analyze_stocks(req: AnalysisRequest, request: Request):
                 )
 
             # 形态命中：K 线量价条件的确定性核对结果（仅全部条件成立才算命中）
-            tactics = pattern_service.matched_tactics(_tactic_ctx(q, long_history))
+            extra_periods = await pattern_service.load_tactic_periods([q.code])
+            tactics = pattern_service.matched_tactics(
+                _tactic_ctx(q, long_history, extra=extra_periods.get(q.code))
+            )
             if tactics:
                 hits = "；".join(f"{t['name']}（{t['action']}）" for t in tactics)
                 context += f"\n\n系统形态识别命中：{hits}。这是确定性条件核对结果，请结合它评估风险与操作节奏。"

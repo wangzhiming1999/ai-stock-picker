@@ -36,6 +36,7 @@ EXPECTED_TABLES = [
     "sim_trades",
     "portfolio_snapshots",
     "market_spot_cache",
+    "market_source_state",
 ]
 
 

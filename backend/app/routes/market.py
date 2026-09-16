@@ -7,7 +7,7 @@ import akshare as ak
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from app.services import akshare_guard, data_service, market_prediction, opportunity_service, pattern_service, recommend_service, spot_service, supabase_store, winrate_service
+from app.services import akshare_guard, concurrency, data_service, market_prediction, opportunity_service, pattern_service, recommend_service, spot_service, supabase_store, tactic_evidence, winrate_service
 
 router = APIRouter(prefix="/api/market", tags=["market"])
 
@@ -23,6 +23,12 @@ _SPOT_FORCE_MIN_INTERVAL = 60
 # 实时行情源失败后的冷却期：风控通常是 IP 级且持续数分钟，
 # 冷却期内不再重复打行情源（否则既慢又会延长封禁），直接快速失败。
 _SPOT_COOLDOWN = 180
+# 失败标记的跨实例共享存储：Serverless 多实例内存不互通，只靠进程内变量会出现
+# 「A 实例已被风控、B 实例仍去撞行情源」——既慢又延长封禁，前端也拿不到正确的剩余秒数。
+# 这里把最近一次失败时间落一张轻量状态表。**表未建时静默降级为纯进程内冷却**，
+# 行为与改造前完全一致，不影响上线。
+_COOLDOWN_TABLE = "market_source_state"
+_COOLDOWN_ROW_ID = 1
 _last_live_fetch: float | None = None
 _last_live_failure: float | None = None
 
@@ -105,6 +111,75 @@ async def _save_spot_db(rows: list) -> None:
         print(f"[spot] db save failed: {e}")
 
 
+async def _load_shared_failure() -> float | None:
+    """读取跨实例共享的「最近一次行情源失败」时刻（UTC 秒）。
+
+    表未建 / Supabase 未配置 / 网络异常时一律返回 None（静默降级为纯进程内冷却）。
+    返回 None 不影响正确性，只是冷却窗口退化为单实例可见。
+    """
+    if not supabase_store.is_configured():
+        return None
+    try:
+        sb = await supabase_store.get_service_client()
+        res = (
+            await sb.table(_COOLDOWN_TABLE)
+            .select("failed_at")
+            .eq("id", _COOLDOWN_ROW_ID)
+            .limit(1)
+            .execute()
+        )
+        if not res.data:
+            return None
+        raw = res.data[0].get("failed_at")
+        if isinstance(raw, str):
+            raw = dt.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if isinstance(raw, dt.datetime):
+            if raw.tzinfo is None:
+                raw = raw.replace(tzinfo=dt.timezone.utc)
+            return raw.timestamp()
+    except Exception as e:
+        print(f"[spot] shared cooldown load failed: {e}")
+    return None
+
+
+async def _save_shared_failure() -> None:
+    """把「刚刚失败」写入共享存储，使冷却窗口对所有实例生效。"""
+    if not supabase_store.is_configured():
+        return
+    try:
+        sb = await supabase_store.get_service_client()
+        await sb.table(_COOLDOWN_TABLE).upsert(
+            {
+                "id": _COOLDOWN_ROW_ID,
+                "failed_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+            }
+        ).execute()
+    except Exception as e:
+        print(f"[spot] shared cooldown save failed: {e}")
+
+
+async def _clear_shared_failure() -> None:
+    """行情源恢复后清掉失败标记，避免旧标记把后续请求误判为冷却中。"""
+    if not supabase_store.is_configured():
+        return
+    try:
+        sb = await supabase_store.get_service_client()
+        await sb.table(_COOLDOWN_TABLE).delete().eq("id", _COOLDOWN_ROW_ID).execute()
+    except Exception as e:
+        print(f"[spot] shared cooldown clear failed: {e}")
+
+
+async def spot_cooldown_seconds() -> int:
+    """行情源剩余冷却秒数：进程内与跨实例两个来源取更严的一个，0 表示不在冷却中。"""
+    candidates: list[float] = []
+    if _last_live_failure is not None:
+        candidates.append(_SPOT_COOLDOWN - (time.monotonic() - _last_live_failure))
+    shared = await _load_shared_failure()
+    if shared is not None:
+        candidates.append(_SPOT_COOLDOWN - (time.time() - shared))
+    return max(0, int(max(candidates, default=0.0)))
+
+
 async def _get_spot(force: bool = False) -> list:
     """获取全市场快照。
 
@@ -119,12 +194,11 @@ async def _get_spot(force: bool = False) -> list:
     if _is_usable_spot(db_rows):
         _spot_cache = (now, db_rows)
         return db_rows
-    if _last_live_failure is not None and now - _last_live_failure < _SPOT_COOLDOWN:
+    cooling = await spot_cooldown_seconds()
+    if cooling > 0:
         if _spot_cache:
             return _spot_cache[1]
-        raise RuntimeError(
-            f"行情源被风控，冷却中（{int(_SPOT_COOLDOWN - (now - _last_live_failure))}s 后重试）"
-        )
+        raise RuntimeError(f"行情源被风控，冷却中（{cooling}s 后重试）")
     if (
         _last_live_fetch is not None
         and now - _last_live_fetch < _SPOT_FORCE_MIN_INTERVAL
@@ -135,12 +209,32 @@ async def _get_spot(force: bool = False) -> list:
         rows = await asyncio.to_thread(_fetch_live_spot_rows)
     except Exception:
         _last_live_failure = time.monotonic()
+        await _save_shared_failure()
         raise
     _last_live_fetch = time.monotonic()
     _last_live_failure = None
     _spot_cache = (now, rows)
     await _save_spot_db(rows)
+    await _clear_shared_failure()
     return rows
+
+
+@router.get("/spot-status")
+async def spot_status_endpoint():
+    """行情源健康状态：供前端在「强制刷新」前判断能否安全触发。
+
+    前端据此在冷却期内禁用按钮并展示倒计时，避免连点把 IP 封禁拖长
+    （连点会刷新失败标记 → 冷却窗口不断后延 → 全站持续 502）。
+    """
+    cooldown = await spot_cooldown_seconds()
+    return {
+        "cooldown_seconds": cooldown,
+        "in_cooldown": cooldown > 0,
+        "snapshot_age_seconds": int(time.monotonic() - _spot_cache[0]) if _spot_cache else None,
+        "snapshot_size": len(_spot_cache[1]) if _spot_cache else 0,
+        "cooldown_window_seconds": _SPOT_COOLDOWN,
+        "force_min_interval_seconds": _SPOT_FORCE_MIN_INTERVAL,
+    }
 
 
 class ScanRequest(BaseModel):
@@ -278,12 +372,14 @@ async def _apply_strategy(codes: list[str], strategy: str, hist_map: dict | None
     quote_map = {q.code: q for q in quotes}
 
     # 2. 拉历史K线（并发，仅策略需要时；外部已给则直接复用）
+    #    并发必须走 concurrency.gather_limited：按 code 逐只请求，无上限会触发行情源风控。
     if hist_map is None:
         if strategy in ("trend", "momentum", "volume"):
-            histories = await asyncio.gather(
-                *(asyncio.to_thread(data_service.get_history, c, 100) for c in codes[:30])
+            wanted = codes[:30]
+            histories = await concurrency.gather_limited(
+                asyncio.to_thread(data_service.get_history, c, 100) for c in wanted
             )
-            hist_map = {c: h for c, h in zip(codes[:30], histories)}
+            hist_map = {c: h for c, h in zip(wanted, histories)}
         else:
             hist_map = {}
 
@@ -411,14 +507,16 @@ async def strategy_scan(req: StrategyScanRequest):
     return results[: req.limit]
 
 
-# 多周期共振需拉 ~900 根日线，候选池必须更小，否则 Serverless 会超时。
-_TACTIC_CAP_LONG = 12
-_TACTIC_CAP_SHORT = 20
+# 扫描候选池上限：单只票要打的行情请求越多，池子越小，否则 Serverless 会超时。
+# 多周期共振每只票要 3 次请求（日/周/月线），池子必须收窄；
+# 其余技巧只取一次日线，可以用更大的池子。
+_TACTIC_CAP_MULTI = 12
+_TACTIC_CAP_PLAIN = 20
 
 
 class TacticScanRequest(BaseModel):
     """实战形态扫描请求"""
-    tactic: str | None = Field(None, description="技巧 key（见 /api/market/tactics），不传=全部 6 条")
+    tactic: str | None = Field(None, description="技巧 key（见 /api/market/tactics），不传=全部技巧")
     codes: list[str] | None = Field(None, description="指定股票池；不传则全市场按成交额预筛")
     limit: int = Field(20, ge=1, le=50, description="返回数量上限")
     min_amount_yi: float = Field(3, ge=0, description="最低成交额（亿元），过滤冷门股")
@@ -426,14 +524,23 @@ class TacticScanRequest(BaseModel):
 
 
 def _tactic_candidates(keys: list[str]) -> int:
-    longest = max(pattern_service.TACTIC_MAP[k]["history_days"] for k in keys)
-    return _TACTIC_CAP_LONG if longest >= 600 else _TACTIC_CAP_SHORT
+    return _TACTIC_CAP_MULTI if pattern_service.needed_periods(keys) else _TACTIC_CAP_PLAIN
 
 
 @router.get("/tactics")
 async def list_tactics_endpoint():
-    """实战形态清单：6 条可复核技巧的定义（分类 / 买卖方向 / 说明）。"""
+    """实战形态清单：全部可复核技巧的定义（分类 / 买卖方向 / 说明 + 证据等级）。"""
     return pattern_service.list_tactics()
+
+
+@router.get("/tactic-evidence")
+async def tactic_evidence_endpoint():
+    """形态证据等级总览：分级口径、覆盖计数、本次证据快照。
+
+    前端用它渲染角标说明，也供人工核对「文档写的结论」与「代码里的登记表」是否一致 ——
+    这类不一致在本项目出现过多次，公开出来才查得动。
+    """
+    return tactic_evidence.survey()
 
 
 @router.post("/tactic-scan")
@@ -484,9 +591,24 @@ async def tactic_scan_endpoint(req: TacticScanRequest):
         hits = [t for t in row["tactics"] if t["matched"]]
         if not hits:
             continue
-        best = max(hits, key=lambda t: t["score"])
-        matched.append({**row, "tactics": hits, "best_score": best["score"], "best_action": best["action"]})
-    matched.sort(key=lambda x: x["best_score"], reverse=True)
+        # 证据等级优先于条件分数：只有证据达标的技巧才允许成为这一行的「操作提示」。
+        # 否则整行的结论会由一条未经验证的形态给出（例如「可按计划分批建仓」），
+        # 等于把观察包装成买点 —— 对未验证形态给出动作话术本身就是误导。
+        ordered = sorted(hits, key=lambda t: (not t.get("executable"), -t["score"]))
+        best = ordered[0]
+        executable = best.get("executable")
+        matched.append(
+            {
+                **row,
+                "tactics": ordered,
+                "best_score": best["score"],
+                "best_action": best["action"] if executable else "",
+                "best_gate_note": "" if executable else best.get("gate_note", ""),
+                "executable_hits": sum(1 for t in hits if t.get("executable")),
+            }
+        )
+    # 有可执行命中的票排在前面，其次按最高分
+    matched.sort(key=lambda x: (x["executable_hits"], x["best_score"]), reverse=True)
     return {"count": len(matched), "checked": len(codes), "items": matched[: req.limit]}
 
 

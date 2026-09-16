@@ -213,3 +213,145 @@ def test_live_fetch_falls_back_to_service_when_sources_are_unusable(monkeypatch)
         market._fetch_live_spot_rows()
 
     assert "有效价格不足" in str(exc.value)
+
+
+# ---------------- 冷却状态跨实例共享 ----------------
+# 背景：Serverless 多实例内存不互通，只做进程内冷却会出现「A 实例已被风控、
+# B 实例仍去撞行情源」，既慢又延长封禁。失败时间落共享表后，冷却窗口对所有实例生效。
+
+
+async def _no_db(**_kwargs):
+    return None
+
+
+async def _noop(*_args, **_kwargs):
+    return None
+
+
+def _reset_spot_state() -> None:
+    market._spot_cache = None
+    market._last_live_failure = None
+    market._last_live_fetch = None
+
+
+@pytest.mark.asyncio
+async def test_shared_failure_puts_other_instances_into_cooldown(monkeypatch):
+    """本实例内存里没有失败记录，但共享表里有 → 仍必须进入冷却、不打行情源。"""
+
+    async def shared_failure():
+        return time.time() - 10  # 10 秒前失败过
+
+    monkeypatch.setattr(market, "_load_spot_db", _no_db)
+    monkeypatch.setattr(market, "_load_shared_failure", shared_failure)
+    monkeypatch.setattr(market, "_fetch_live_spot_rows", lambda: pytest.fail("冷却期内不应请求行情源"))
+    _reset_spot_state()
+
+    with pytest.raises(RuntimeError) as exc:
+        await market._get_spot(force=True)
+
+    assert "冷却" in str(exc.value)
+    _reset_spot_state()
+
+
+@pytest.mark.asyncio
+async def test_stale_shared_failure_does_not_block_forever(monkeypatch):
+    """共享标记超出冷却窗口后必须放行，否则一次风控会永久锁死行情源。"""
+
+    async def old_failure():
+        return time.time() - (market._SPOT_COOLDOWN + 5)
+
+    monkeypatch.setattr(market, "_load_spot_db", _no_db)
+    monkeypatch.setattr(market, "_load_shared_failure", old_failure)
+    monkeypatch.setattr(market, "_save_spot_db", _noop)
+    monkeypatch.setattr(market, "_clear_shared_failure", _noop)
+    monkeypatch.setattr(market.spot_service, "fetch_spot_frame", lambda: _frame(10))
+    _reset_spot_state()
+
+    rows = await market._get_spot(force=True)
+
+    assert rows[0]["price"] == 10
+    _reset_spot_state()
+
+
+@pytest.mark.asyncio
+async def test_failure_writes_shared_marker(monkeypatch):
+    """失败时必须写共享标记，否则其他实例不会进入冷却。"""
+    saved: list[bool] = []
+
+    async def record() -> None:
+        saved.append(True)
+
+    def boom():
+        raise RuntimeError("东财行情请求失败: RemoteDisconnected")
+
+    monkeypatch.setattr(market, "_load_spot_db", _no_db)
+    monkeypatch.setattr(market, "_load_shared_failure", _noop)
+    monkeypatch.setattr(market, "_save_shared_failure", record)
+    monkeypatch.setattr(market, "_fetch_live_spot_rows", boom)
+    _reset_spot_state()
+
+    with pytest.raises(RuntimeError):
+        await market._get_spot(force=True)
+
+    assert saved == [True]
+    _reset_spot_state()
+
+
+@pytest.mark.asyncio
+async def test_success_clears_shared_marker(monkeypatch):
+    """行情源恢复后必须清标记，否则旧标记会把后续请求误判为冷却中。"""
+    cleared: list[bool] = []
+
+    async def record() -> None:
+        cleared.append(True)
+
+    monkeypatch.setattr(market, "_load_spot_db", _no_db)
+    monkeypatch.setattr(market, "_load_shared_failure", _noop)
+    monkeypatch.setattr(market, "_save_shared_failure", _noop)
+    monkeypatch.setattr(market, "_save_spot_db", _noop)
+    monkeypatch.setattr(market, "_clear_shared_failure", record)
+    monkeypatch.setattr(market.spot_service, "fetch_spot_frame", lambda: _frame(10))
+    _reset_spot_state()
+
+    await market._get_spot(force=True)
+
+    assert cleared == [True]
+    _reset_spot_state()
+
+
+@pytest.mark.asyncio
+async def test_shared_cooldown_degrades_when_table_missing(monkeypatch):
+    """状态表未建 / Supabase 不可用时不得抛错，静默降级为纯进程内冷却。"""
+
+    class _BoomTable:
+        def table(self, *_args, **_kwargs):
+            raise RuntimeError('relation "market_source_state" does not exist')
+
+    async def boom_client():
+        return _BoomTable()
+
+    monkeypatch.setattr(market.supabase_store, "is_configured", lambda: True)
+    monkeypatch.setattr(market.supabase_store, "get_service_client", boom_client)
+
+    assert await market._load_shared_failure() is None
+    await market._save_shared_failure()  # 不应抛出
+    await market._clear_shared_failure()
+
+
+@pytest.mark.asyncio
+async def test_spot_status_exposes_countdown(monkeypatch):
+    """前端靠这个接口在冷却期禁用「强制刷新」按钮并展示倒计时。"""
+
+    async def old_failure():
+        return time.time() - 10
+
+    monkeypatch.setattr(market, "_load_shared_failure", old_failure)
+    monkeypatch.setattr(market, "_load_spot_db", _no_db)
+    _reset_spot_state()
+
+    status = await market.spot_status_endpoint()
+
+    assert status["in_cooldown"] is True
+    assert 0 < status["cooldown_seconds"] <= market._SPOT_COOLDOWN
+    assert status["snapshot_size"] == 0
+    _reset_spot_state()

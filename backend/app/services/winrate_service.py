@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 
-from app.services import data_service, market_prediction, supabase_store, trade_calendar_service
+from app.services import calibers, concurrency, data_service, market_prediction, supabase_store, trade_calendar_service
 
 
 def _next_close_after(history, rec_date: str) -> tuple[str, float] | None:
@@ -46,7 +46,9 @@ async def settle_daily_recommendations() -> int:
 
     # 批量获取历史 K 线，精确选择推荐后的首个交易日收盘。
     codes = list({r["code"] for r in rows})
-    histories = await asyncio.gather(*(asyncio.to_thread(data_service.get_history, code, 200) for code in codes))
+    histories = await concurrency.gather_limited(
+        asyncio.to_thread(data_service.get_history, code, 200) for code in codes
+    )
     history_map = dict(zip(codes, histories))
 
     settled = 0
@@ -80,9 +82,19 @@ async def settle_daily_recommendations() -> int:
 
 
 async def get_winrate_stats() -> dict:
-    """胜率统计：预测命中率 + 推荐胜率。表未创建时返回空。"""
+    """胜率统计：预测命中率 + 推荐胜率。表未创建时返回空。
+
+    每个统计块都带上 `caliber`（口径定义，见 `calibers`）——
+    这两个命中率的标的/持有期/分类数都不同，`caliber_note` 明确声明不可比较。
+    前端只展示，不自己解释口径。
+    """
     if not supabase_store.is_configured():
-        return {"prediction": None, "recommendation": None, "snapshot": None}
+        return {
+            "prediction": None,
+            "recommendation": None,
+            "snapshot": None,
+            "caliber_note": calibers.note(),
+        }
 
     sb = await supabase_store.get_service_client()
 
@@ -146,14 +158,17 @@ async def get_winrate_stats() -> dict:
             "hit_rate": round(pred_hit / pred_total * 100, 1) if pred_total else None,
             "by_direction": by_dir,
             "sample_status": _sample_status(pred_total),
+            "caliber": calibers.describe("prediction"),
         },
         "recommendation": {
             "total": rec_total,
             "hit": rec_hit,
             "hit_rate": round(rec_hit / rec_total * 100, 1) if rec_total else None,
             "sample_status": _sample_status(rec_total),
+            "caliber": calibers.describe("recommendation"),
         },
         "snapshot": snapshot,
+        "caliber_note": calibers.note(),
     }
 
 

@@ -49,6 +49,20 @@ class IndicatorHelperTests(unittest.TestCase):
         self.assertEqual(ps._resample_closes(dates, closes, "W"), [2.0, 3.0])
 
 
+def _v_shape(n: int, up: int = 3) -> list[float]:
+    """浅跌 + 最后 3 根急拉的 V 形：MACD 金叉落在最后 3 根内，且价格全程为正。
+
+    跌速取得很缓（0.05/根）是为了长序列也不会跌到 0 以下 ——
+    负价格会让回测的前向收益直接判为无效样本。
+    """
+    vals = [100.0]
+    for _ in range(n - up - 1):
+        vals.append(vals[-1] - 0.05)
+    for _ in range(up):
+        vals.append(vals[-1] + 3.0)
+    return vals
+
+
 class CycleResonanceTests(unittest.TestCase):
     def test_requires_long_history(self) -> None:
         result = ps.detect_cycle_resonance({"daily": _hist([10.0] * 100)})
@@ -57,13 +71,83 @@ class CycleResonanceTests(unittest.TestCase):
         self.assertFalse(result["matched"])
 
     def test_marks_higher_timeframe_unavailable_when_short(self) -> None:
-        # 250~700 根：日线/周线可算，月线不足 35 根
+        # 只给日线：月线只能靠重采样，300 根日线重采样出的月线必然 < 35 根
         result = ps.detect_cycle_resonance({"daily": _hist([10.0] * 300)})
 
         self.assertEqual(result["total"], 3)
         self.assertFalse(result["matched"])
         monthly = result["conditions"][2]
         self.assertFalse(monthly["available"])
+
+    def test_matches_when_all_three_periods_golden_cross(self) -> None:
+        """三周期各自金叉 → 命中。这是改造前**不可能**出现的分支。
+
+        改造前周线/月线由日线重采样得到，月线最多 ~33 根 < MACD 所需的 35 根，
+        该技巧在任何股票上都只能返回 insufficient_data。
+        """
+        ctx = {
+            "daily": _hist(_v_shape(120)),
+            "week": _hist(_v_shape(60)),
+            "month": _hist(_v_shape(40)),
+        }
+
+        result = ps.detect_cycle_resonance(ctx)
+
+        self.assertTrue(result["matched"])
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["passed"], 3)
+        self.assertEqual(result["metrics"]["month_bars"], 40)
+        # 三个周期都用了真实 K 线，没有一根是「重采样凑出来的」
+        self.assertEqual([c["available"] for c in result["conditions"]], [True, True, True])
+
+    def test_real_month_series_takes_precedence_over_resample(self) -> None:
+        # 只有日线时月线不可用；补上真实月线后同一只票就能判定
+        daily = _hist(_v_shape(120))
+        without = ps.detect_cycle_resonance({"daily": daily, "week": _hist(_v_shape(60))})
+
+        with_month = ps.detect_cycle_resonance(
+            {"daily": daily, "week": _hist(_v_shape(60)), "month": _hist(_v_shape(40))}
+        )
+
+        self.assertFalse(without["conditions"][2]["available"])
+        self.assertIn("重采样", without["conditions"][2]["detail"])
+        self.assertTrue(with_month["conditions"][2]["available"])
+
+    def test_short_real_month_series_reports_insufficient(self) -> None:
+        ctx = {"daily": _hist(_v_shape(120)), "week": _hist(_v_shape(60)), "month": _hist(_v_shape(20))}
+
+        result = ps.detect_cycle_resonance(ctx)
+
+        self.assertFalse(result["matched"])
+        monthly = result["conditions"][2]
+        self.assertFalse(monthly["available"])
+        self.assertIn("不足 35 根", monthly["detail"])
+
+
+class PeriodDeclarationsTests(unittest.TestCase):
+    def test_only_cycle_resonance_needs_extra_periods(self) -> None:
+        self.assertEqual(ps.needed_periods(["cycle_resonance"]), ("week", "month"))
+        self.assertEqual(ps.needed_periods(["guillotine", "wash_scrub"]), ())
+        self.assertEqual(ps.needed_periods(["guillotine", "cycle_resonance"]), ("week", "month"))
+
+    def test_default_keys_cover_every_declared_period(self) -> None:
+        declared = {p for t in ps.TACTICS for p in t.get("extra_periods", ())}
+
+        self.assertEqual(set(ps.needed_periods(None)), declared)
+
+    def test_list_tactics_exposes_extra_periods(self) -> None:
+        meta = {t["key"]: t for t in ps.list_tactics()}
+
+        self.assertEqual(meta["cycle_resonance"]["extra_periods"], ["week", "month"])
+        self.assertEqual(meta["guillotine"]["extra_periods"], [])
+
+    def test_cycle_resonance_daily_warmup_matches_daily_requirement(self) -> None:
+        """预热根数必须与判定口径一致，否则回测会静默跳过该技巧。"""
+        tactic = ps.TACTIC_MAP["cycle_resonance"]
+
+        self.assertEqual(tactic["warmup"], 60)
+        self.assertLessEqual(tactic["warmup"], tactic["history_days"])
+        self.assertTrue(ps.macd_series([10.0] * tactic["warmup"]) is not None)
 
 
 class GuillotineTests(unittest.TestCase):

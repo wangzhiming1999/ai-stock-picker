@@ -12,17 +12,24 @@
    （否则一次持续下跌会被拆成几十次「成功逃顶」）；
 4. **不可回测 / 不可得的项要明说**，不能静默当成通过：
    - 分时背离需要分钟级历史 K 线，当前数据源只有日线历史；
-   - 天量见天价的「换手率 >30%」需要历史换手率，回测时按数据缺失处理。
+   - 天量见天价的「换手率 >30%」需要历史换手率，回测时按数据缺失处理；
+   - 历史长度覆盖不了预热期的技巧，报 `insufficient_data` 并写明「未纳入评估」，
+     而不是混在「0 次命中」里 —— 那会把「没信号」和「没评」显示成同一件事。
+
+多周期共振取的是**真实周线/月线**（与日线同一端点，只是 period 参数不同），
+回放时用 `_PeriodCursor` 按评估日切到「当时能看到的最后一根」，并把进行中那根的
+收盘替换为当日收盘，避免用到该周期的最终收盘（look-ahead）。
 """
 from __future__ import annotations
 
 import asyncio
+import bisect
 import datetime as dt
 import math
 import statistics
 
 from app.models import StockHistory
-from app.services import data_service, pattern_service
+from app.services import calibers, concurrency, data_service, pattern_service
 
 # 默认回测股票池：覆盖大/中盘与主要行业，避免结论只来自少数几只票。
 # 注意这是「今天的存活者」，天然有幸存者偏差，且大票波动小、形态信号偏弱，
@@ -47,7 +54,16 @@ DEFAULT_EVAL_BARS = 250       # 每只票参与评估的最近交易日数
 _MIN_EVAL_BARS = 60
 _MAX_EVAL_BARS = 400
 _MAX_POOL = 60
-_FETCH_CONCURRENCY = 8        # 历史 K 线并发上限，避免触发行情源风控
+
+# 预热区间下限（日线根数）。评估窗口之外的这段历史是给「相对量」用的：
+# volume_peak 要拿区间内最大量、volume_floor 要拿 60 日高点、ma20_slope 要算 MA20 斜率，
+# 历史太短会让这些相对量被算在过小的样本上，前后两次回测结论不可比。
+# 取值 390 = 改造前 `n - eval_bars`（日线硬上限 640 - 默认 250）的实际结果，
+# 保留它可让其余技巧的评估区间与改造前逐点一致。
+_PREFIX_LOOKBACK = 390
+
+# 额外周期（周线/月线）的采样口径，与 pattern_service._bucket_key 一致
+_PERIOD_BUCKET = {"week": "W", "month": "M"}
 
 _MIN_SAMPLES = 10             # 低于此值只给数字、不给结论
 _RELIABLE_SAMPLES = 30        # 低于此值时正态近似的显著性判定不可靠
@@ -78,6 +94,63 @@ def _prefix(hist: StockHistory, end: int) -> StockHistory:
         highs=hist.highs[:end] if hist.highs else None,
         lows=hist.lows[:end] if hist.lows else None,
     )
+
+
+class _PeriodCursor:
+    """把一个周期的 K 线按「周/月桶」切成可回放的点位序列。
+
+    为什么不能直接用日期做二分：周线/月线的一根 K 线标记的是**该周期最后一个交易日**
+    （月线记 2026-08-31），拿 08-14 去二分会把正在走的 8 月整根排除掉，
+    而实盘在 08-14 那天恰恰看得到「8 月至今」这一根。
+    因此按 `pattern_service._bucket_key` 的桶名对齐（月线取 YYYY-MM，周线取 ISO 年-周）。
+
+    另外必须把切片里**最后一根（尚未走完的周期）的收盘换成当日收盘**：
+    接口返回的这根带的是该周期最终收盘，回测走到月中时直接沿用就等于偷看未来
+    （look-ahead）。替换后才等价于实盘当时真正看得到的序列。
+    """
+
+    def __init__(self, hist: StockHistory, period: str) -> None:
+        self._bucket = _PERIOD_BUCKET[period]
+        self._hist = hist
+        self._buckets = [pattern_service._bucket_key(d, self._bucket) for d in (hist.dates or [])]
+        self._cache: dict[int, StockHistory] = {}
+
+    def as_of(self, day: str, live_close: float) -> StockHistory | None:
+        """取「截至 day」的周期切片；day 所在的那根（进行中）也包含在内。"""
+        if not self._buckets or not day:
+            return None
+        idx = bisect.bisect_right(self._buckets, pattern_service._bucket_key(day, self._bucket))
+        return self._slice(idx, live_close)
+
+    def _slice(self, idx: int, live_close: float) -> StockHistory | None:
+        if idx <= 0:
+            return None
+        cached = self._cache.get(idx)
+        if cached is None:
+            h = self._hist
+            closes = list(h.closes[:idx])
+            cached = StockHistory(
+                dates=list(h.dates[:idx]),
+                closes=closes,
+                volumes=list(h.volumes[:idx]) if h.volumes else None,
+                opens=list(h.opens[:idx]) if h.opens else None,
+                highs=list(h.highs[:idx]) if h.highs else None,
+                lows=list(h.lows[:idx]) if h.lows else None,
+            )
+            self._cache[idx] = cached
+        # 最后一根的收盘随评估日推进而变化，因此在缓存之外单独产出副本
+        if live_close and cached.closes:
+            closes = list(cached.closes)
+            closes[-1] = live_close
+            cached = StockHistory(
+                dates=cached.dates,
+                closes=closes,
+                volumes=cached.volumes,
+                opens=cached.opens,
+                highs=cached.highs,
+                lows=cached.lows,
+            )
+        return cached
 
 
 def _forward(closes: list[float], i: int, horizon: int) -> tuple[float, float, float] | None:
@@ -213,11 +286,14 @@ def _evaluate_sync(
     keys: list[str],
     horizon: int,
     eval_bars: int,
+    extra_map: dict[str, dict[str, StockHistory]] | None = None,
 ) -> list[dict]:
     """对每只票、每条技巧做 walk-forward 评估。
 
     前缀切片按「K 线位置」缓存，在同一条票的各技巧间复用 ——
     否则每条技巧都要自己切一遍历史，回测会慢数倍。
+    extra_map 是按周期预先取到的周线/月线（{code: {"week": hist}}），
+    只有声明了 extra_periods 的技巧才会用到。
     """
     selected = list(keys)
     resolved: dict[str, dict] = {}
@@ -229,6 +305,7 @@ def _evaluate_sync(
         else:
             plan.append(key)
 
+    extra_keys = {k for k in plan if pattern_service.TACTIC_MAP[k].get("extra_periods")}
     accum = {k: {"signals": [], "baseline": [], "per_stock": {}, "stocks": 0} for k in plan}
 
     for code, hist in hist_map.items():
@@ -238,6 +315,11 @@ def _evaluate_sync(
         if end <= 0:
             continue
         prefix_cache: dict[int, StockHistory] = {}
+        cursors: dict[str, _PeriodCursor] = {}
+        if extra_keys and extra_map:
+            for period, ph in (extra_map.get(code) or {}).items():
+                if period in _PERIOD_BUCKET and ph is not None and ph.closes:
+                    cursors[period] = _PeriodCursor(ph, period)
         for key in plan:
             warmup = int(pattern_service.TACTIC_MAP[key]["warmup"])
             start = max(warmup, n - eval_bars)
@@ -246,6 +328,7 @@ def _evaluate_sync(
             acc = accum[key]
             acc["stocks"] += 1
             detector = pattern_service.DETECTORS[key]
+            wants_extra = key in extra_keys and bool(cursors)
             last_hit = -10 ** 9
             stock_returns: list[float] = []
             for i in range(start, end):
@@ -259,15 +342,20 @@ def _evaluate_sync(
                 if prefix is None:
                     prefix = _prefix(hist, i + 1)
                     prefix_cache[i] = prefix
+                ctx = {
+                    "daily": prefix,
+                    "intraday": None,
+                    "price": closes[i],
+                    "turnover": None,  # 无历史换手率
+                }
+                if wants_extra:
+                    day = prefix.dates[-1] if prefix.dates else None
+                    for period, cursor in cursors.items():
+                        sliced = cursor.as_of(day, closes[i]) if day else None
+                        if sliced is not None:
+                            ctx[period] = sliced
                 try:
-                    hit = detector(
-                        {
-                            "daily": prefix,
-                            "intraday": None,
-                            "price": closes[i],
-                            "turnover": None,  # 无历史换手率
-                        }
-                    )
+                    hit = detector(ctx)
                 except Exception:
                     continue
                 if not hit["matched"]:
@@ -282,6 +370,16 @@ def _evaluate_sync(
         if key in resolved:
             continue
         acc = accum[key]
+        if not acc["stocks"]:
+            # 历史长度不够覆盖该技巧的预热期时必须明说 ——
+            # 静默跳过会让「没有信号」和「压根没评」看起来完全一样。
+            resolved[key] = _blank(
+                pattern_service.TACTIC_MAP[key],
+                horizon,
+                "insufficient_data",
+                "可用历史长度不足以覆盖该技巧的预热期，本次回测未纳入评估",
+            )
+            continue
         resolved[key] = _pack(
             pattern_service.TACTIC_MAP[key],
             horizon,
@@ -312,12 +410,10 @@ async def evaluate(
 
     backtestable = [k for k in selected if k not in _NOT_BACKTESTABLE]
     warmup = max((int(pattern_service.TACTIC_MAP[k]["warmup"]) for k in backtestable), default=0)
-    days = warmup + eval_bars + horizon + 5
-
-    sem = asyncio.Semaphore(_FETCH_CONCURRENCY)
+    days = max(warmup, _PREFIX_LOOKBACK) + eval_bars + horizon + 5
 
     async def _fetch(code: str):
-        async with sem:
+        async with concurrency.limited():
             return await asyncio.to_thread(data_service.get_history, code, days)
 
     hists = await asyncio.gather(*(_fetch(code) for code in pool), return_exceptions=True)
@@ -335,7 +431,14 @@ async def evaluate(
     if not hist_map:
         return {"error": "未获取到足够的日线历史数据，请稍后重试"}
 
-    items = await asyncio.to_thread(_evaluate_sync, hist_map, selected, horizon, eval_bars)
+    # 周线/月线：只有多周期共振需要。按周期取真实 K 线（不再是日线重采样），
+    # 回放时由 _PeriodCursor 按日期切到「截至评估日」，不会看到未来。
+    extra_map: dict[str, dict[str, StockHistory]] = {}
+    for period in pattern_service.needed_periods(backtestable):
+        for code, ph in (await pattern_service.load_period_histories(list(hist_map), period)).items():
+            extra_map.setdefault(code, {})[period] = ph
+
+    items = await asyncio.to_thread(_evaluate_sync, hist_map, selected, horizon, eval_bars, extra_map)
     return {
         "horizon_days": horizon,
         "eval_bars": eval_bars,
@@ -346,4 +449,6 @@ async def evaluate(
         "reliable_samples": _RELIABLE_SAMPLES,
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         "items": items,
+        # 口径随数据一起下发，避免前端把它和「次日胜率」并列展示却不说明差异
+        "caliber": calibers.describe("tactic_backtest"),
     }

@@ -14,7 +14,7 @@ import asyncio
 import time
 from typing import Any
 
-from app.services import akshare_guard, data_service, spot_service, supabase_store, trade_calendar_service
+from app.services import akshare_guard, concurrency, data_service, spot_service, supabase_store, trade_calendar_service
 from app.services.cache_utils import put_bounded
 
 # 当日内存缓存：key=交易日, value=(生成时间, data)
@@ -458,13 +458,12 @@ async def _score_one(
     code: str,
     name: str,
     rich: dict,
-    sem: asyncio.Semaphore,
     notice_titles: list[str],
     hot_news_titles: list[str],
 ) -> dict | None:
     """对单只股票做四维深度评分。消息面由外部预拉（当日公告 + 全市场快讯）提供。"""
     async def _bounded(fn, *args):
-        async with sem:
+        async with concurrency.limited():
             return await asyncio.to_thread(fn, *args)
 
     # 腾讯行情（补全 PE/PB/市值/换手）
@@ -558,14 +557,12 @@ async def generate_quad_rankings(force_refresh: bool = False) -> dict:
         global_news = []
     hot_titles = [h.get("title", "") for h in global_news if isinstance(h, dict) and h.get("title")]
 
-    sem = asyncio.Semaphore(12)
     scored = await asyncio.gather(
         *(
             _score_one(
                 r["code"],
                 r["name"],
                 r,
-                sem,
                 notices.get(r["code"], []),
                 hot_titles,
             )

@@ -10,7 +10,7 @@ from openai import AsyncOpenAI
 
 from app.config import get_settings
 from app.routes import market as market_routes
-from app.services import data_service, signal_service, supabase_store, trade_calendar_service
+from app.services import concurrency, data_service, signal_service, supabase_store, trade_calendar_service
 from app.services.cache_utils import put_bounded
 
 # 每日推荐缓存：key=日期，value=(生成时间, data)。一天只跑一次。
@@ -339,8 +339,8 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
     candidate_codes = _prefilter_codes(spot)
     # 预拉历史K线：4 策略共享候选，并行只拉一次，避免重复打行情源
     if candidate_codes:
-        histories = await asyncio.gather(
-            *(asyncio.to_thread(data_service.get_history, c, 100) for c in candidate_codes)
+        histories = await concurrency.gather_limited(
+            asyncio.to_thread(data_service.get_history, c, 100) for c in candidate_codes
         )
         hist_map = {c: h for c, h in zip(candidate_codes, histories)}
     else:

@@ -11,7 +11,7 @@ import time
 import akshare as ak
 import pandas as pd
 
-from app.services import akshare_guard
+from app.services import akshare_guard, calibers
 from app.services.cache_utils import put_bounded
 
 # 默认股票池（各行业代表性标的，控制数量以适配 Serverless 超时）
@@ -312,4 +312,6 @@ def run_backtest(params: BacktestParams) -> dict:
         "benchmark_return": round(float(benchmark_return), 2) if benchmark_return is not None else None,
         "equity_curve": equity_curve,
         "pool_size": len(histories),
+        # 口径随数据一起下发：这里的「胜率」是**调仓期**口径，样本单位是期不是票
+        "caliber": calibers.describe("strategy_backtest"),
     }

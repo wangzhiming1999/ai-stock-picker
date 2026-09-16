@@ -12,7 +12,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from app.models import StockHistory
-from app.services import data_service, intraday_service, pattern_service, signal_service
+from app.services import concurrency, data_service, intraday_service, pattern_service, signal_service
 
 router = APIRouter(prefix="/api/market", tags=["monitor"])
 
@@ -292,10 +292,9 @@ async def monitor(req: MonitorRequest):
         raise HTTPException(status_code=502, detail=f"获取实时行情失败: {e}")
 
     quote_map = {q.code: q for q in quotes}
-    sem = asyncio.Semaphore(12)
 
     async def _k(code: str):
-        async with sem:
+        async with concurrency.limited():
             return await asyncio.to_thread(_get_history_cached, code, _KLINE_DAYS, req.force)
 
     histories = await asyncio.gather(*(_k(c) for c in seen))
@@ -304,13 +303,15 @@ async def monitor(req: MonitorRequest):
     # 分钟线只在需要时拉取（盘中 60s 缓存由 data_service 维护）
     intraday_map: dict[str, object] = {}
     if interval != "1d":
-        sem_m = asyncio.Semaphore(8)
 
         async def _m(code: str):
-            async with sem_m:
+            async with concurrency.limited():
                 return await asyncio.to_thread(data_service.get_intraday_history, code, interval)
 
         intraday_map = dict(zip(seen, await asyncio.gather(*(_m(c) for c in seen))))
+
+    # 周线/月线：多周期共振需要（长缓存 6h/24h，轮询不会放大请求量）
+    period_map = await pattern_service.load_tactic_periods(seen)
 
     items = []
     degraded = False
@@ -377,6 +378,7 @@ async def monitor(req: MonitorRequest):
                 "intraday": intraday_map.get(code),
                 "price": q.price,
                 "turnover": q.turnover,
+                **(period_map.get(code) or {}),
             }
         )
 

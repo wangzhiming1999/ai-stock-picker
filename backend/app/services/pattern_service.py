@@ -16,12 +16,14 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 
-from app.services import data_service
+from app.services import concurrency, data_service, tactic_evidence
 
 # 技巧注册表：
 # - source 决定取数方式（daily=日线，intraday=分钟线）
-# - history_days：取数时预留的日线根数（含缓冲区），供接口按需拉取
-# - warmup：判定该技巧真正需要的预热根数，回测 walk-forward 从这一根开始评估
+# - history_days：取数时预留的**日线**根数（含缓冲区），供接口按需拉取
+# - warmup：判定该技巧真正需要的**日线**预热根数，回测 walk-forward 从这一根开始评估
+# - extra_periods：除日线外还需要哪些周期（目前只有多周期共振）。
+#   键名同时是 ctx 里的键名，也是 data_service.get_history 的 period 参数。
 TACTICS: list[dict] = [
     {
         "key": "cycle_resonance",
@@ -29,8 +31,10 @@ TACTICS: list[dict] = [
         "category": "周期共振",
         "direction": "buy",
         "source": "daily",
-        "history_days": 900,
-        "warmup": 750,
+        # 日线只需够算 MACD(12,26,9)；周线/月线走 extra_periods 单独取，不再从日线重采样
+        "history_days": 120,
+        "warmup": 60,
+        "extra_periods": ("week", "month"),
         "desc": "日线、周线、月线 MACD 同时金叉，大级别共振买点。",
     },
     {
@@ -220,7 +224,12 @@ def _resample_closes(dates: list[str], closes: list[float], period: str) -> list
 
 def _pack(tactic: dict, conditions: list[dict], *, matched: bool, action: str,
           metrics: dict | None = None, status: str | None = None) -> dict:
-    """把条件清单收敛为标准结果结构（与 StrategyAssessment 同形）。"""
+    """把条件清单收敛为标准结果结构（与 StrategyAssessment 同形）。
+
+    证据等级在这里统一挂上（`tactic_evidence` 是唯一来源），因此**所有**展示面
+    —— 扫描 / 深度分析 / 盯盘 / 持仓 / 简报 —— 拿到的可信度标签必然一致，
+    不会出现「同一个形态在 A 页面是买点、在 B 页面是观察」。
+    """
     total = len(conditions)
     passed = sum(1 for c in conditions if c.get("passed"))
     unavailable = sum(1 for c in conditions if c.get("available", True) is False)
@@ -233,6 +242,10 @@ def _pack(tactic: dict, conditions: list[dict], *, matched: bool, action: str,
             status = "watch"
         else:
             status = "failed"
+    evidence = tactic_evidence.describe(tactic["key"])
+    # executable：命中 **且** 证据支持动作。未达标的命中不进「买点/卖点」位置，
+    # 只进观察池 —— 判定条件成立不等于这个形态被证明有效，这是两件事。
+    executable = bool(matched and evidence["actionable"])
     return {
         "key": tactic["key"],
         "name": tactic["name"],
@@ -247,6 +260,9 @@ def _pack(tactic: dict, conditions: list[dict], *, matched: bool, action: str,
         "action": action,
         "conditions": conditions,
         "metrics": metrics or {},
+        "evidence": evidence,
+        "executable": executable,
+        "gate_note": "" if executable else tactic_evidence.gate_note(tactic["key"]),
     }
 
 
@@ -260,28 +276,81 @@ def _cond(name: str, passed: bool, detail: str, available: bool = True) -> dict:
 
 # ---------------- 技巧 1：多周期共振买入 ----------------
 
+# 逐周期口径：(标签, ctx 键 / 周期名, 日线重采样键, 最少根数)
+# 月线 MACD(12,26,9) 需要 slow+signal = 35 根才成形，故周线/月线同取 35 根门槛。
+# 「日线重采样」只是拿不到真实周/月线时的降级口径：腾讯日线硬上限 640 根，
+# 重采样最多得到 ~33 根月线，正好卡在 35 根门槛之下 —— 这就是本技巧历史上
+# **在任何股票、任何时点都不可能命中**的原因（不是行情没出现共振，是数据口径算不出来）。
+_RESONANCE_PERIODS: tuple[tuple[str, str, str | None, int], ...] = (
+    ("日线", "day", None, 60),
+    ("周线", "week", "W", 35),
+    ("月线", "month", "M", 35),
+)
+
+
+def _resonance_series(
+    ctx: dict,
+    label: str,
+    key: str,
+    resample: str | None,
+    daily,
+    closes: list[float],
+    need: int,
+) -> tuple[list[float], str]:
+    """取某周期的收盘序列，返回 (序列, 不足原因)。序列为空即该周期不可用。
+
+    优先用调用方**按周期直接取到**的周线/月线（`data_service.get_history(period=...)`，
+    与日线同一端点、同一台主机，不是新增数据源）；只有拿不到时才退化为从日线重采样，
+    并如实报出重采样后的根数 —— 不用臆测填补缺失的 K 线。
+    """
+    if resample is None:
+        if len(closes) >= need:
+            return closes, ""
+        return [], f"日线仅 {len(closes)} 根，不足 {need} 根"
+
+    hist = ctx.get(key)
+    series = list(hist.closes) if hist is not None and getattr(hist, "closes", None) else []
+    if series:
+        if len(series) >= need:
+            return series, ""
+        return [], f"{label}仅 {len(series)} 根，不足 {need} 根"
+
+    dates = (daily.dates if daily is not None else None) or []
+    series = _resample_closes(dates, closes, resample)
+    if len(series) < need:
+        return [], f"未取到{label}，由日线重采样仅得 {len(series)} 根，不足 {need} 根"
+    return series, ""
+
+
 def detect_cycle_resonance(ctx: dict) -> dict:
+    """日线 / 周线 / 月线 MACD 同时金叉。
+
+    三个周期各自用**该周期的真实 K 线**判定：周线/月线由调用方通过
+    `data_service.get_history(period="week"/"month")` 直接取得后放进 ctx。
+    从 640 根日线重采样月线只能得到 ~33 根 < MACD 所需的 35 根，历史上因此从未命中；
+    改为按周期取数后，本技巧才真正能对「实际出现过共振」的标的给出命中。
+    """
     tactic = TACTIC_MAP["cycle_resonance"]
     daily = ctx.get("daily")
     closes = (daily.closes if daily else None) or []
-    if len(closes) < 250:
-        return _insufficient(tactic, "日线历史不足 250 根，无法判定周/月线共振")
+    if len(closes) < 60:
+        return _insufficient(tactic, "日线历史不足 60 根，无法计算日线 MACD")
 
-    conditions = []
+    conditions: list[dict] = []
     metrics: dict = {}
-    for label, period, need in (("日线", None, 60), ("周线", "W", 35), ("月线", "M", 35)):
-        series = closes if period is None else _resample_closes(daily.dates, closes, period)
-        if len(series) < need:
-            conditions.append(
-                _cond(f"{label} MACD 金叉", False, f"{label} K线仅 {len(series)} 根，不足 {need} 根", available=False)
-            )
+    for label, key, resample, need in _RESONANCE_PERIODS:
+        series, why = _resonance_series(ctx, label, key, resample, daily, closes, need)
+        if not series:
+            conditions.append(_cond(f"{label} MACD 金叉", False, why, available=False))
             continue
         macd = macd_series(series)
         if macd is None:
-            conditions.append(_cond(f"{label} MACD 金叉", False, f"{label} 数据不足，无法计算 MACD", available=False))
+            conditions.append(
+                _cond(f"{label} MACD 金叉", False, f"{label}仅 {len(series)} 根，不足以计算 MACD", available=False)
+            )
             continue
         # 更高级别允许稍宽的交叉窗口，避免月线金叉当根错过
-        lookback = 3 if period is None else 4
+        lookback = 3 if resample is None else 4
         crossed = _cross_recently(macd["dif"], macd["dea"], lookback)
         conditions.append(
             _cond(
@@ -294,7 +363,9 @@ def detect_cycle_resonance(ctx: dict) -> dict:
                 ),
             )
         )
-        metrics[f"{period or 'D'}_dif"] = round(macd["dif"][-1], 3)
+        metrics[f"{key}_bars"] = len(series)
+        metrics[f"{key}_dif"] = round(macd["dif"][-1], 3)
+        metrics[f"{key}_dea"] = round(macd["dea"][-1], 3)
 
     matched = all(c["passed"] for c in conditions)
     passed = sum(1 for c in conditions if c["passed"])
@@ -811,10 +882,14 @@ def detect_ma20_slope(ctx: dict) -> dict:
 
 
 # 允许把「持有观察」升级为「建议减仓」的卖出形态。
-# 原则：只有回测达到显著（tactic_backtest_service 里 confidence == "significant"）的
-# 技巧才有资格触发仓位动作。首次回测（2026-09-13）没有任何形态达到显著，因此为空 ——
-# 这是刻意留白的闸门，避免未经验证的形态直接驱动减仓建议。
-ESCALATE_SELL_KEYS: set[str] = set()
+# 原则：只有回测达到显著（`tactic_evidence` 里 tier == "verified"）的技巧才有资格触发仓位动作。
+# 这张集合由证据登记表**推导**而不是手写 —— 手写会出现「表里写了已验证、代码里还是空集」这类
+# 静默不一致；首次回测（2026-09-13）与复跑（2026-09-16）都没有形态达到显著，故当前为空。
+ESCALATE_SELL_KEYS: set[str] = {
+    t["key"]
+    for t in TACTICS
+    if t["direction"] == "sell" and tactic_evidence.is_escalatable(t["key"])
+}
 
 
 DETECTORS = {
@@ -833,7 +908,7 @@ DETECTORS = {
 # ---------------- 对外入口 ----------------
 
 def list_tactics() -> list[dict]:
-    """技巧元数据清单（前端据此渲染按钮与分组）。"""
+    """技巧元数据清单（前端据此渲染按钮与分组 + 证据等级角标）。"""
     return [
         {
             "key": t["key"],
@@ -844,9 +919,73 @@ def list_tactics() -> list[dict]:
             "source": t["source"],
             "history_days": t["history_days"],
             "warmup": t["warmup"],
+            "extra_periods": list(t.get("extra_periods", ())),
+            "evidence": tactic_evidence.describe(t["key"]),
+            "actionable": tactic_evidence.is_actionable(t["key"]),
         }
         for t in TACTICS
     ]
+
+
+# 额外周期的取数根数：直接用各周期可返回的上限（周线 300 / 月线 120），
+# 因为周期 K 线在 data_service 里是 6h / 24h 长缓存，一次取满可以长期复用。
+_EXTRA_PERIOD_DAYS = {"week": 300, "month": 120}
+
+
+def needed_periods(keys: list[str] | None = None) -> tuple[str, ...]:
+    """选中技巧里需要额外拉取的周期（去重、保持稳定顺序）。
+
+    目前只有「多周期共振」声明了 extra_periods；其余技巧一律只看日线/分钟线，
+    因此绝大多数调用点不会产生任何额外请求。
+    """
+    out: list[str] = []
+    for key in keys or list(DETECTORS):
+        for period in TACTIC_MAP.get(key, {}).get("extra_periods", ()):
+            if period not in out:
+                out.append(period)
+    return tuple(out)
+
+
+async def load_period_histories(codes: list[str], period: str) -> dict[str, object]:
+    """批量拉取某周期的历史 K 线（走并发闸门），返回 {code: StockHistory}。
+
+    与日线是同一个端点、同一台主机，只是 period 参数不同；
+    周线/月线在 `data_service` 里用 6h / 24h 长缓存，因此额外请求不会
+    随盯盘/扫描的轮询频率被放大。
+    """
+    codes = [c for c in codes if c]
+    if not codes:
+        return {}
+    days = _EXTRA_PERIOD_DAYS.get(period, 120)
+    hists = await concurrency.gather_limited(
+        (asyncio.to_thread(data_service.get_history, c, days, period=period) for c in codes),
+        return_exceptions=True,
+    )
+    out: dict[str, object] = {}
+    for code, hist in zip(codes, hists):
+        if isinstance(hist, BaseException) or hist is None:
+            continue
+        out[code] = hist
+    return out
+
+
+async def load_tactic_periods(codes: list[str], keys: list[str] | None = None) -> dict[str, dict]:
+    """按选中技巧的需要，批量取周线/月线，返回 {code: {"week": hist, "month": hist}}。
+
+    没有技巧需要额外周期时返回空 dict，调用方可以无脑 `**extra.get(code, {})` 合并进 ctx。
+    """
+    periods = needed_periods(keys)
+    if not periods:
+        return {}
+    codes = [c for c in codes if c]
+    if not codes:
+        return {}
+    loaded = await asyncio.gather(*(load_period_histories(codes, p) for p in periods))
+    out: dict[str, dict] = {}
+    for period, mapping in zip(periods, loaded):
+        for code, hist in mapping.items():
+            out.setdefault(code, {})[period] = hist
+    return out
 
 
 def check_one(ctx: dict, keys: list[str] | None = None) -> list[dict]:
@@ -876,7 +1015,8 @@ def matched_tactics(ctx: dict, keys: list[str] | None = None) -> list[dict]:
 async def check_codes(codes: list[str], keys: list[str] | None = None, intraday_period: str = "5m") -> list[dict]:
     """批量检查：按技巧所需数据一次性取行情/日线/分钟线，再逐股跑判定。
 
-    日线只按「选中技巧里最长的 history_days」拉一次，避免同一只票重复请求。
+    日线只按「选中技巧里最长的 history_days」拉一次，避免同一只票重复请求；
+    需要周线/月线的技巧（多周期共振）另外按周期取一次，各自独立缓存。
     """
     codes = [c.strip() for c in codes if c and c.strip()]
     selected = [k for k in (keys or list(DETECTORS)) if k in DETECTORS]
@@ -892,15 +1032,20 @@ async def check_codes(codes: list[str], keys: list[str] | None = None, intraday_
 
     daily_map: dict[str, object] = {}
     if need_daily and days > 0:
-        hist = await asyncio.gather(*(asyncio.to_thread(data_service.get_history, c, days) for c in codes))
+        hist = await concurrency.gather_limited(
+            asyncio.to_thread(data_service.get_history, c, days) for c in codes
+        )
         daily_map = dict(zip(codes, hist))
 
     intraday_map: dict[str, object] = {}
     if need_intraday:
-        mins = await asyncio.gather(
-            *(asyncio.to_thread(data_service.get_intraday_history, c, intraday_period) for c in codes)
+        mins = await concurrency.gather_limited(
+            asyncio.to_thread(data_service.get_intraday_history, c, intraday_period) for c in codes
         )
         intraday_map = dict(zip(codes, mins))
+
+    # 额外周期（周线/月线）：只有多周期共振需要，其余技巧下这一步不产生任何请求
+    period_map = await load_tactic_periods(codes, selected)
 
     out: list[dict] = []
     for code in codes:
@@ -912,6 +1057,7 @@ async def check_codes(codes: list[str], keys: list[str] | None = None, intraday_
             "intraday": intraday_map.get(code),
             "price": price,
             "turnover": q.turnover if q else None,
+            **(period_map.get(code) or {}),
         }
         out.append(
             {
