@@ -4,6 +4,7 @@ import { fetchAuctionOpportunity, fetchClosingOpportunity, importToWatchlist, sc
 import { requestAuth } from "./WatchStar";
 import { useAuth } from "../auth/AuthContext";
 import { fmtNum } from "../lib/safe";
+import { confirmForceRefresh, useSpotCooldown } from "../lib/spotGuard";
 import { pnlTone } from "../lib/tone";
 import CollapsiblePanel from "./CollapsiblePanel";
 import TacticPanel from "./TacticPanel";
@@ -26,6 +27,7 @@ const STRATEGIES: StrategyDef[] = [
 
 export default function ScanPanel({ onPick }: Props) {
   const { user } = useAuth();
+  const { seconds: cooldown } = useSpotCooldown();
   const [scanView, setScanView] = useState<ScanView>("quick");
 
   // 批量加入自选（需登录）
@@ -97,6 +99,21 @@ export default function ScanPanel({ onPick }: Props) {
     }
   };
 
+  /**
+   * 首扫走缓存、命中缓存后才提供「强制重跑」。
+   *
+   * 原实现是同一个按钮永远 `force=true`：每点一次都跳过两层缓存直打行情源，
+   * 这是 2026-09-15 那次全站 502 的前端侧根因。现在只有显式重跑且通过二次确认才 force。
+   */
+  const guardedRun = async (cached: boolean, run: (force: boolean) => Promise<void>) => {
+    if (!cached) {
+      await run(false);
+      return;
+    }
+    if (!(await confirmForceRefresh())) return;
+    await run(true);
+  };
+
   const toggleOpportunity = (code: string) => {
     setOpportunitySelected((prev) => {
       const next = new Set(prev);
@@ -111,7 +128,7 @@ export default function ScanPanel({ onPick }: Props) {
     onPick(Array.from(opportunitySelected));
   };
 
-  const runStrategy = async (s: StrategyName) => {
+  const runStrategy = async (s: StrategyName, force = false) => {
     setStrategy(s);
     setStrategyRunning(true);
     setStrategyAttempted(true);
@@ -120,8 +137,9 @@ export default function ScanPanel({ onPick }: Props) {
     setStrategyResult([]);
     setStrategySelected(new Set());
     try {
-      // 用户手动点击 → 强制拉取最新行情，不走 5 分钟快照缓存
-      setStrategyResult(await strategyScan(s, 20, 3, true));
+      // 默认走后端两层缓存（内存 5min → Supabase 6h）：首扫约 70s，之后秒开。
+      // 需要最新数据时用面板右上角「强制刷新」（会先过二次确认与冷却闸门）。
+      setStrategyResult(await strategyScan(s, 20, 3, force));
     } catch (e) {
       const message = (e as Error).message || "行情服务暂时不可用，请稍后重试";
       setStrategyError(message);
@@ -129,6 +147,11 @@ export default function ScanPanel({ onPick }: Props) {
     } finally {
       setStrategyRunning(false);
     }
+  };
+
+  const forceRefreshStrategy = async () => {
+    if (!(await confirmForceRefresh())) return;
+    await runStrategy(strategy, true);
   };
 
   const selectScanView = (view: ScanView) => {
@@ -158,7 +181,7 @@ export default function ScanPanel({ onPick }: Props) {
     setScanResult([]);
     setSelected(new Set());
     try {
-      // 用户手动点击 → 强制拉取最新行情，不走 5 分钟快照缓存
+      // 默认走缓存；需要最新数据时用「强制刷新」（过闸门）。
       setScanResult(
         await scanMarket(
           {
@@ -170,7 +193,7 @@ export default function ScanPanel({ onPick }: Props) {
             max_pe: 1000,
             limit: parseInt(limit) || 50,
           },
-          true
+          false
         )
       );
     } catch (e) {
@@ -243,10 +266,16 @@ export default function ScanPanel({ onPick }: Props) {
         }
       >
         <Button variant="warn" size="lg"
-          onClick={() => void runAuction(true)}
-          disabled={auctionLoading}
+          onClick={() => void guardedRun(Boolean(auctionResult?.cached), runAuction)}
+          disabled={auctionLoading || cooldown > 0}
           >
-          {auctionLoading ? "扫描中..." : auctionResult?.cached ? "刷新缓存（强制重跑）" : "扫描早盘竞价（9:15-9:30）"}
+          {auctionLoading
+            ? "扫描中..."
+            : cooldown > 0
+              ? `冷却 ${cooldown}s`
+              : auctionResult?.cached
+                ? "刷新缓存（强制重跑）"
+                : "扫描早盘竞价（9:15-9:30）"}
         </Button>
         {auctionResult?.cached && auctionResult.trade_date && (
           <div className="mt-2 text-xs text-ink-faint">
@@ -325,10 +354,16 @@ export default function ScanPanel({ onPick }: Props) {
         }
       >
         <Button variant="info" size="lg"
-          onClick={() => void runClosing(true)}
-          disabled={closingLoading}
+          onClick={() => void guardedRun(Boolean(closingResult?.cached), runClosing)}
+          disabled={closingLoading || cooldown > 0}
           >
-          {closingLoading ? "扫描中..." : closingResult?.cached ? "刷新缓存（强制重跑）" : "扫描尾盘机会（14:45-15:00）"}
+          {closingLoading
+            ? "扫描中..."
+            : cooldown > 0
+              ? `冷却 ${cooldown}s`
+              : closingResult?.cached
+                ? "刷新缓存（强制重跑）"
+                : "扫描尾盘机会（14:45-15:00）"}
         </Button>
         {closingResult?.cached && closingResult.trade_date && (
           <div className="mt-2 text-xs text-ink-faint">
@@ -392,24 +427,32 @@ export default function ScanPanel({ onPick }: Props) {
       <CollapsiblePanel
         id="scan_strategy"
         title="一键找候选"
-        subtitle="选择一种目标，系统会拉取最新行情并给出候选理由"
+        subtitle="选择一种目标，按缓存行情给出候选；需要最新数据用强制刷新"
         action={
-          strategyResult.length > 0 ? (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => void importCodes(strategyResult.map((s) => s.code))}
-                className="rounded-lg border border-slate-600 px-3 py-1 text-xs text-ink-soft hover:border-slate-400 hover:text-white"
+          <div className="flex items-center gap-2">
+            <Button variant="outlineQuiet" size="sm"
+              onClick={() => void forceRefreshStrategy()}
+              disabled={strategyRunning || cooldown > 0}
               >
-                全部加自选
-              </button>
-              <Button variant="primary" size="sm"
-                onClick={pickStrategySelected}
-                disabled={strategySelected.size === 0}
+              {cooldown > 0 ? `冷却 ${cooldown}s` : "强制刷新"}
+            </Button>
+            {strategyResult.length > 0 && (
+              <>
+                <button
+                  onClick={() => void importCodes(strategyResult.map((s) => s.code))}
+                  className="rounded-lg border border-slate-600 px-3 py-1 text-xs text-ink-soft hover:border-slate-400 hover:text-white"
                 >
-                勾选 {strategySelected.size} 只去分析 →
-              </Button>
-            </div>
-          ) : undefined
+                  全部加自选
+                </button>
+                <Button variant="primary" size="sm"
+                  onClick={pickStrategySelected}
+                  disabled={strategySelected.size === 0}
+                  >
+                  勾选 {strategySelected.size} 只去分析 →
+                </Button>
+              </>
+            )}
+          </div>
         }
       >
         <div className="mb-4 grid grid-cols-2 gap-2 lg:grid-cols-4">

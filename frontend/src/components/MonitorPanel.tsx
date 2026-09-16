@@ -5,7 +5,9 @@ import { addAlertRule, fetchHoldings, fetchMonitor, fetchWatchlist } from "../ap
 import CollapsiblePanel from "./CollapsiblePanel";
 import { useAuth } from "../auth/AuthContext";
 import type { MonitorInterval, MonitorResult, MonitorStock } from "../types";
-import { actionTone, pnlTone } from "../lib/tone";
+import { ensureNotCooling } from "../lib/spotGuard";
+import { pnlTone } from "../lib/tone";
+import { TacticChips } from "./TacticHit";
 import Input from "./Input";
 import Button from "./Button";
 
@@ -243,6 +245,17 @@ export default function MonitorPanel() {
     [codes, checkAlerts]
   );
 
+  /**
+   * 「立即刷新」= 忽略后端 K 线缓存重算挂单价。
+   *
+   * 这是盯盘的核心动作（盘中会反复点），所以不弹二次确认；
+   * 但风控期内仍必须拦住 —— 那时打行情源只会失败，还会把封禁窗口拖长。
+   */
+  const forceRefresh = async () => {
+    if (!(await ensureNotCooling())) return;
+    await refresh(false, true);
+  };
+
   /** 开启/关闭桌面通知 */
   const toggleNotify = async () => {
     if (!("Notification" in window)) {
@@ -456,7 +469,7 @@ export default function MonitorPanel() {
             {notifyOn ? "提醒已开" : "开启提醒"}
           </button>
           <Button variant="outlineQuiet" size="sm"
-            onClick={() => void refresh(false, true)}
+            onClick={() => void forceRefresh()}
             disabled={loading || codes.length === 0}
             >
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden />
@@ -498,10 +511,10 @@ export default function MonitorPanel() {
                 )}
                 {(summary.tactic_hits ?? 0) > 0 && (
                   <span
-                    title="命中实战形态（K 线量价条件全部成立）的只数，名单内每只票的形态标签见股票列"
+                    title="命中实战形态（K 线量价条件全部成立）的只数。条件成立不等于形态被回测验证，未验证的命中只作观察"
                     className="rounded-md border border-sky-800/60 bg-sky-950/40 px-2 py-0.5 text-xs text-sky-300"
                   >
-                    形态命中 {summary.tactic_hits}
+                    形态命中 {summary.tactic_hits}（观察）
                   </span>
                 )}
               </>
@@ -692,18 +705,8 @@ export default function MonitorPanel() {
                       <div className="font-medium text-ink-strong">{it.name}</div>
                       <div className="text-xs text-ink-faint">{code}</div>
                       {it.tactics && it.tactics.length > 0 && (
-                        <div className="mt-1 flex flex-wrap gap-1">
-                          {it.tactics.map((t) => (
-                            <span
-                              key={t.key}
-                              title={t.action}
-                              className={`rounded px-1 py-0.5 text-xs ${
-                                t.direction === "buy" ? "bg-red-950/60" : "bg-green-950/50"
-                              } ${actionTone(t.direction, 300)}`}
-                            >
-                              {t.name}
-                            </span>
-                          ))}
+                        <div className="mt-1">
+                          <TacticChips tactics={it.tactics} />
                         </div>
                       )}
                     </td>

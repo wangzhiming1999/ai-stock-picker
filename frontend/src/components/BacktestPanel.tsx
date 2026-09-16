@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import * as echarts from "echarts";
 import { runBacktest } from "../api/client";
 import CollapsiblePanel from "./CollapsiblePanel";
+import { CaliberLine } from "./CaliberNote";
 import { safeArray, safeNumber } from "../lib/safe";
 import { pctTone, pnlTone } from "../lib/tone";
 import type { BacktestResult } from "../types";
@@ -106,7 +107,7 @@ export default function BacktestPanel() {
     <CollapsiblePanel
       id="backtest"
       title="策略回测"
-      subtitle="用历史数据验证策略胜率（默认股票池 28 只）"
+      subtitle="用历史数据验证策略表现 · 胜率口径为「调仓期」，与形态/推荐胜率不可比"
       onToggle={() => setTimeout(() => chart.current?.resize(), 80)}
       action={
         <Button variant="primary" size="lg"
@@ -181,7 +182,7 @@ export default function BacktestPanel() {
             </div>
             <div className="rounded-lg bg-slate-800/70 px-2 py-2 text-center">
               <div className={`text-base font-bold ${pctTone(result.win_rate)}`}>{result.win_rate.toFixed(1)}%</div>
-              <div className="text-xs text-ink-faint">胜率</div>
+              <div className="text-xs text-ink-faint">期胜率</div>
             </div>
             <div className="rounded-lg bg-slate-800/70 px-2 py-2 text-center">
               <div className="text-base font-bold text-ink">{result.benchmark_return != null ? `${result.benchmark_return >= 0 ? "+" : ""}${result.benchmark_return.toFixed(2)}%` : "-"}</div>
@@ -198,6 +199,12 @@ export default function BacktestPanel() {
             <span>调仓 {result.periods} 期</span>
             <span>期末 {result.final_value.toLocaleString()}</span>
             <span>初始 {result.initial_capital.toLocaleString()}</span>
+          </div>
+
+          {/* 口径随数据下发：这里的「胜率」样本单位是调仓期，不是个股，不能和形态/推荐胜率混算。
+              不可比声明统一在 VerifyPanel 顶部展示一次。 */}
+          <div className="mt-2">
+            <CaliberLine caliber={result.caliber} />
           </div>
         </div>
       )}

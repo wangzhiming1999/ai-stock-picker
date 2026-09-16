@@ -4,6 +4,7 @@ import { addToWatchlist, fetchBriefing, getAuthToken, simTrade } from "../api/cl
 import type { Briefing, BriefingHolding, BriefingStock, BriefingTactics } from "../types";
 import { actionBadge, actionTone, CHIP, dirTone, downTone, pnlTone, upTone } from "../lib/tone";
 import { CARD, DIVIDER, SECTION, SUB, SUB_QUIET, TEXT } from "../lib/ui";
+import { TacticChips, TacticTakeaway } from "./TacticHit";
 import { toast } from "sonner";
 
 /** ③ 分区：不套容器，只用一条分隔线 + 留白切分主卡内部主题 */
@@ -498,20 +499,10 @@ function TacticsBlock({ tactics, onPick }: { tactics: BriefingTactics; onPick: (
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs font-medium text-ink-strong">{it.name}</span>
                     <span className={TEXT.meta}>{it.code}</span>
-                    {it.tactics.map((t) => (
-                      <span
-                        key={t.key}
-                        title={t.action}
-                        className={`rounded-lg px-1.5 py-0.5 text-xs ${
-                          t.direction === "buy" ? "bg-red-600/20" : "bg-green-600/20"
-                        } ${actionTone(t.direction, 300)}`}
-                      >
-                        {t.name}
-                      </span>
-                    ))}
+                    <TacticChips tactics={it.tactics} />
                   </div>
                   <div className="mt-0.5 text-xs leading-relaxed text-ink-muted">
-                    {it.tactics.map((t) => t.action).join("；")}
+                    <TacticTakeaway tactics={it.tactics} />
                   </div>
                 </button>
               ))}

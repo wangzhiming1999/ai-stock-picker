@@ -4,6 +4,7 @@ import CollapsiblePanel from "./CollapsiblePanel";
 import { safeObj } from "../lib/safe";
 import { pctTone } from "../lib/tone";
 import type { WinrateStats } from "../types";
+import { CaliberIncomparabilityNote, CaliberLine } from "./CaliberNote";
 import StatTile from "./StatTile";
 import Button from "./Button";
 
@@ -59,7 +60,9 @@ export default function WinratePanel() {
 
           {/* 大盘预测胜率 */}
           <div>
-            <div className="mb-1.5 text-xs font-semibold text-ink-muted">大盘推衍命中率</div>
+            <div className="mb-1.5 text-xs font-semibold text-ink-muted">
+              {data.prediction?.caliber?.name ?? "大盘推衍命中率"}
+            </div>
             {data.prediction && data.prediction.total > 0 ? (
               <div className="grid grid-cols-3 gap-2">
                 <StatTile value={data.prediction.total} label="已结算" />
@@ -87,11 +90,18 @@ export default function WinratePanel() {
             {data.prediction?.sample_status === "insufficient" && data.prediction.total > 0 && (
               <p className="mt-2 text-xs text-amber-400">样本不足 30 次，当前命中率只用于观察，不代表稳定能力。</p>
             )}
+            {data.prediction && (
+              <div className="mt-2">
+                <CaliberLine caliber={data.prediction.caliber} />
+              </div>
+            )}
           </div>
 
           {/* 个股推荐胜率 */}
           <div>
-            <div className="mb-1.5 text-xs font-semibold text-ink-muted">每日推荐次日胜率</div>
+            <div className="mb-1.5 text-xs font-semibold text-ink-muted">
+              {data.recommendation?.caliber?.name ?? "每日推荐次日胜率"}
+            </div>
             {data.recommendation && data.recommendation.total > 0 ? (
               <div className="grid grid-cols-3 gap-2">
                 <StatTile value={data.recommendation.total} label="已结算" />
@@ -110,10 +120,18 @@ export default function WinratePanel() {
             {data.recommendation?.sample_status === "insufficient" && data.recommendation.total > 0 && (
               <p className="mt-2 text-xs text-amber-400">样本不足 30 只，暂不据此判断策略有效性。</p>
             )}
+            {data.recommendation && (
+              <div className="mt-2">
+                <CaliberLine caliber={data.recommendation.caliber} />
+              </div>
+            )}
           </div>
 
+          <CaliberIncomparabilityNote note={data.caliber_note} />
+
           <p className="text-xs text-ink-faint">
-            数据由每日收盘后的定时任务自动结算。数据积累越多，胜率越有参考价值。
+            数据由每日收盘后的定时任务自动结算。数据积累越多，胜率越有参考价值；
+            这里的两个数字与「策略回测」「形态回测」的胜率口径不同，不可横向比较。
           </p>
         </div>
       )}

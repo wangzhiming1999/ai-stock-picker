@@ -3,6 +3,7 @@ import { FlaskConical } from "lucide-react";
 import { tacticBacktest } from "../api/client";
 import { fmtNum } from "../lib/safe";
 import CollapsiblePanel from "./CollapsiblePanel";
+import { CaliberLine } from "./CaliberNote";
 import type { TacticBacktestItem, TacticBacktestResult } from "../types";
 
 const HORIZONS = [5, 10, 20];
@@ -234,6 +235,12 @@ export default function TacticBacktestPanel() {
         分时背离需要分钟级历史，当前数据源无法回测；天量见天价的「换手率 &gt;30%」缺历史换手率，回测中按数据缺失处理。
         结果仅为历史统计，不代表未来收益，不构成投资建议。
       </p>
+
+      {/* 口径随数据下发，避免和「次日胜率 / 调仓期胜率」被当成同一把尺子。
+          不可比声明统一在 VerifyPanel 顶部展示一次，这里只给本面板自己的口径。 */}
+      <div className="mt-2">
+        <CaliberLine caliber={result?.caliber} />
+      </div>
     </CollapsiblePanel>
   );
 }

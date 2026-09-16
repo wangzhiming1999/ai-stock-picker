@@ -455,6 +455,8 @@ export interface BacktestResult {
   benchmark_return: number | null;
   equity_curve: { date: string; value: number; holdings: string[] }[];
   pool_size: number;
+  /** 口径：这里是「调仓期」胜率，样本单位是期不是票 */
+  caliber?: Caliber;
 }
 
 export interface UserProfile {
@@ -548,6 +550,30 @@ export interface PortfolioAdvice {
   generated_at: string;
 }
 
+/**
+ * 测量口径定义（后端 calibers 是唯一来源）。
+ *
+ * 界面同屏会出现多个都叫「胜率」的数字，标的/持有期/分类数/基准各不相同，
+ * 阅读时极易默认可比。渲染这些数字时必须同时展示它自己的口径。
+ */
+export interface Caliber {
+  key: string;
+  /** 名字自带标的与持有期，例如「个股推荐次日胜率（T+1 · 无基准）」 */
+  name: string;
+  target: string;
+  window: string;
+  /** 分类数（决定随机基线的量级） */
+  bucket: string;
+  /** 对比基准；无基准时会显式写「无…」 */
+  benchmark: string;
+  rule: string;
+  unit: string;
+  /** 这个口径最容易骗自己的地方 */
+  pitfall: string;
+  /** false 表示后端未登记该口径，不要据此下结论 */
+  registered?: boolean;
+}
+
 export interface WinrateStats {
   prediction: {
     total: number;
@@ -555,18 +581,22 @@ export interface WinrateStats {
     hit_rate: number | null;
     by_direction: Record<string, { total: number; hit: number; hit_rate: number | null }>;
     sample_status?: "insufficient" | "developing" | "established";
+    caliber?: Caliber;
   } | null;
   recommendation: {
     total: number;
     hit: number;
     hit_rate: number | null;
     sample_status?: "insufficient" | "developing" | "established";
+    caliber?: Caliber;
   } | null;
   snapshot: {
     snapshot_date: string;
     prediction_rate: number | null;
     recommend_rate: number | null;
   } | null;
+  /** 不可比声明：多种口径的数字不能比较、不能相加 */
+  caliber_note?: string;
 }
 
 export interface PredictionStats {
@@ -909,6 +939,29 @@ export type TacticCategory = "周期共振" | "K线组合" | "量价关系" | "�
 /** 技巧方向：buy=买点 / sell=卖点或止损 */
 export type TacticDirection = "buy" | "sell";
 
+/** 形态证据等级：回测能否支持该形态作为操作依据 */
+export type TacticEvidenceTier =
+  | "verified"
+  | "preliminary"
+  | "unsupported"
+  | "unknown"
+  | "not_testable";
+
+/** 单条技巧的证据记录（后端 tactic_evidence 是唯一来源） */
+export interface TacticEvidence {
+  tier: TacticEvidenceTier;
+  /** 完整等级名：已验证 / 初步 / 未获支持 / 未验证 / 不可回测 */
+  label: string;
+  /** 展示层角标短名：已验证 / 初步 / 观察 */
+  badge: string;
+  /** 一句话依据（含量化结论） */
+  summary: string;
+  /** 证据来源：回测口径与样本 */
+  provenance: string;
+  /** 是否允许出现在买点 / 卖点位置（仅 verified 为 true） */
+  actionable: boolean;
+}
+
 /** 技巧定义（GET /api/market/tactics） */
 export interface TacticDef {
   key: string;
@@ -922,6 +975,11 @@ export interface TacticDef {
   history_days: number;
   /** 判定真正需要的预热根数（回测 walk-forward 从这一根开始） */
   warmup: number;
+  /** 除日线外还需按周期取数的周期（多周期共振为 week/month） */
+  extra_periods: string[];
+  evidence: TacticEvidence;
+  /** 是否允许出现在买点 / 卖点位置 */
+  actionable: boolean;
 }
 
 /** 单条形态条件（逐条可复核） */
@@ -950,6 +1008,17 @@ export interface TacticResult {
   action: string;
   conditions: TacticCondition[];
   metrics?: Record<string, number | string | null>;
+  /**
+   * 证据等级 / 可执行标记 / 观察池说明。
+   *
+   * 三者**可缺省**：`stock_analysis_cache` 里存有改造前写入的形态结果，
+   * 那些行没有这几个字段。渲染时必须走 `TacticHit` 的兜底，不要直接取 `.evidence.label`。
+   */
+  evidence?: TacticEvidence;
+  /** 命中 **且** 证据支持动作。false / 缺省时只能进观察池，不得展示为买点 / 卖点 */
+  executable?: boolean;
+  /** executable 为假时的观察池说明（替代动作话术） */
+  gate_note?: string;
 }
 
 /** 单只票的形态体检结果（GET /api/market/tactic-check） */
@@ -962,7 +1031,12 @@ export interface TacticStock {
   tactics: TacticResult[];
   /** 扫描结果附带：命中技巧中的最高分 */
   best_score?: number;
+  /** 仅在有「证据达标」的命中时非空 */
   best_action?: string;
+  /** 无证据达标命中时的观察池说明 */
+  best_gate_note?: string;
+  /** 本次命中的技巧里有几条证据达标 */
+  executable_hits?: number;
 }
 
 /** 形态扫描结果（POST /api/market/tactic-scan） */
@@ -971,6 +1045,24 @@ export interface TacticScanResult {
   /** 本次实际检查的候选只数 */
   checked: number;
   items: TacticStock[];
+}
+
+/** 形态证据等级总览（GET /api/market/tactic-evidence） */
+export interface TacticEvidenceSurvey {
+  total: number;
+  /** 当前允许作为买卖点的技巧条数 */
+  actionable: number;
+  by_tier: Partial<Record<TacticEvidenceTier, number>>;
+  /** 证据快照：这批结论是什么时候、用什么口径跑出来的 */
+  snapshot: {
+    run_at: string;
+    pool: string;
+    eval_bars: number;
+    horizons: number[];
+    prefix_lookback: number;
+    generated_by: string;
+    note: string;
+  };
 }
 
 /** 简报里的形态命中汇总 */
@@ -1032,5 +1124,22 @@ export interface TacticBacktestResult {
   reliable_samples?: number;
   generated_at: string;
   items: TacticBacktestItem[];
+  /** 口径：命中后 N 日前向收益，且与同区间基准对比 */
+  caliber?: Caliber;
   error?: string;
+}
+
+/** 行情源健康状态（GET /api/market/spot-status），供前端在「强制刷新」前判断能否安全触发。 */
+export interface SpotStatus {
+  /** 剩余冷却秒数，0 表示可安全刷新 */
+  cooldown_seconds: number;
+  in_cooldown: boolean;
+  /** 进程内快照缓存年龄（秒），无缓存时为 null */
+  snapshot_age_seconds: number | null;
+  /** 缓存快照条数（全市场规模约 5400） */
+  snapshot_size: number;
+  /** 后端冷却窗口总长（用于展示口径，当前 180s） */
+  cooldown_window_seconds: number;
+  /** 强制刷新最小间隔（当前 60s） */
+  force_min_interval_seconds: number;
 }

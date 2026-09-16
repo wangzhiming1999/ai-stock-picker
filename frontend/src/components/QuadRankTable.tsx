@@ -3,6 +3,7 @@ import { fetchQuadRanking } from "../api/client";
 import CollapsiblePanel from "./CollapsiblePanel";
 import WatchStar from "./WatchStar";
 import { safeArray } from "../lib/safe";
+import { confirmForceRefresh, useSpotCooldown } from "../lib/spotGuard";
 import { pnlTone, scoreChip } from "../lib/tone";
 import type { QuadRankResult, QuadStock } from "../types";
 import Button from "./Button";
@@ -26,6 +27,7 @@ function ScoreCell({ v, title }: { v: number | undefined; title: string }) {
 }
 
 export default function QuadRankTable({ onPick }: Props) {
+  const { seconds: cooldown } = useSpotCooldown();
   const [data, setData] = useState<QuadRankResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
@@ -48,6 +50,11 @@ export default function QuadRankTable({ onPick }: Props) {
   }, [load]);
 
   const items = safeArray<QuadStock>(data?.items);
+
+  const forceRefresh = async () => {
+    if (!(await confirmForceRefresh())) return;
+    await load(true);
+  };
 
   const toggle = (code: string) => {
     setSelected((prev) => {
@@ -83,10 +90,10 @@ export default function QuadRankTable({ onPick }: Props) {
             </Button>
           )}
           <Button variant="outlineQuiet" size="sm"
-            onClick={() => void load(true)}
-            disabled={loading}
+            onClick={() => void forceRefresh()}
+            disabled={loading || cooldown > 0}
             >
-            {loading ? "重算中..." : "强制刷新"}
+            {loading ? "重算中..." : cooldown > 0 ? `冷却 ${cooldown}s` : "强制刷新"}
           </Button>
         </div>
       }

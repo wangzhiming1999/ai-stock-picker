@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { CalendarDays, Eye, ShieldCheck, Unlock } from "lucide-react";
 import { fetchDailyRecommend } from "../api/client";
 import { fmtDate, fmtDayLabel, isTodayCN } from "../lib/dates";
+import { confirmForceRefresh, useSpotCooldown } from "../lib/spotGuard";
 import CollapsiblePanel from "./CollapsiblePanel";
 import WatchStar from "./WatchStar";
 import type { DailyRecommendResult } from "../types";
@@ -38,6 +39,7 @@ interface Props {
 }
 
 export default function DailyRecommendCard({ onPick, collapsed = false }: Props) {
+  const { seconds: cooldown } = useSpotCooldown();
   const [data, setData] = useState<DailyRecommendResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
@@ -83,12 +85,17 @@ export default function DailyRecommendCard({ onPick, collapsed = false }: Props)
     </Button>
   ) : null;
 
+  const forceRefresh = async () => {
+    if (!(await confirmForceRefresh())) return;
+    await load(true);
+  };
+
   const refreshBtn = (
     <Button variant="outlineQuiet" size="sm"
-      onClick={() => void load(true)}
-      disabled={loading}
+      onClick={() => void forceRefresh()}
+      disabled={loading || cooldown > 0}
       >
-      {loading ? "生成中..." : "强制刷新"}
+      {loading ? "生成中..." : cooldown > 0 ? `冷却 ${cooldown}s` : "强制刷新"}
     </Button>
   );
 

@@ -3,6 +3,7 @@ import { fetchIndexHistory, fetchPrediction, fetchPredictionHistory, fetchPredic
 import CollapsiblePanel from "./CollapsiblePanel";
 import KLineChart from "./KLineChart";
 import { safeArray, safeObj } from "../lib/safe";
+import { FORCE_ANALYSIS_HINT, confirmForceRefresh } from "../lib/spotGuard";
 import type { IndexHistory, MarketPrediction, PredictionRecord, PredictionStats, StockHistory } from "../types";
 import { dirTone, pctTone, pnlTone } from "../lib/tone";
 import StatTile from "./StatTile";
@@ -53,6 +54,12 @@ export default function PredictionCard() {
     void load();
   }, [load]);
 
+  const forceRefresh = async () => {
+    // 推衍会真实调用模型（耗时且消耗额度），跳过当日缓存前先确认。
+    if (!(await confirmForceRefresh(FORCE_ANALYSIS_HINT))) return;
+    await load(true);
+  };
+
   const hitColor = (hit: boolean | undefined) => (hit ? "bg-brand/15 text-brand-light" : "bg-slate-800/40 text-ink-faint");
 
   return (
@@ -61,7 +68,7 @@ export default function PredictionCard() {
       title="明日大盘推衍"
       subtitle="上证指数技术信号 + AI 预测 · 附准确率追踪"
       action={
-        <Button variant="outlineQuiet" size="sm" onClick={() => void load(true)} disabled={loading} >
+        <Button variant="outlineQuiet" size="sm" onClick={() => void forceRefresh()} disabled={loading} >
           {loading ? "分析中..." : "强制刷新"}
         </Button>
       }

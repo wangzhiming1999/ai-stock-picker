@@ -3,8 +3,9 @@ import { motion } from "framer-motion";
 import KLineChart from "./KLineChart";
 import ScoreBar from "./ScoreBar";
 import { fmtNum, safeArray } from "../lib/safe";
-import { actionTone, CHIP, pnlTone, rrTone, scoreTone } from "../lib/tone";
+import { CHIP, pnlTone, rrTone, scoreTone } from "../lib/tone";
 import { SUB } from "../lib/ui";
+import { TacticChip, tacticEvidenceLabel } from "./TacticHit";
 
 interface Props {
   analysis: StockAnalysis;
@@ -96,25 +97,20 @@ export default function StockCard({ analysis, info }: Props) {
         <div className={`mt-4 ${SUB} p-3`}>
           <div className="text-xs font-semibold text-white">形态命中</div>
           <div className="mt-0.5 text-xs text-ink-faint">
-            K 线量价条件逐条核对，全部成立才算命中 · 算法推导
+            K 线量价条件逐条核对，全部成立才算命中 · 未通过回测验证的形态只作观察 · 算法推导
           </div>
           <ul className="mt-2 space-y-2">
             {analysis.tactics.map((t) => (
               <li key={t.key}>
                 <div className="flex flex-wrap items-center gap-2">
-                  <span
-                    className={`rounded-lg px-1.5 py-0.5 text-xs ${
-                      t.direction === "buy" ? "bg-red-600/20" : "bg-green-600/20"
-                    } ${actionTone(t.direction, 300)}`}
-                  >
-                    {t.direction === "buy" ? "买点" : "卖点"}
-                  </span>
-                  <span className="text-xs font-semibold text-ink">{t.name}</span>
+                  <TacticChip t={t} />
                   <span className="text-xs text-ink-faint">
-                    {t.passed}/{t.total} 条件
+                    {t.passed}/{t.total} 条件 · 证据 {tacticEvidenceLabel(t)}
                   </span>
                 </div>
-                <p className="mt-1 text-xs leading-relaxed text-ink-soft">{t.action}</p>
+                <p className="mt-1 text-xs leading-relaxed text-ink-soft">
+                  {t.executable ? t.action : t.gate_note || t.action}
+                </p>
               </li>
             ))}
           </ul>

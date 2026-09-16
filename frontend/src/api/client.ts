@@ -26,6 +26,7 @@ import type {
   SimPerformance,
   SimPositionsData,
   SimTradesData,
+  SpotStatus,
   StockInfo,
   StockSearchResult,
   StrategyName,
@@ -33,6 +34,7 @@ import type {
   SSEEvent,
   TacticBacktestResult,
   TacticDef,
+  TacticEvidenceSurvey,
   TacticScanResult,
   TacticStock,
   UserProfile,
@@ -87,15 +89,47 @@ function authHeaders(): Record<string, string> {
   return {};
 }
 
+/**
+ * 统一读取后端错误详情（FastAPI 的 `detail`）。
+ *
+ * 为什么不直接抛状态码：后端在风控时会明确给出「行情源被风控，冷却中（63s 后重试）」，
+ * 只显示 502 会让用户把「临时冷却」误判成「服务挂了」，然后反复重试 —— 而反复重试
+ * 正是把 IP 封禁拖长的动作。拿不到 JSON（网关 502/504）时退回状态码。
+ */
+async function errorFrom(res: Response, fallback: string): Promise<Error> {
+  try {
+    const body = await res.json();
+    const detail = typeof body?.detail === "string" ? body.detail.trim() : "";
+    if (detail) return new Error(detail);
+  } catch {
+    /* 响应不是 JSON（Vercel/网关层错误页），走状态码兜底 */
+  }
+  return new Error(`${fallback}: ${res.status}`);
+}
+
 export async function fetchStock(code: string): Promise<StockInfo> {
   const res = await fetch(`${API}/stock/${code}`);
-  if (!res.ok) throw new Error(`获取股票失败: ${res.status}`);
+  if (!res.ok) throw await errorFrom(res, "获取股票失败");
   return res.json();
 }
 
 export async function fetchNews(code: string): Promise<NewsItem[]> {
   const res = await fetch(`${API}/stock/${code}/news`);
-  if (!res.ok) throw new Error(`获取新闻失败: ${res.status}`);
+  if (!res.ok) throw await errorFrom(res, "获取新闻失败");
+  return res.json();
+}
+
+// ---------- 行情源状态 ----------
+
+/**
+ * 行情源健康状态：冷却期内前端必须禁用「强制刷新」。
+ *
+ * 冷却状态由后端跨实例共享（`market_source_state` 表），因此这里拿到的是全局状态，
+ * 不是「本浏览器上一次是否失败」——别的用户连点导致的风控同样要拦住本机操作。
+ */
+export async function fetchSpotStatus(): Promise<SpotStatus> {
+  const res = await fetch(`${API}/market/spot-status`);
+  if (!res.ok) throw await errorFrom(res, "获取行情源状态失败");
   return res.json();
 }
 
@@ -103,13 +137,13 @@ export async function fetchNews(code: string): Promise<NewsItem[]> {
 
 export async function fetchIndustries(): Promise<Industry[]> {
   const res = await fetch(`${API}/market/industries`);
-  if (!res.ok) throw new Error(`获取行业板块失败: ${res.status}`);
+  if (!res.ok) throw await errorFrom(res, "获取行业板块失败");
   return res.json();
 }
 
 export async function fetchIndustryStocks(label: string): Promise<StockInfo[]> {
   const res = await fetch(`${API}/market/industries/${label}/stocks`);
-  if (!res.ok) throw new Error(`获取板块成分失败: ${res.status}`);
+  if (!res.ok) throw await errorFrom(res, "获取板块成分失败");
   return res.json();
 }
 
@@ -119,7 +153,7 @@ export async function scanMarket(params: Record<string, number>, force = false):
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ...params, force }),
   });
-  if (!res.ok) throw new Error(`扫描失败: ${res.status}`);
+  if (!res.ok) throw await errorFrom(res, "扫描失败");
   return res.json();
 }
 
@@ -134,14 +168,21 @@ export async function strategyScan(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ strategy, limit, min_amount_yi: minAmountYi, force }),
   });
-  if (!res.ok) throw new Error(`策略扫描失败: ${res.status}`);
+  if (!res.ok) throw await errorFrom(res, "策略扫描失败");
   return res.json();
 }
 
-/** 实战形态：技巧清单（分类 / 买卖方向 / 说明） */
+/** 实战形态：技巧清单（分类 / 买卖方向 / 说明 + 证据等级） */
 export async function listTactics(): Promise<TacticDef[]> {
   const res = await fetch(`${API}/market/tactics`);
-  if (!res.ok) throw new Error(`获取形态清单失败: ${res.status}`);
+  if (!res.ok) throw await errorFrom(res, "获取形态清单失败");
+  return res.json();
+}
+
+/** 形态证据等级总览：分级口径、覆盖计数、证据快照（供角标说明与自查） */
+export async function tacticEvidence(): Promise<TacticEvidenceSurvey> {
+  const res = await fetch(`${API}/market/tactic-evidence`);
+  if (!res.ok) throw await errorFrom(res, "获取形态证据等级失败");
   return res.json();
 }
 
@@ -207,31 +248,31 @@ export async function tacticBacktest(params: {
 
 export async function fetchPrediction(refresh = false): Promise<MarketPrediction> {
   const res = await fetch(`${API}/market/prediction${refresh ? "?refresh=true" : ""}`);
-  if (!res.ok) throw new Error(`大盘推衍失败: ${res.status}`);
+  if (!res.ok) throw await errorFrom(res, "大盘推衍失败");
   return res.json();
 }
 
 export async function fetchPredictionStats(): Promise<PredictionStats> {
   const res = await fetch(`${API}/market/prediction/stats`);
-  if (!res.ok) throw new Error(`获取预测统计失败: ${res.status}`);
+  if (!res.ok) throw await errorFrom(res, "获取预测统计失败");
   return res.json();
 }
 
 export async function fetchPredictionHistory(limit = 30): Promise<PredictionRecord[]> {
   const res = await fetch(`${API}/market/prediction/history?limit=${limit}`);
-  if (!res.ok) throw new Error(`获取预测历史失败: ${res.status}`);
+  if (!res.ok) throw await errorFrom(res, "获取预测历史失败");
   return res.json();
 }
 
 export async function settlePrediction(): Promise<{ settled: number }> {
   const res = await fetch(`${API}/market/prediction/settle`, { method: "POST" });
-  if (!res.ok) throw new Error(`结算失败: ${res.status}`);
+  if (!res.ok) throw await errorFrom(res, "结算失败");
   return res.json();
 }
 
 export async function searchStocks(q: string, limit = 8): Promise<StockSearchResult[]> {
   const res = await fetch(`${API}/market/search?q=${encodeURIComponent(q)}&limit=${limit}`);
-  if (!res.ok) throw new Error(`搜索失败: ${res.status}`);
+  if (!res.ok) throw await errorFrom(res, "搜索失败");
   return res.json();
 }
 
@@ -258,7 +299,7 @@ export async function runBacktest(params: {
 
 export async function fetchWinrate(): Promise<WinrateStats> {
   const res = await fetch(`${API}/market/winrate`);
-  if (!res.ok) throw new Error(`获取胜率失败: ${res.status}`);
+  if (!res.ok) throw await errorFrom(res, "获取胜率失败");
   return res.json();
 }
 
@@ -319,7 +360,7 @@ export async function updateHolding(id: number, payload: Partial<{ cost_price: n
 
 export async function removeHolding(id: number): Promise<void> {
   const res = await authFetch(`${API}/portfolio/holdings/${id}`, { method: "DELETE" });
-  if (!res.ok) throw new Error(`删除持仓失败: ${res.status}`);
+  if (!res.ok) throw await errorFrom(res, "删除持仓失败");
 }
 
 export async function fetchPortfolioAdvice(): Promise<PortfolioAdvice> {
@@ -333,13 +374,13 @@ export async function fetchPortfolioAdvice(): Promise<PortfolioAdvice> {
 
 export async function fetchIndexHistory(days = 120): Promise<IndexHistory> {
   const res = await fetch(`${API}/market/prediction/index-history?days=${days}`);
-  if (!res.ok) throw new Error(`获取大盘走势失败: ${res.status}`);
+  if (!res.ok) throw await errorFrom(res, "获取大盘走势失败");
   return res.json();
 }
 
 export async function fetchQuadRanking(refresh = false): Promise<QuadRankResult> {
   const res = await fetch(`${API}/market/quad${refresh ? "?refresh=true" : ""}`);
-  if (!res.ok) throw new Error(`获取四维牛股榜失败: ${res.status}`);
+  if (!res.ok) throw await errorFrom(res, "获取四维牛股榜失败");
   return res.json();
 }
 
@@ -354,7 +395,7 @@ export async function fetchMonitor(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ codes, force, costs: costs ?? {}, interval }),
   });
-  if (!res.ok) throw new Error(`监控刷新失败: ${res.status}`);
+  if (!res.ok) throw await errorFrom(res, "监控刷新失败");
   return res.json();
 }
 
@@ -382,7 +423,7 @@ export async function importHoldingsBatch(
 
 export async function fetchAlertRules(): Promise<AlertRule[]> {
   const res = await authFetch(`${API}/alerts/rules`);
-  if (!res.ok) throw new Error(`获取预警规则失败: ${res.status}`);
+  if (!res.ok) throw await errorFrom(res, "获取预警规则失败");
   return res.json();
 }
 
@@ -405,7 +446,7 @@ export async function deleteAlertRule(id: number): Promise<void> {
 
 export async function fetchAlertEvents(unreadOnly = false, limit = 50): Promise<AlertEvent[]> {
   const res = await authFetch(`${API}/alerts/events?unread_only=${unreadOnly}&limit=${limit}`);
-  if (!res.ok) throw new Error(`获取预警事件失败: ${res.status}`);
+  if (!res.ok) throw await errorFrom(res, "获取预警事件失败");
   return res.json();
 }
 
@@ -507,21 +548,21 @@ export async function resetSimAccount(): Promise<SimAccount> {
 
 export async function fetchBriefing(): Promise<Briefing> {
   const res = await authFetch(`${API}/briefing/today`);
-  if (!res.ok) throw new Error(`获取今日简报失败: ${res.status}`);
+  if (!res.ok) throw await errorFrom(res, "获取今日简报失败");
   return res.json();
 }
 
 export async function fetchAuctionOpportunity(limit = 15, force = false): Promise<OpportunityResult> {
   const url = `${API}/market/opportunity/auction?limit=${limit}${force ? "&force=true" : ""}`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`早盘竞价扫描失败: ${res.status}`);
+  if (!res.ok) throw await errorFrom(res, "早盘竞价扫描失败");
   return res.json();
 }
 
 export async function fetchClosingOpportunity(limit = 15, force = false): Promise<OpportunityResult> {
   const url = `${API}/market/opportunity/closing?limit=${limit}${force ? "&force=true" : ""}`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`尾盘扫描失败: ${res.status}`);
+  if (!res.ok) throw await errorFrom(res, "尾盘扫描失败");
   return res.json();
 }
 
@@ -561,12 +602,12 @@ export async function checkWatchlist(codes: string[]): Promise<Record<string, bo
 
 export async function removeFromWatchlist(id: number): Promise<void> {
   const res = await authFetch(`${API}/watchlist/${id}`, { method: "DELETE" });
-  if (!res.ok) throw new Error(`删除自选失败: ${res.status}`);
+  if (!res.ok) throw await errorFrom(res, "删除自选失败");
 }
 
 export async function fetchDailyRecommend(refresh = false): Promise<DailyRecommendResult> {
   const res = await fetch(`${API}/market/daily-recommend${refresh ? "?refresh=true" : ""}`);
-  if (!res.ok) throw new Error(`每日推荐失败: ${res.status}`);
+  if (!res.ok) throw await errorFrom(res, "每日推荐失败");
   return res.json();
 }
 
@@ -574,13 +615,13 @@ export async function fetchDailyRecommend(refresh = false): Promise<DailyRecomme
 
 export async function fetchBatches(limit = 20): Promise<AnalysisBatch[]> {
   const res = await fetch(`${API}/history/batches?limit=${limit}`, { headers: authHeaders() });
-  if (!res.ok) throw new Error(`获取历史失败: ${res.status}`);
+  if (!res.ok) throw await errorFrom(res, "获取历史失败");
   return res.json();
 }
 
 export async function fetchBatchDetail(batchId: number): Promise<AnalysisBatchDetail> {
   const res = await fetch(`${API}/history/batches/${batchId}`, { headers: authHeaders() });
-  if (!res.ok) throw new Error(`获取历史详情失败: ${res.status}`);
+  if (!res.ok) throw await errorFrom(res, "获取历史详情失败");
   return res.json();
 }
 
