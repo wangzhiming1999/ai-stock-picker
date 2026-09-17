@@ -4,7 +4,7 @@ import { Activity, ChevronDown, RefreshCw } from "lucide-react";
 import { fetchLimitUpRelay, fetchLimitUpSnapshot } from "../api/client";
 import { breakRateTone, playAdviceTone, sentimentTone, upTone } from "../lib/tone";
 import { DIVIDER, SUB, SUB_QUIET, TEXT } from "../lib/ui";
-import type { LimitUpLadderGroup, LimitUpPlayAdvice, LimitUpRelayResult, LimitUpSnapshot, LimitUpStock } from "../types";
+import type { LimitUpLadderGroup, LimitUpPlayAdvice, LimitUpRelayResult, LimitUpRelayStock, LimitUpSnapshot, LimitUpStock } from "../types";
 import { CaliberLine } from "./CaliberNote";
 import { ladderGaps } from "./limitUpLogic";
 
@@ -84,6 +84,63 @@ function AdviceSection({ advice }: { advice: LimitUpPlayAdvice }) {
       <p className="mt-1.5 text-xs leading-relaxed text-ink-faint">
         判定依据是已回测的口径（炸板率当日横截面、板块聚集度对晋级率的影响、梯队断层结构），
         讲的是「环境」而不是个股 —— 连板接力整体仍是初步证据等级，不构成买点。
+      </p>
+    </div>
+  );
+}
+
+/** 得分档配色：质量判断走蓝/琥珀/中性，不占红绿。 */
+function scoreTone(score: number, max: number): string {
+  if (score >= max) return "text-brand-light";
+  if (score === 0) return "text-amber-300";
+  return "text-ink";
+}
+
+/**
+ * 连板资金面区块：连板股抽离列表，每只按三因子打分并给明日晋级概率读数。
+ *
+ * ⚠️ 措辞纪律：标题用「概率读数」而不是「预测」—— 它是「历史上同得分档的晋级率」，
+ * 样本窗口只有 ~13 个交易日；排序展示的是相对强弱，不是收益承诺。
+ */
+function RelayStocksSection({ stocks }: { stocks: LimitUpRelayStock[] }) {
+  if (stocks.length === 0) return null;
+  return (
+    <div>
+      <h3 className={TEXT.label}>连板资金面持续性（抽离排序 · 非买点）</h3>
+      <div className="mt-2 space-y-1.5">
+        {stocks.map((r) => (
+          <div key={r.code} className={`${SUB_QUIET} px-3 py-2`}>
+            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+              <span className="flex items-baseline gap-2">
+                <span className="text-sm font-semibold text-ink">{r.name}</span>
+                <span className="text-xs text-ink-faint">{r.code}</span>
+                <span className="text-xs text-ink-muted">{r.boards} 板 · {r.sector}</span>
+              </span>
+              <span className="text-xs">
+                <span className={`font-semibold ${scoreTone(r.score, r.max_score)}`}>
+                  {r.score}/{r.max_score} 分
+                </span>
+                <span className="text-ink-faint"> · 明日晋级读数 </span>
+                <span className={`font-semibold ${scoreTone(r.score, r.max_score)}`}>{r.rate}%</span>
+                <span className="text-ink-faint">（回测 n={r.rate_n}）</span>
+              </span>
+            </div>
+            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
+              {r.factors.map((f) => (
+                <span key={f.name} className={f.hit ? "text-brand-light" : "text-amber-300"} title={f.rule}>
+                  {f.hit ? "✓" : "✗"} {f.name}
+                  {f.name === "炸板次数" ? ` ${f.value} 次` : ` ${f.value}%`}
+                </span>
+              ))}
+              <span className="text-ink-faint">封单 {r.seal_fund_yi} 亿 · 首封 {r.seal_time || "--"}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="mt-2 text-xs leading-relaxed text-ink-faint">
+        概率读数 = 回测窗口内同得分档连板股的次日晋级率（08-28~09-16，共 164 个连板样本）。
+        三因子在控制连板高度后区分度仍在（2 板：低分 17.4% vs 高分 41.8%）。
+        但窗口只有 ~13 个交易日，且晋级率 ≠ 收益率（一字板开盘买不进），只作相对强弱参考，不构成买点。
       </p>
     </div>
   );
@@ -381,6 +438,8 @@ export default function LimitUpBar() {
                 )}
 
                 {snapshot?.play_advice && <AdviceSection advice={snapshot.play_advice} />}
+
+                {snapshot?.relay_stocks && <RelayStocksSection stocks={snapshot.relay_stocks} />}
 
                 {snapshot && <LadderSection ladder={snapshot.ladder} />}
 

@@ -400,6 +400,91 @@ def play_advice(sentiment: dict, ladder: list[dict], sectors: list[dict]) -> dic
     }
 
 
+# ---------- 连板资金面评分（明日晋级概率） ----------
+#
+# ⚠️ 口径先行（calibers.limitup_relay 的延伸观察，2026-09-17 用 08-28~09-16 涨停池回测算出）：
+#   连板股样本 n=164（晋级 55 / 未晋级 109），三个资金面因子都有单调区分度：
+#     - 封单/流通 ≥2% → 晋级率 44.7%（vs <0.5% 档 17.6%）；分箱: <0.5:17.6 / 0.5-1:20.0 / 1-2:26.1 / 2-5:44.7 / ≥5:63.2
+#     - 换手 <5%      → 晋级率 44.8%（vs ≥30% 档 0%）；分箱: <5:44.8 / 5-15:36.1 / 15-30:18.9 / ≥30:0.0
+#     - 炸板 0 次     → 晋级率 44.6%（vs ≥1 次 22.6~23.1%）
+#   三因子合成 0-3 分后与晋级率单调：11.8% / 26.2% / 34.2% / 54.0%；
+#   且控制连板高度后区分度仍在（2板: 17.4% vs 41.8%；3板+: 24.1% vs 53.1%）。
+#   ⚠️ 样本窗口只有 ~13 个交易日（涨停池回溯上限），是「封板延续率」不是收益率，
+#   数字随行情阶段波动，必须当**相对强弱读数**用，不当绝对概率承诺。
+
+# 因子阈值。改这里必须同步改 test_limitup_service.py 的 RelayScoreTests 与上方注释数字。
+_SEAL_RATIO_HIT = 2.0     # 封单/流通 ≥ 此值 → +1 分
+_TURNOVER_HIT = 15.0      # 换手 < 此值 → +1 分
+_BREAK_FREE = 1           # 炸板次数 < 此值（即 0 次）→ +1 分
+
+# 得分 → 回测晋级率（%）。索引即得分。
+_SCORE_RATE = [11.8, 26.2, 34.2, 54.0]
+_SCORE_RATE_N = [34, 42, 38, 50]  # 各得分档样本量，前端展示用
+
+
+def relay_score(stock: dict) -> dict:
+    """单只连板股的资金面持续性评分（0-3）与明日晋级概率读数。
+
+    三因子各 1 分：封单/流通、换手、炸板次数 —— 都能从涨停池单条直接拿到，
+    不发额外行情请求（资金流向类接口逐股请求是风控主因，刻意绕开）。
+    """
+    factors = [
+        {
+            "name": "封单/流通",
+            "value": stock["seal_ratio"],
+            "hit": stock["seal_ratio"] >= _SEAL_RATIO_HIT,
+            "rule": f"≥{_SEAL_RATIO_HIT}% 记 1 分（回测：≥2% 档晋级率 44.7% vs <0.5% 档 17.6%）",
+        },
+        {
+            "name": "换手率",
+            "value": stock["turnover"],
+            "hit": stock["turnover"] < _TURNOVER_HIT,
+            "rule": f"<{_TURNOVER_HIT}% 记 1 分（回测：<5% 档 44.8% vs ≥30% 档 0%）",
+        },
+        {
+            "name": "炸板次数",
+            "value": stock["break_count"],
+            "hit": stock["break_count"] < _BREAK_FREE,
+            "rule": "全天 0 次开板记 1 分（回测：0 次档 44.6% vs ≥1 次档 ~23%）",
+        },
+    ]
+    score = sum(1 for f in factors if f["hit"])
+    return {
+        "score": score,
+        "max_score": len(factors),
+        "rate": _SCORE_RATE[score],
+        "rate_n": _SCORE_RATE_N[score],
+        "factors": factors,
+    }
+
+
+def build_relay_stocks(stocks: list[dict]) -> list[dict]:
+    """从当日全景里抽出连板股（boards ≥2），挂上资金面评分，按概率降序。
+
+    「抽离」的意义：梯队视图按高度分组看的是**结构**，这里按个股看的是**各自还接不接得动**。
+    """
+    relays = [t for t in stocks if t["boards"] >= 2]
+    out = []
+    for t in relays:
+        sc = relay_score(t)
+        out.append(
+            {
+                "code": t["code"],
+                "name": t["name"],
+                "boards": t["boards"],
+                "sector": t["sector"],
+                "seal_time": t["seal_time"],
+                "seal_fund_yi": t["seal_fund_yi"],
+                "seal_ratio": t["seal_ratio"],
+                "turnover": t["turnover"],
+                "break_count": t["break_count"],
+                **sc,
+            }
+        )
+    out.sort(key=lambda x: (-x["score"], -x["boards"], x["seal_time"] or "99:99:99"))
+    return out
+
+
 def position_tag(item: dict) -> dict:
     """位置分桶 —— 「鱼腹」所在的段位。
 
@@ -462,6 +547,7 @@ async def get_snapshot(force: bool = False) -> dict:
         "play_advice": play_advice(sentiment, ladder, sectors),
         "ladder": ladder,
         "sectors": sectors,
+        "relay_stocks": build_relay_stocks(stocks),
         "stocks": stocks,
         "broken_ok": broken_ok,
         "evidence": tactic_evidence.describe("limitup_relay"),

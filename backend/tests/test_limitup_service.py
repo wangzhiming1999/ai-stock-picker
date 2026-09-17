@@ -442,5 +442,77 @@ class PlayAdviceTests(unittest.TestCase):
         self.assertNotIn("票", blob.replace("打板", ""))  # 排除"打板"词本身的误伤
 
 
+class RelayScoreTests(unittest.TestCase):
+    """连板资金面评分：三因子 0-3 分 → 回测晋级率读数。"""
+
+    @staticmethod
+    def _stock(**overrides) -> dict:
+        base = {
+            "code": "600001",
+            "name": "测试股",
+            "boards": 2,
+            "sector": "半导体",
+            "seal_time": "09:31:00",
+            "seal_fund_yi": 2.0,
+            "seal_ratio": 3.0,   # ≥2 → 命中
+            "turnover": 5.0,     # <15 → 命中
+            "break_count": 0,    # 0 次 → 命中
+            "float_mv_yi": 50.0,
+        }
+        base.update(overrides)
+        return base
+
+    def test_perfect_score_maps_to_top_rate(self) -> None:
+        sc = L.relay_score(self._stock())
+        self.assertEqual(sc["score"], 3)
+        self.assertEqual(sc["rate"], 54.0)
+        self.assertTrue(all(f["hit"] for f in sc["factors"]))
+
+    def test_zero_score_maps_to_bottom_rate(self) -> None:
+        sc = L.relay_score(self._stock(seal_ratio=0.3, turnover=35.0, break_count=5))
+        self.assertEqual(sc["score"], 0)
+        self.assertEqual(sc["rate"], 11.8)
+
+    def test_score_rate_table_is_monotonic(self) -> None:
+        """得分越高概率读数必须越高 —— 单调性是这套读数可用的前提。"""
+        rates = L._SCORE_RATE
+        self.assertEqual(rates, sorted(rates))
+
+    def test_each_score_has_sample_size(self) -> None:
+        """每个得分档必须带样本量 n —— 没有样本量的概率就是拍脑袋。"""
+        self.assertEqual(len(L._SCORE_RATE_N), len(L._SCORE_RATE))
+        self.assertTrue(all(n > 0 for n in L._SCORE_RATE_N))
+
+    def test_build_relay_stocks_filters_first_board(self) -> None:
+        stocks = [
+            {**self._stock(), "position": {"tag": "启动"}},
+            {**self._stock(code="600002", boards=1), "position": {"tag": "启动"}},
+            {**self._stock(code="600003", boards=3, seal_ratio=0.4, turnover=40.0, break_count=9), "position": {"tag": "高位"}},
+        ]
+        relays = L.build_relay_stocks(stocks)
+        self.assertEqual(len(relays), 2)
+        self.assertEqual({r["code"] for r in relays}, {"600001", "600003"})
+
+    def test_build_relay_stocks_sorted_by_score_then_boards(self) -> None:
+        stocks = [
+            {**self._stock(code="600001", boards=3, seal_ratio=0.4, turnover=40.0, break_count=9), "position": {}},  # 0 分 3板
+            {**self._stock(code="600002", boards=2), "position": {}},  # 3 分 2板
+            {**self._stock(code="600003", boards=2, seal_ratio=0.4), "position": {}},  # 2 分 2板
+        ]
+        relays = L.build_relay_stocks(stocks)
+        self.assertEqual([r["code"] for r in relays], ["600002", "600003", "600001"])
+
+    def test_relay_stock_carries_factor_detail(self) -> None:
+        """前端要展示因子明细（✓/✗），所以每条必须带 factors 数组。"""
+        relays = L.build_relay_stocks([{**self._stock(), "position": {}}])
+        sc = relays[0]
+        self.assertEqual(len(sc["factors"]), 3)
+        for f in sc["factors"]:
+            self.assertIn("name", f)
+            self.assertIn("value", f)
+            self.assertIn("hit", f)
+            self.assertIn("rule", f)
+
+
 if __name__ == "__main__":
     unittest.main()

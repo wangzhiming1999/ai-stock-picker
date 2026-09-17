@@ -1286,6 +1286,8 @@ export interface LimitUpSnapshot {
   sentiment_note: LimitUpSentimentNote;
   /** 滚动发布期连旧后端时缺省（undefined）—— 前端必须降级隐藏而不是报错 */
   play_advice?: LimitUpPlayAdvice;
+  /** 连板股抽离 + 资金面持续性评分（三因子 0-3 分 → 回测晋级率读数）；旧后端缺省 */
+  relay_stocks?: LimitUpRelayStock[];
   ladder: LimitUpLadderGroup[];
   sectors: LimitUpSector[];
   stocks: LimitUpStock[];
@@ -1302,6 +1304,36 @@ export interface LimitUpRelayRow {
   total: number;
   promoted: number;
   rate: number;
+}
+
+/** 资金面单因子判定（✓/✗ + 判定规则说明）。 */
+export interface LimitUpScoreFactor {
+  name: string;
+  value: number;
+  hit: boolean;
+  /** 判定规则 + 回测出处（如「≥2% 记 1 分（回测：≥2% 档晋级率 44.7%…）」） */
+  rule: string;
+}
+
+/** 连板股抽离条目：资金面持续性评分 + 明日晋级概率读数。 */
+export interface LimitUpRelayStock {
+  code: string;
+  name: string;
+  boards: number;
+  sector: string;
+  seal_time: string | null;
+  seal_fund_yi: number;
+  seal_ratio: number;
+  turnover: number;
+  break_count: number;
+  /** 0-3 分 */
+  score: number;
+  max_score: number;
+  /** 该得分档的历史晋级率读数（%，样本窗口仅 ~13 交易日，当相对强弱用） */
+  rate: number;
+  /** 该得分档的回测样本量 */
+  rate_n: number;
+  factors: LimitUpScoreFactor[];
 }
 
 /** 晋级率按板块聚集度分档（边缘分布，受连板高度混淆，需配合分层表看）。 */
