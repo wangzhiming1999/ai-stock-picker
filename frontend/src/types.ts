@@ -1265,6 +1265,18 @@ export interface LimitUpSentimentNote {
   text: string;
 }
 
+/** 今日操作建议（三档）。后端 play_advice 基于已回测口径（炸板率/断层/板块聚集度）给出，讲环境不讲个股。 */
+export interface LimitUpPlayAdvice {
+  /** avoid=空仓等待 / watch=只看不动手 / hunt=可打板 */
+  level: "avoid" | "watch" | "hunt";
+  title: string;
+  reasons: string[];
+  /** 梯队断层档位（如 [4] 表示 4 板档空缺） */
+  gaps: number[];
+  /** 主线板块名（聚集度最高的），无涨停时为 "—" */
+  mainline: string;
+}
+
 export interface LimitUpSnapshot {
   trade_date: string;
   /** 时段标签：竞价 / 早盘 / 午休 / 尾盘 / 收盘 */
@@ -1272,6 +1284,8 @@ export interface LimitUpSnapshot {
   cached: boolean;
   sentiment: LimitUpSentiment;
   sentiment_note: LimitUpSentimentNote;
+  /** 滚动发布期连旧后端时缺省（undefined）—— 前端必须降级隐藏而不是报错 */
+  play_advice?: LimitUpPlayAdvice;
   ladder: LimitUpLadderGroup[];
   sectors: LimitUpSector[];
   stocks: LimitUpStock[];

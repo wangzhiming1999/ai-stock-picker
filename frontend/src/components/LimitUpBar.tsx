@@ -2,9 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Activity, ChevronDown, RefreshCw } from "lucide-react";
 import { fetchLimitUpRelay, fetchLimitUpSnapshot } from "../api/client";
-import { breakRateTone, sentimentTone, upTone } from "../lib/tone";
+import { breakRateTone, playAdviceTone, sentimentTone, upTone } from "../lib/tone";
 import { DIVIDER, SUB, SUB_QUIET, TEXT } from "../lib/ui";
-import type { LimitUpLadderGroup, LimitUpRelayResult, LimitUpSnapshot, LimitUpStock } from "../types";
+import type { LimitUpLadderGroup, LimitUpPlayAdvice, LimitUpRelayResult, LimitUpSnapshot, LimitUpStock } from "../types";
 import { CaliberLine } from "./CaliberNote";
 import { ladderGaps } from "./limitUpLogic";
 
@@ -48,6 +48,45 @@ const POSITION_CHIP: Record<string, string> = {
 
 function positionChip(tag: string): string {
   return POSITION_CHIP[tag] ?? "bg-slate-800/70 text-ink-muted";
+}
+
+/**
+ * 操作建议徽标（常驻条上那颗）。
+ *
+ * ⚠️ 文案边界：后端 play_advice 讲的是「环境适不适合打板」，不是「买哪只」。
+ * 徽标只显示档位标题 + 主线名，理由列表在展开区 —— 折叠态塞太多字会变成荐股感。
+ * play_advice 缺省（旧后端）时整块隐藏，不降级占位。
+ */
+function AdviceBadge({ advice }: { advice: LimitUpPlayAdvice }) {
+  return (
+    <span className={`inline-flex items-center gap-1 font-semibold ${playAdviceTone(advice.level)}`} title={advice.reasons.join("；")}>
+      今日建议：{advice.title}
+    </span>
+  );
+}
+
+/** 展开区顶部的建议详情：档位 + 三条判定理由（断层/炸板率/主线）。 */
+function AdviceSection({ advice }: { advice: LimitUpPlayAdvice }) {
+  return (
+    <div className={`${SUB_QUIET} px-3 py-2.5`}>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 className={`text-sm font-semibold ${playAdviceTone(advice.level)}`}>今日建议：{advice.title}</h3>
+        <span className="text-xs text-ink-faint">主线 {advice.mainline}</span>
+      </div>
+      <ul className="mt-1.5 space-y-1">
+        {advice.reasons.map((r) => (
+          <li key={r} className="flex gap-1.5 text-xs leading-relaxed text-ink-soft">
+            <span className="text-ink-faint">·</span>
+            {r}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-1.5 text-xs leading-relaxed text-ink-faint">
+        判定依据是已回测的口径（炸板率当日横截面、板块聚集度对晋级率的影响、梯队断层结构），
+        讲的是「环境」而不是个股 —— 连板接力整体仍是初步证据等级，不构成买点。
+      </p>
+    </div>
+  );
 }
 
 function StockChip({ t }: { t: LimitUpStock }) {
@@ -284,6 +323,7 @@ export default function LimitUpBar() {
                     <span className="text-ink-faint">（{topSector.count} 家）</span>
                   </span>
                 )}
+                {snapshot.play_advice && <AdviceBadge advice={snapshot.play_advice} />}
                 <span
                   className="rounded bg-slate-800/70 px-1.5 py-0.5 text-ink-muted"
                   title="证据等级：只有「能否继续封板」这一个中间指标有正向线索，缺收益口径，因此不构成买点"
@@ -339,6 +379,8 @@ export default function LimitUpBar() {
                     炸板池拉取失败，本次炸板率只反映部分信息，请勿据此判断分歧大小。
                   </p>
                 )}
+
+                {snapshot?.play_advice && <AdviceSection advice={snapshot.play_advice} />}
 
                 {snapshot && <LadderSection ladder={snapshot.ladder} />}
 

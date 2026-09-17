@@ -293,6 +293,113 @@ def sentiment_note(s: dict) -> dict:
     return {"tone": tone, "text": text}
 
 
+# ---------- 操作建议（三档） ----------
+#
+# ⚠️ 证据纪律：这份建议只基于**已经回测过的口径**：
+#   - 炸板率与封板成功的关系（当日横截面，随时可得）
+#   - 板块聚集度对晋级率的影响（limitup_relay 回测：≥5 家 9.2% vs 1-2 家 18.8%，方向为负）
+#   - 梯队结构断层（2-4 板晋级率 33~40% 显著高于首板 16.3% —— 「鱼腹」位置）
+# 连板接力整体证据等级仍是 preliminary（见 tactic_evidence.STRATEGY_EVIDENCE），
+# 因此结论措辞是「环境适不适合打板」，而不是「哪只票会涨」——前者是统计观察，后者是荐股越界。
+
+# 打板环境判定阈值。改这里必须同步改 test_limitup_service.py 的 PlayAdviceTests。
+_BREAK_RATE_GOOD = 25.0   # 炸板率低于此 → 封板扎实
+_BREAK_RATE_BAD = 35.0    # 炸板率高于此 → 分歧过大
+_MIN_MAINLINE = 4         # 同板块涨停 ≥ 此数 → 有主线（回测中 ≥5 家晋级率反而在降，4 家是保守下沿）
+
+
+def ladder_gaps(ladder: list[dict]) -> list[int]:
+    """梯队断层检测：首板与最高板之间出现 count=0 的档位。
+
+    与前端 ``limitUpLogic.ladderGaps`` 语义一致（2 ~ top-1 之间缺档），
+    但这里有原始 boards 数据，直接用真实高度、不受 6 板+ 分桶截断影响。
+    例：5板1只、4板0只、3板1只 → 断层 = [4]。
+    """
+    counts = {g["key"]: g["count"] for g in ladder}
+    if not counts:
+        return []
+    top = max(counts)
+    # 纯首板行情（只有 1 档）谈不上断层
+    if top <= 1:
+        return []
+    # 补齐首板~最高板之间缺失的档位（build_ladder 只输出非空组）
+    return [b for b in range(2, top) if counts.get(b, 0) == 0]
+
+
+def play_advice(sentiment: dict, ladder: list[dict], sectors: list[dict]) -> dict:
+    """今日操作建议：可打板 / 只看不动手 / 空仓等待 三档。
+
+    判定顺序（从否决到放宽）：
+    1. 炸板率过高 → 分歧太大，接力亏钱概率占优（当日横截面口径）
+    2. 梯队断层 → 高度接力无承接，追高容易接最后一棒
+    3. 无主线板块 → 资金没形成合力，「追最热」在回测里反而晋级率更低
+    4. 以上都过关 → 环境相对友好，但仍强调选 2-4 板的「鱼腹」段，不追孤岛高位
+    """
+    rate = sentiment["break_rate"]
+    relay = sentiment["relay_count"]
+    gaps = ladder_gaps(ladder)
+    top_sector = sectors[0] if sectors else None
+    mainline_count = top_sector["count"] if top_sector else 0
+    mainline_name = top_sector["sector"] if top_sector else "—"
+    max_boards = sentiment["max_boards"]
+
+    reasons: list[str] = []
+    if sentiment["limit_up_count"] == 0:
+        return {
+            "level": "avoid",
+            "title": "空仓等待",
+            "reasons": ["全市场没有涨停，情绪冰点，无从接力"],
+            "gaps": gaps,
+            "mainline": mainline_name,
+        }
+    if relay == 0:
+        # 有涨停但全是首板：梯队尚未形成，谈不上「追连板」，但也不是冰点 —— 放 watch。
+        return {
+            "level": "watch",
+            "title": "只看不动手",
+            "reasons": [f"今日 {sentiment['limit_up_count']} 家全部为首板，鱼腹（2-4 板梯队）尚未形成，明天才看得到晋级分化"],
+            "gaps": gaps,
+            "mainline": mainline_name,
+        }
+    if rate >= _BREAK_RATE_BAD:
+        reasons.append(f"炸板率 {rate}% ≥ {_BREAK_RATE_BAD}%，分歧过大")
+    if gaps:
+        reasons.append(f"梯队断层 {gaps} 板档位空缺，高度无承接")
+    if mainline_count < _MIN_MAINLINE:
+        reasons.append(f"最热板块仅 {mainline_count} 家（{mainline_name}），资金无合力")
+    if reasons:
+        return {
+            "level": "avoid",
+            "title": "空仓等待",
+            "reasons": reasons,
+            "gaps": gaps,
+            "mainline": mainline_name,
+        }
+
+    if rate >= _BREAK_RATE_GOOD or max_boards <= 1:
+        return {
+            "level": "watch",
+            "title": "只看不动手",
+            "reasons": [
+                f"炸板率 {rate}% 处于中性区间，接力盈亏比一般" if rate >= _BREAK_RATE_GOOD else "市场只有首板，鱼腹尚未形成"
+            ],
+            "gaps": gaps,
+            "mainline": mainline_name,
+        }
+
+    return {
+        "level": "hunt",
+        "title": "可打板",
+        "reasons": [
+            f"炸板率 {rate}% 封板扎实",
+            f"梯队完整（最高 {max_boards} 板，无断层）",
+            f"主线 {mainline_name}（{mainline_count} 家涨停）",
+        ],
+        "gaps": gaps,
+        "mainline": mainline_name,
+    }
+
+
 def position_tag(item: dict) -> dict:
     """位置分桶 —— 「鱼腹」所在的段位。
 
@@ -345,13 +452,16 @@ async def get_snapshot(force: bool = False) -> dict:
     # 反例：只给 stocks 挂 position 会让展开后的「连板梯队」缺字段，前端读到 undefined。
     decorated = [{**t, "position": position_tag(t)} for t in limit_up]
     stocks = sorted(decorated, key=lambda x: (-x["boards"], x["seal_time"] or "99:99:99"))
+    ladder = build_ladder(decorated)
+    sectors = build_sectors(decorated)
     data = {
         "trade_date": key,
         "session": trade_calendar_service.session_label(),
         "sentiment": sentiment,
         "sentiment_note": sentiment_note(sentiment),
-        "ladder": build_ladder(decorated),
-        "sectors": build_sectors(decorated),
+        "play_advice": play_advice(sentiment, ladder, sectors),
+        "ladder": ladder,
+        "sectors": sectors,
         "stocks": stocks,
         "broken_ok": broken_ok,
         "evidence": tactic_evidence.describe("limitup_relay"),

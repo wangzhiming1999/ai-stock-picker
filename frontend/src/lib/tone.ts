@@ -125,6 +125,20 @@ export function sentimentTone(tone: string | null | undefined): string {
 }
 
 /**
+ * 操作建议档位配色（avoid / watch / hunt）。
+ *
+ * ⚠️ 这三档是「环境质量判断」，不是涨跌方向：
+ * - avoid（空仓等待）用琥珀警示，不用绿 —— 绿在行情语义里是「跌/看空」，
+ *   用绿渲染「建议别动」会让同一屏的下跌数字与建议互相打架；
+ * - hunt（可打板）用主色蓝 —— 它是「环境达标」的质量判断，红绿都不能用。
+ */
+export function playAdviceTone(level: string | null | undefined): string {
+  if (level === "hunt") return "text-brand-light";
+  if (level === "avoid") return "text-amber-300";
+  return "text-ink-muted";
+}
+
+/**
  * 质量评分色（0–10 分制）。
  *
  * 质量（信号强度 / 胜率 / 条件通过项）表达的是「好不好」，与「价格往哪走」无关，

@@ -364,5 +364,83 @@ class ResponseContractTests(unittest.TestCase):
         }
 
 
+class PlayAdviceTests(unittest.TestCase):
+    """三档操作建议：判定顺序 = 否决项（炸板率/断层/主线）→ 放宽档位。"""
+
+    @staticmethod
+    def _sentiment(rate: float, max_boards: int = 5, relay: int = 9, limit_up: int = 47) -> dict:
+        return {"break_rate": rate, "max_boards": max_boards, "relay_count": relay, "limit_up_count": limit_up}
+
+    @staticmethod
+    def _ladder(*levels: tuple[int, int]) -> list[dict]:
+        return [{"key": k, "count": c, "label": "", "items": []} for k, c in levels]
+
+    def test_no_limit_up_at_all_means_avoid(self) -> None:
+        adv = L.play_advice(self._sentiment(0, 0, relay=0, limit_up=0), [], [])
+        self.assertEqual(adv["level"], "avoid")
+        self.assertIn("没有涨停", adv["reasons"][0])
+
+    def test_high_break_rate_blocks(self) -> None:
+        ladder = self._ladder((5, 1), (4, 2), (3, 3), (2, 4), (1, 20))
+        adv = L.play_advice(self._sentiment(36.0), ladder, [{"sector": "半导体", "count": 5}])
+        self.assertEqual(adv["level"], "avoid")
+        self.assertTrue(any("炸板率" in r for r in adv["reasons"]))
+
+    def test_ladder_gap_blocks(self) -> None:
+        # 5 板孤岛：2/3/4 板全空
+        ladder = self._ladder((5, 1), (1, 38))
+        adv = L.play_advice(self._sentiment(20.0), ladder, [{"sector": "半导体", "count": 5}])
+        self.assertEqual(adv["level"], "avoid")
+        self.assertTrue(any("断层" in r for r in adv["reasons"]))
+        self.assertEqual(adv["gaps"], [2, 3, 4])
+
+    def test_no_mainline_blocks(self) -> None:
+        ladder = self._ladder((5, 1), (4, 2), (3, 3), (2, 4), (1, 20))
+        adv = L.play_advice(self._sentiment(20.0), ladder, [{"sector": "汽车零部", "count": 3}])
+        self.assertEqual(adv["level"], "avoid")
+        self.assertTrue(any("无合力" in r for r in adv["reasons"]))
+
+    def test_healthy_environment_unlocks_hunt(self) -> None:
+        ladder = self._ladder((5, 1), (4, 2), (3, 3), (2, 4), (1, 20))
+        adv = L.play_advice(self._sentiment(15.0), ladder, [{"sector": "半导体", "count": 5}])
+        self.assertEqual(adv["level"], "hunt")
+        self.assertEqual(adv["title"], "可打板")
+        # 三条理由必须把关键事实都带上
+        joined = " ".join(adv["reasons"])
+        self.assertIn("15.0%", joined)
+        self.assertIn("半导体", joined)
+
+    def test_mid_break_rate_lands_watch_even_if_structure_ok(self) -> None:
+        ladder = self._ladder((5, 1), (4, 2), (3, 3), (2, 4), (1, 20))
+        adv = L.play_advice(self._sentiment(28.0), ladder, [{"sector": "半导体", "count": 5}])
+        self.assertEqual(adv["level"], "watch")
+
+    def test_first_board_only_lands_watch(self) -> None:
+        # 没有断层（纯首板不算断层）、板块聚集度够，但鱼腹尚未形成 → watch 而不是 avoid
+        ladder = self._ladder((1, 38))
+        adv = L.play_advice(self._sentiment(20.0, max_boards=1, relay=0), ladder, [{"sector": "半导体", "count": 5}])
+        self.assertEqual(adv["level"], "watch")
+        self.assertTrue(any("首板" in r for r in adv["reasons"]))
+
+    def test_ladder_gaps_ignores_first_board_only(self) -> None:
+        self.assertEqual(L.ladder_gaps([]), [])
+        self.assertEqual(L.ladder_gaps([{"key": 1, "count": 5}]), [])
+
+    def test_ladder_gaps_finds_missing_levels(self) -> None:
+        # build_ladder 只输出非空组，缺失档位要补出来
+        ladder = [{"key": 5, "count": 1}, {"key": 3, "count": 1}, {"key": 1, "count": 10}]
+        self.assertEqual(L.ladder_gaps(ladder), [2, 4])
+
+    def test_advice_never_recommends_a_specific_stock(self) -> None:
+        """证据纪律：建议只能讲环境，不能出现任何个股代码/名称/买入动作指向。"""
+        ladder = self._ladder((5, 1), (4, 2), (3, 3), (2, 4), (1, 20))
+        adv = L.play_advice(self._sentiment(15.0), ladder, [{"sector": "半导体", "count": 5}])
+        blob = adv["title"] + " ".join(adv["reasons"])
+        self.assertNotIn("买入", blob)
+        self.assertNotIn("加仓", blob)
+        # 理由里只允许出现板块名，不允许出现个股（sectors 里的 names 字段不含在此接口）
+        self.assertNotIn("票", blob.replace("打板", ""))  # 排除"打板"词本身的误伤
+
+
 if __name__ == "__main__":
     unittest.main()
