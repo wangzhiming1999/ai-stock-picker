@@ -116,7 +116,7 @@ npm run dev                 # http://localhost:5173
 改动后至少跑一遍下面四步（CI 也是这四步，见 `.github/workflows/ci.yml`）：
 
 ```bash
-# 后端（256 个用例）
+# 后端（318 个用例）
 cd backend
 pip install -r requirements-dev.txt   # 含 pytest / pytest-asyncio
 pytest -q
@@ -197,8 +197,8 @@ ai-stock-picker/
 │   │   ├── config.py             # pydantic-settings 配置
 │   │   ├── models.py             # 数据模型
 │   │   ├── store.py              # SQLite 本地分析历史
-│   │   ├── routes/               # 15 个路由模块（见下）
-│   │   └── services/            # 28 个服务模块（见下）
+│   │   ├── routes/               # 17 个路由模块（见下）
+│   │   └── services/            # 31 个服务模块（见下）
 │   ├── supabase-schema*.sql      # 建表脚本 v1–v8（幂等，可重复执行）
 │   ├── requirements.txt
 │   └── vercel.json
@@ -216,10 +216,10 @@ ai-stock-picker/
 ```
 
 **后端路由**（`app/routes`）：
-`stock`（行情 / K 线 / 新闻）· `analysis`（选股分析 SSE）· `market`（板块 / 扫描 / 推荐 / 大盘推衍 / 机会）· `history`（历史批次）· `auth`（登录注册）· `cron`（每日结算 / 扫描）· `alerts`（预警中心）· `backtest`（回测）· `portfolio`（持仓）· `sim`（模拟盘）· `watchlist`（自选股）· `briefing`（今日简报）· `quad`（榜单）· `monitor`（监控）
+`stock`（行情 / K 线 / 新闻）· `analysis`（选股分析 SSE）· `market`（板块 / 扫描 / 推荐 / 大盘推衍 / 机会）· `history`（历史批次）· `auth`（登录注册）· `cron`（每日结算 / 扫描）· `alerts`（预警中心）· `backtest`（回测）· `portfolio`（持仓）· `sim`（模拟盘）· `watchlist`（自选股）· `briefing`（今日简报）· `quad`（榜单）· `monitor`（监控）· `limitup`（连板梯队 / 涨停情绪）
 
 **后端服务**（`app/services`）：
-`data_service`（akshare 行情 / 新闻）· `llm_service`（DeepSeek + 规则兜底）· `signal_service`（技术信号）· `market_prediction`（大盘推衍）· `recommend_service`（每日推荐）· `backtest_service` · `portfolio_service` · `sim_service`（交易引擎）· `watchlist_service` · `alert_service` · `winrate_service`（胜率）· `trade_calendar_service`（交易日历）· `opportunity_service`（盘前 / 尾盘机会）· `pattern_service`（实战形态）· `quad_service` · `briefing_service` · `import_service`（持仓截图 / 文本导入）· `supabase_store`（Supabase 持久化）
+`data_service`（akshare 行情 / 新闻）· `llm_service`（DeepSeek + 规则兜底）· `signal_service`（技术信号）· `market_prediction`（大盘推衍）· `recommend_service`（每日推荐）· `backtest_service` · `portfolio_service` · `sim_service`（交易引擎）· `watchlist_service` · `alert_service` · `winrate_service`（胜率）· `trade_calendar_service`（交易日历）· `opportunity_service`（盘前 / 尾盘机会）· `pattern_service`（实战形态）· `quad_service` · `briefing_service` · `import_service`（持仓截图 / 文本导入）· `supabase_store`（Supabase 持久化）· `debate_service`（多空研究员对辩）· `limitup_service`（涨停池 / 连板梯队 / 晋级率）
 
 ---
 

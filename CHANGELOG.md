@@ -10,6 +10,54 @@
 ## [Unreleased]
 
 ### Added
+- **连板追踪：全局情绪常驻条 + 涨停池晋级率回测**（2026-09-17）
+  > 目标：回答「追连板能不能吃到鱼腹的利润」。新增独立行情源东财涨停板池
+  > `push2ex.eastmoney.com`（与被风控的 `push2` 完全独立域名，单请求拿全市场涨停池 +
+  > 连板数 + 板块 + 封单，风控压力比 60 页分页快照低两个数量级），支持 `date=` 回溯。
+  - 新增 `services/limitup_service.py`：涨停池 / 炸板池抓取（60s 短缓存）→ 三层聚合：
+    连板梯队（>5/4/3/2/首板，看断层）、板块热度（按行业分组，看主线）、
+    情绪温度（涨停数 / 炸板率，看能不能打板）；个股输出「鱼腹候选 / 鱼尾警示」位置标注（**不是买点**）
+  - 新增 `GET /api/limitup/snapshot`（情绪条快照 + 梯队 + 板块 + 位置标注）、
+    `GET /api/limitup/relay?days=N`（N 连板 → 次日晋级率回测，口径 `limitup_relay`）
+  - **晋级率回测关键发现**（2026-08-28 ~ 09-16，13 个交易日对 / 764 样本）：
+    首板→2板 16.3%（n=601）、2板→3板 33.3%（n=99）、3板→4板 40.0%（n=35）——
+    连板之后继续连板的概率约为首板的两倍；但**反向线索**：同板块涨停家数越多，
+    首板晋级率越低（≥5 家 9.2% vs 1-2 家 18.8%），「追最热板块」未获支持
+  - ⚠️ 涨停池**只回溯约 15 个交易日**，超窗口日期返回空池；晋级率是「封板延续率」
+    不是收益率（连板股常一字板开盘，晋级了也未必买得到），证据等级 `preliminary`，
+    **不进 `ACTIONABLE_TIERS`**
+  - `tactic_evidence` 拆出 `STRATEGY_EVIDENCE` 独立命名空间（策略 ≠ K 线形态，
+    保持 `EVIDENCE` 与 `pattern_service.TACTICS` 一一对应的守卫不变量）；后端测试 256 → 300
+  - 前端新增 `components/LimitUpBar.tsx` 全局常驻条（涨停家数 / 炸板率 / 最高板 / 主线板块，
+    点击展开梯队与板块详情 + 回测表），挂载在 App header 下方；纯逻辑抽 `limitUpLogic.ts`（梯队断层检测）带 node:test
+- **深度分析：多空研究员对辩（借鉴 TradingAgents 的对抗机制）**（2026-09-17）
+  > 目标：给深度分析补上「同一份资料被反向解读时是否站得住」这一层信息。
+  > 机制抄自 TauricResearch/TradingAgents（arXiv 2412.20138）的研究员团队层 —— 对照其
+  > 「分析师 → 多空辩论 → 交易员 → 风控」四层链路，本项目已有其中三层
+  > （signal/trend_template/pattern = 分析师、llm_service = 交易员、tactic_evidence = 风控），
+  > 缺的就是辩论。**是移植机制，不是引依赖**：直接 pip install 上游框架会撞三处硬约束 ——
+  > langgraph 生态撑大 Serverless 部署体积、其 A 股数据源走东财直连（IP 封禁头号风险源）、
+  > 一次 5~10 次串行 LLM 调用顶到 Vercel maxDuration 300s 墙角。
+  - 新增 `services/debate_service.py`（0 个新运行时依赖，复用 openai SDK）：
+    多头 / 空头研究员各立论 → 第二轮互看对方观点逐条反驳，固定 2 轮 = 4 次调用，并行发起
+    - **分歧度口径 = min(多头信心, 空头信心)**：两边同时笃定才是真争议；
+      刻意不用 |bull-bear|（会把「多头碾压」和「空头碾压」混成同一个数字）
+    - `key_disagreement`（核心分歧点）由第二轮空方输出，兜底链：轮次输出 → 空头第一条反驳 → 空头论点
+    - **降级不抛异常**：无 Key / LLM 失败 / JSON 解析失败一律返回 None，不影响主分析；
+      第二轮失败沿用第一轮（rounds=1）
+    - `summarize()` 只向主分析递「分歧」，刻意不递「倾向」—— direction 无统计支撑，
+      若被主分析照单全收，等于让未回测的结论间接进了总分
+  - **证据闸门纪律**：辩论结论证据等级固定取 `tactic_evidence` 的 `unknown` 档
+    （label/badge/actionable 全部由唯一来源推导，不手写文案），`executable` 恒为 False ——
+    展示层不得把它放进买点位置，只能作分歧与风险提示
+  - 接线：`AnalysisRequest.debate` 开关（默认关，每只票多 2 轮 LLM 调用）；
+    SSE 新增 `debate_start` / `debate_done` 事件；`llm_service` 抽出共用 `get_client()` +
+    非流式 `complete()`；深度分析 context 组装抽为 `_assemble_context()`（主链路与缓存补跑共用）；
+    开辩论但命中旧缓存时就地补跑并回写，避免开关「看起来不生效」
+  - 前端：`DebateBlock`（分歧度走 `divergenceTone` 质量色，多/空立场标签走 upTone/downTone，
+    gate_note 原样展示）；AnalysisDrawer 加开关（ref 持有，避免开关变化重跑分析）
+  - 测试：`test_debate_service.py` 16 例（闸门不可执行、min 分歧口径、四类降级路径、
+    summarize 不外泄倾向、第二轮 prompt 必含对方论点）；全量 318 例通过
 - **V5.20 · 产品可信度：多周期共振修复 + 形态证据闸门 + 胜率口径登记**（2026-09-16）
   > 目标：解决用户反馈的「数据不准确」。这一轮修的不是算错的数字，而是**可信度没有被区分**：
   > 一条数学上永远不可能命中的形态、一批没有统计支持的买卖点、四个都叫「胜率」却互相不可比的数字。
