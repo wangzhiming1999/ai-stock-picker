@@ -12,7 +12,7 @@
 | tier | 判定规则 | 含义 |
 |---|---|---|
 | `verified` | n ≥ 30 且 \\|z\\| ≥ 1.96 且各持有期收益超额均为正 | 可作买卖点提示 |
-| `preliminary` | n < 30，但超额方向一致为正 | 只是线索，样本不足以下结论 |
+| `preliminary` | n < 30 且超额方向一致为正；**或**口径不完整（拿不到收益，只能得到中间指标）但方向一致为正 | 只是线索，不足以支撑动作 |
 | `unsupported` | n ≥ 30 但未达显著，或超额为负 / 符号不稳定 | 现有数据不支持该优势 |
 | `unknown` | 尚未用当前实现回测过 | 无结论 |
 | `not_testable` | 当前数据源无法回测 | 无结论，并写明原因 |
@@ -20,12 +20,21 @@
 只有 `verified` 会进入 `ACTIONABLE_TIERS`。当前**一条都没有** —— 这是刻意的留白：
 失败方向必须是「把可用的形态标成观察」，绝不能是「把没验证的形态标成买点」。
 
+⚠️ 「中间指标」这一路（如 `limitup_relay` 的晋级率）要格外小心：**晋级率不是胜率**。
+它只回答「能不能继续封板」，回答不了「买进去赚不赚钱」—— 两者之间隔着一次「能不能成交」。
+这类条目一律停在 `preliminary`，**即便样本量已达门槛也不得升级为 `verified`**：
+样本再多也补不上缺失的那个口径。
+
 ## 维护方式
 
 本表是**唯一来源**：`pattern_service.ESCALATE_SELL_KEYS`、`_pack()` 挂的
 `evidence/executable/gate_note`、`GET /api/market/tactics` 的角标全部由它推导。
 每次重跑 `POST /api/backtest/tactic` 后更新 `EVIDENCE` 与 `SNAPSHOT`，
 **不要只改文档不改这张表** —— 那正是本项目反复出现的「文档漂移」。
+
+不在形态回测流程内的条目（如 `limitup_relay` 来自 `limitup_service.relay_backtest`）
+登记在 `STRATEGY_EVIDENCE` 里，运行口径写在各自的 `provenance` 中，不进 `SNAPSHOT`
+（`SNAPSHOT` 专指形态回测那一次跑批）。查询走 `get()` / `describe()`，两个命名空间都能命中。
 """
 from __future__ import annotations
 
@@ -182,10 +191,62 @@ EVIDENCE: dict[str, Evidence] = {
     ),
 }
 
+# 非形态策略的证据登记，与 EVIDENCE 分**命名空间**。
+#
+# 为什么不合并：`EVIDENCE` 的 key 必须与 `pattern_service.TACTICS` 一一对应，
+# 这条不变量由 `test_tactic_evidence.test_every_tactic_is_registered` 锁定，
+# 它保证「每个形态都登记了证据」这个检查真的成立。把 limitup_relay 这类
+# 策略混进去，那条检查就退化成「表和自己相等」，守卫直接失效。
+#
+# 两条约束对两个命名空间同样适用：
+# 1. 未 verified 一律 actionable=False（能否进买点位置）；
+# 2. 只有收益口径可回测的条目才允许升到 verified —— 见文件头的「中间指标」说明。
+STRATEGY_EVIDENCE: dict[str, Evidence] = {
+    # 口径与形态回测完全不同：来自 limitup_service.relay_backtest（涨停池交集），
+    # 因此不进 SNAPSHOT（SNAPSHOT 专指形态回测那一次跑批）。口径见 calibers.limitup_relay。
+    "limitup_relay": Evidence(
+        tier="preliminary",
+        summary=(
+            "晋级率口径可回测、方向为正：首板→2板 16.3%（n=601）、2板→3板 33.3%（n=99）、"
+            "3板→4板 40.0%（n=35），连板之后继续连板的概率约为首板的两倍。"
+            "但**收益口径不可回测** —— 涨停池只给收盘封板状态，拿不到次日实际成交价"
+            "（连板股常以一字板开盘，晋级了也未必买得到）。晋级率是必要非充分条件，"
+            "不能换算成胜率或期望收益，故停在「初步」，**样本量再大也不升级**。"
+            "另一条反向线索：板块聚集度越高，首板晋级率反而越低"
+            "（同板块 ≥5 家 9.2% / n=98，3-4 家 15.0% / n=147，1-2 家 18.8% / n=356），"
+            "即「追最热的板块」在现有数据下**没有得到支持**，可能是情绪一致后的退潮前兆。"
+        ),
+        provenance=(
+            "2026-09-17 首跑 limitup_service.relay_backtest：东财涨停池，"
+            "有效窗口 2026-08-28 ~ 09-16 共 13 个交易日对 / 764 个样本"
+            "（接口仅回溯约 15 个交易日，样本窗口天然受限）"
+        ),
+    ),
+}
+
+# 两个命名空间的 key 必须互斥：`_lookup` 是短路求值（先 EVIDENCE 后 STRATEGY_EVIDENCE），
+# 重名会让策略记录被形态静默覆盖。导入期直接炸掉，比运行到 UI 上才发现好。
+_OVERLAP = set(EVIDENCE) & set(STRATEGY_EVIDENCE)
+if _OVERLAP:  # pragma: no cover - 导入期自检
+    raise RuntimeError(f"tactic_evidence：EVIDENCE 与 STRATEGY_EVIDENCE 存在重复 key {sorted(_OVERLAP)}")
+
+
+def _lookup(key: str) -> Evidence | None:
+    """跨命名空间查记录。
+
+    刻意**每次重新查**、不做导入期合并快照：`EVIDENCE` 需要在运行时被替换
+    （`test_actionable_tier_unlocks_execution` 就用 monkeypatch 模拟「某形态已验证」，
+    以锁定闸门双向有效）。冻结的合并字典会让那条测试变成死开关。
+    """
+    return EVIDENCE.get(key) or STRATEGY_EVIDENCE.get(key)
+
 
 def get(key: str) -> Evidence:
-    """取证据记录；未登记的技巧按最保守的 `unknown` 处理（不给动作）。"""
-    return EVIDENCE.get(key) or Evidence(
+    """取证据记录；未登记的技巧按最保守的 `unknown` 处理（不给动作）。
+
+    形态（`EVIDENCE`）与策略（`STRATEGY_EVIDENCE`）两个命名空间都能命中。
+    """
+    return _lookup(key) or Evidence(
         tier="unknown", summary="该技巧尚未登记证据等级。", provenance="未登记"
     )
 
@@ -226,4 +287,20 @@ def survey() -> dict:
         "actionable": sum(1 for ev in EVIDENCE.values() if ev.actionable),
         "by_tier": counts,
         "snapshot": SNAPSHOT,
+    }
+
+
+def strategy_survey() -> dict:
+    """非形态策略的证据覆盖情况。
+
+    刻意与 `survey()` 分开：`survey()` 只统计 `EVIDENCE`（形态），
+    它的 total 被守卫测试锁定为形态数量；把策略算进去会让那个断言失去意义。
+    """
+    counts: dict[str, int] = {}
+    for ev in STRATEGY_EVIDENCE.values():
+        counts[ev.tier] = counts.get(ev.tier, 0) + 1
+    return {
+        "total": len(STRATEGY_EVIDENCE),
+        "actionable": sum(1 for ev in STRATEGY_EVIDENCE.values() if ev.actionable),
+        "by_tier": counts,
     }

@@ -11,6 +11,8 @@ import type {
   HoldingsData,
   IndexHistory,
   Industry,
+  LimitUpRelayResult,
+  LimitUpSnapshot,
   MonitorInterval,
   MonitorResult,
   MarketPrediction,
@@ -300,6 +302,39 @@ export async function runBacktest(params: {
 export async function fetchWinrate(): Promise<WinrateStats> {
   const res = await fetch(`${API}/market/winrate`);
   if (!res.ok) throw await errorFrom(res, "获取胜率失败");
+  return res.json();
+}
+
+/* ---------- 连板梯队 ---------- */
+
+/**
+ * 当日连板全景：情绪温度 + 连板梯队 + 板块聚集度 + 个股位置标注。
+ *
+ * ⚠️ 返回体的 `evidence.actionable` 恒为 false（连板接力只到「初步」，见后端 evidence）。
+ * 调用方**不得**把任何字段渲染成买点 —— 位置标签（启动/加速/中继/高位/分歧）是统计分桶。
+ *
+ * 数据源是东财 push2ex 涨停板池，与全市场快照（push2）是不同域名/端点，
+ * 因此**不接** spotGuard 那套冷却闸门；默认走 60s 后端缓存即可。
+ */
+export async function fetchLimitUpSnapshot(force = false): Promise<LimitUpSnapshot> {
+  const res = await fetch(`${API}/limitup/snapshot${force ? "?force=true" : ""}`);
+  if (!res.ok) throw await errorFrom(res, "获取连板梯队失败");
+  return res.json();
+}
+
+/**
+ * 连板晋级率回溯（N 板 → 次日 N+1 板）。
+ *
+ * 默认取满接口回溯窗口（约 15 个交易日）。传更大的 days 也**不会**扩大样本：
+ * 更早日期返回空池，会被后端识别为「无数据」并排除，可在 `empty_dates` / `data_window` 自查。
+ */
+export async function fetchLimitUpRelay(days?: number, force = false): Promise<LimitUpRelayResult> {
+  const qs = new URLSearchParams();
+  if (days != null) qs.set("days", String(days));
+  if (force) qs.set("force", "true");
+  const query = qs.toString();
+  const res = await fetch(`${API}/limitup/relay${query ? `?${query}` : ""}`);
+  if (!res.ok) throw await errorFrom(res, "获取连板晋级率失败");
   return res.json();
 }
 
@@ -633,12 +668,13 @@ export async function streamAnalysis(
   codes: string[],
   onEvent: (event: SSEEvent) => void,
   signal?: AbortSignal,
-  force = false
+  force = false,
+  debate = false
 ): Promise<void> {
   const res = await fetch(`${API}/analysis/stocks`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify({ codes, force }),
+    body: JSON.stringify({ codes, force, debate }),
     signal,
   });
 

@@ -13,8 +13,10 @@ from app.services import winrate_service as wr
 
 REQUIRED_FIELDS = ("key", "name", "target", "window", "bucket", "benchmark", "rule", "unit", "pitfall")
 
-# 界面上会出现「率」的四个出处，改动口径必须动这里，不能悄悄新增第五个
-EXPECTED_KEYS = {"prediction", "recommendation", "strategy_backtest", "tactic_backtest"}
+# 界面上会出现「率」的五个出处，改动口径必须动这里，不能悄悄新增第六个。
+# limitup_relay 是 2026-09-17 新增的连板晋级率：**它和上面四个都不可比**，
+# 因为它根本不是收益率口径（详见该条 pitfall）。
+EXPECTED_KEYS = {"prediction", "recommendation", "strategy_backtest", "tactic_backtest", "limitup_relay"}
 
 
 class _Chain:

@@ -101,6 +101,30 @@ export function actionBadge(action: string | null | undefined): ActionBadge {
 }
 
 /**
+ * 炸板率配色（**风险阈值**类，不是方向类）。
+ *
+ * 炸板率衡量的是「封板有多不结实」，属于情绪质量 / 风险阈值，所以不占红绿 ——
+ * 与「止损=琥珀」同理：它是警戒线，既不预判上涨也不预判下跌。
+ * 低炸板率也不上红色：那不是「上涨方向」，只是达标。
+ */
+export function breakRateTone(rate: number | null | undefined): string {
+  if (rate == null || Number.isNaN(rate)) return "text-ink-muted";
+  if (rate >= 40) return "text-amber-300"; // 警戒：接力分歧明显加大
+  if (rate >= 20) return "text-amber-400"; // 一般
+  return "text-brand-light"; // 达标：封板扎实
+}
+
+/**
+ * 情绪一句话点评配色（后端给出 good / warn / neutral）。
+ * 同样属于质量判断而非价格方向，因此走主色 / 琥珀 / 中性，不用红绿。
+ */
+export function sentimentTone(tone: string | null | undefined): string {
+  if (tone === "good") return "text-brand-light";
+  if (tone === "warn") return "text-amber-300";
+  return "text-ink-muted";
+}
+
+/**
  * 质量评分色（0–10 分制）。
  *
  * 质量（信号强度 / 胜率 / 条件通过项）表达的是「好不好」，与「价格往哪走」无关，
@@ -172,3 +196,17 @@ export const CHIP = {
   /** 中性价位：支撑 / 压力 / 现价 */
   neutral: { bg: "bg-slate-800/40", text: "text-ink" },
 } as const;
+
+/**
+ * 多空分歧度配色（0-100，口径 = min(多头信心, 空头信心)）。
+ *
+ * 分歧是「争议大小」的质量信息，不是价格方向，所以不占红绿；
+ * 高分歧（两边都笃定）才是警戒，给琥珀；低分歧只是「共识明确」的中性信息，
+ * 不给达标色（蓝 = 达标语义，低分歧并不比高分歧"更好"，它俩只是含义不同）。
+ */
+export function divergenceTone(v: number | null | undefined): string {
+  if (v == null || Number.isNaN(v)) return "text-ink-muted";
+  if (v >= 60) return "text-amber-300";
+  if (v >= 30) return "text-amber-400";
+  return "text-ink-muted";
+}

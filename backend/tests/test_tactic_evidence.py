@@ -58,6 +58,34 @@ class TestRegistryIntegrity:
         assert sum(survey["by_tier"].values()) == survey["total"]
 
 
+class TestStrategyRegistry:
+    """非形态策略（如 limitup_relay）走独立命名空间，两条不变量要一起锁住：
+    与 EVIDENCE 不重名（否则形态记录会被覆盖），且不因为分开登记就绕过闸门。
+    """
+
+    def test_namespaces_are_disjoint(self) -> None:
+        assert not (set(ev.EVIDENCE) & set(ev.STRATEGY_EVIDENCE))
+
+    def test_no_strategy_may_be_actionable(self) -> None:
+        """策略的证据等级再高也不能进「买点」位置 —— 晋升必须改 ACTIONABLE_TIERS 并留下评审痕迹。"""
+        assert all(not e.actionable for e in ev.STRATEGY_EVIDENCE.values())
+
+    def test_mid_indicator_stays_below_verified(self) -> None:
+        """晋级率这类「中间指标」不得升到 verified：样本量补不上缺失的收益口径。"""
+        assert ev.tier_of("limitup_relay") == "preliminary"
+        assert ev.is_actionable("limitup_relay") is False
+
+    def test_strategy_survey_is_separate_from_tactic_survey(self) -> None:
+        survey = ev.strategy_survey()
+
+        assert survey["total"] == len(ev.STRATEGY_EVIDENCE)
+        assert survey["total"] > 0
+        # 形态那本账不能被策略污染：total 仍等于形态数，且 EVIDENCE 里没有策略 key
+        assert ev.survey()["total"] == len(ev.EVIDENCE)
+        assert "limitup_relay" not in ev.EVIDENCE
+        assert ev.survey()["total"] != ev.strategy_survey()["total"]
+
+
 class TestEscalationGate:
     def test_escalate_keys_are_derived_and_sell_only(self) -> None:
         assert ps.ESCALATE_SELL_KEYS <= {

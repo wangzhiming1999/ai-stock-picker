@@ -42,16 +42,26 @@ ANALYSIS_SYSTEM_PROMPT = """你是一位经验丰富的 A 股买方研究员，�
 - 个股分析仅供研究参考，不构成投资建议"""
 
 
-async def stream_analyze(quote: StockQuote, context: str) -> AsyncIterator[str]:
-    """流式调用 LLM，yield 原始文本增量。"""
+def get_client() -> AsyncOpenAI:
+    """构造 DeepSeek（OpenAI 兼容）客户端。
+
+    所有 LLM 调用方共用这一个入口，避免各自 `AsyncOpenAI(...)` 出现配置漂移
+    （换 base_url / 换模型时只改一处）。
+    """
     settings = get_settings()
     if not settings.deepseek_api_key:
         raise ValueError("未配置 DEEPSEEK_API_KEY，请在 backend/.env 中配置")
 
-    client = AsyncOpenAI(
+    return AsyncOpenAI(
         api_key=settings.deepseek_api_key,
         base_url=settings.deepseek_base_url,
     )
+
+
+async def stream_analyze(quote: StockQuote, context: str) -> AsyncIterator[str]:
+    """流式调用 LLM，yield 原始文本增量。"""
+    settings = get_settings()
+    client = get_client()
     stream = await client.chat.completions.create(
         model=settings.deepseek_model,
         messages=[
@@ -64,6 +74,28 @@ async def stream_analyze(quote: StockQuote, context: str) -> AsyncIterator[str]:
     async for chunk in stream:
         if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
             yield chunk.choices[0].delta.content
+
+
+async def complete(system: str, user: str, *, temperature: float = 0.3, max_tokens: int = 1500) -> str:
+    """非流式调用，返回完整文本。
+
+    给「要求严格 JSON 输出」的调用方使用（如多空辩论的每一轮）—— 这类调用无法边流边解析，
+    流式只会让客户端多一堆缓冲区而没有任何收益。
+    """
+    settings = get_settings()
+    client = get_client()
+    resp = await client.chat.completions.create(
+        model=settings.deepseek_model,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
+    if not resp.choices:
+        return ""
+    return resp.choices[0].message.content or ""
 
 
 def mock_analyze(quote: StockQuote, history: StockHistory | None, news: list[NewsItem]) -> StockAnalysis:

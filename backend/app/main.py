@@ -11,7 +11,7 @@ from starlette.responses import Response
 
 from app import store
 from app.config import get_settings
-from app.routes import analysis, alerts, auth, backtest, briefing, cron, history, market, monitor, portfolio, quad, sim, stock, watchlist, admin
+from app.routes import analysis, alerts, auth, backtest, briefing, cron, history, limitup, market, monitor, portfolio, quad, sim, stock, watchlist, admin
 
 settings = get_settings()
 
@@ -124,6 +124,7 @@ async def security_headers_middleware(request: Request, call_next):
 app.include_router(stock.router)
 app.include_router(analysis.router)
 app.include_router(market.router)
+app.include_router(limitup.router)
 app.include_router(history.router)
 app.include_router(auth.router)
 app.include_router(cron.router)

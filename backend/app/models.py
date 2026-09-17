@@ -65,6 +65,10 @@ class AnalysisRequest(BaseModel):
     """选股分析请求"""
     codes: list[str] = Field(..., min_length=1, max_length=20, description="股票代码列表，如 ['600519']")
     force: bool = Field(False, description="强制重跑，忽略当日缓存")
+    debate: bool = Field(
+        False,
+        description="是否额外跑「多空研究员辩论」。每只票多 2 轮 LLM 调用，明显更慢，故默认关闭",
+    )
 
 
 class ScoreDimension(BaseModel):
@@ -104,6 +108,36 @@ class StrategyAssessment(BaseModel):
     conditions: list[dict] = []
 
 
+class DebateSide(BaseModel):
+    """辩论中的一方（多头 / 空头研究员）。"""
+    side: str = Field(..., description="bull | bear")
+    thesis: str = Field("", description="核心论点，一句话")
+    evidence: list[str] = Field(default_factory=list, description="支撑论点的具体数据，尽量引用上下文里的数字")
+    rebuttal: list[str] = Field(default_factory=list, description="对对方论点的逐条反驳（第一轮为空）")
+    confidence: float = Field(0, ge=0, le=100, description="该方对自己的信心 0-100")
+
+
+class DebateResult(BaseModel):
+    """多空研究员结构化辩论结果。
+
+    定位：**风险与分歧标签，不是买卖点**。论据来自 LLM 推理，没有任何统计回测支撑，
+    因此证据等级固定取自 `tactic_evidence` 的 `unknown` 档、`executable` 恒为 False ——
+    与形态闸门同一纪律（未验证的东西不得进入买卖点位置）。
+    """
+    rounds: int = Field(0, description="实际完成的辩论轮数")
+    bull: DebateSide | None = None
+    bear: DebateSide | None = None
+    divergence: float = Field(
+        0, ge=0, le=100,
+        description="分歧度 0-100，口径为 min(多头信心, 空头信心)：两边都笃定说明是真争议",
+    )
+    direction: str = Field("neutral", description="辩论后的倾向：bull | bear | neutral")
+    key_disagreement: str = Field("", description="双方最核心的分歧点")
+    evidence: dict = Field(default_factory=dict, description="与 pattern_service 同形：tier/label/badge/summary/actionable")
+    executable: bool = Field(False, description="恒为 False：辩论结论不得作为买卖依据")
+    gate_note: str = Field("", description="闸门说明，前端必须原样展示")
+
+
 class StockAnalysis(BaseModel):
     """单只股票的分析结果"""
     code: str
@@ -117,6 +151,8 @@ class StockAnalysis(BaseModel):
     strategy: StrategyAssessment | None = None
     # 命中的实战形态（pattern_service），只装「全部条件成立」的技巧
     tactics: list[dict] = Field(default_factory=list)
+    # 多空研究员辩论（debate_service），仅在请求显式开启时才有值
+    debate: DebateResult | None = None
     holding_advice: str | None = None
 
 

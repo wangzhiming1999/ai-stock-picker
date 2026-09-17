@@ -7,7 +7,7 @@ from fastapi.responses import StreamingResponse
 
 from app import store
 from app.models import AnalysisRequest, StockHistory
-from app.services import data_service, pattern_service, signal_service, supabase_store, trend_template_service
+from app.services import data_service, debate_service, pattern_service, signal_service, supabase_store, trend_template_service
 from app.services.llm_service import mock_analyze, parse_analysis, should_use_mock, stream_analyze
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
@@ -66,6 +66,54 @@ def _cache_needs_tactics(cached: dict) -> bool:
     if not isinstance(tactics, list):
         return True
     return any(isinstance(t, dict) and "evidence" not in t for t in tactics)
+
+
+async def _assemble_context(q):
+    """拉行情 / 新闻 / K 线并组装分析上下文。
+
+    深度分析主链路与「缓存命中但要求补跑辩论」共用 —— 两处需要的上下文完全一致，
+    不抽出来就会复制出第二份口径，将来改 context 拼法必然漂掉一处。
+    """
+    long_history = await asyncio.to_thread(data_service.get_history, q.code, _ANALYSIS_DAYS)
+    history = _tail_history(long_history, _CONTEXT_DAYS)
+    news = await asyncio.to_thread(data_service.get_news, q.code, q.name)
+    context = data_service.build_stock_context(q, history, news)
+
+    signal = None
+    strategy_assessment = None
+    if history and history.closes:
+        signal = signal_service.compute_signals(history.closes, q.price)
+        strategy_assessment = trend_template_service.assess_trend_template(history.closes, q.price)
+        if signal:
+            context += (
+                f"\n\n技术位（由系统计算）：支撑位 {signal['support']}，压力位 {signal['resistance']}，"
+                f"建议买入区 {signal['buy_point']}，建议卖出区 {signal['sell_point']}，"
+                f"止损位 {signal['stop_loss']}，风险收益比 {signal['rr_ratio']}，"
+                f"信号强度 {signal['strength']}。请结合这些技术位给出更精确的买卖建议。"
+            )
+        context += (
+            f"\n\n长期趋势质量检查：{strategy_assessment['passed']}/{strategy_assessment['total']} 项通过，"
+            f"系统结论：{strategy_assessment['action']}。这是筛选条件，不是买入信号。"
+        )
+
+    # 形态命中：K 线量价条件的确定性核对结果（仅全部条件成立才算命中）
+    extra_periods = await pattern_service.load_tactic_periods([q.code])
+    tactics = pattern_service.matched_tactics(
+        _tactic_ctx(q, long_history, extra=extra_periods.get(q.code))
+    )
+    if tactics:
+        hits = "；".join(f"{t['name']}（{t['action']}）" for t in tactics)
+        context += f"\n\n系统形态识别命中：{hits}。这是确定性条件核对结果，请结合它评估风险与操作节奏。"
+
+    return {
+        "long_history": long_history,
+        "history": history,
+        "news": news,
+        "signal": signal,
+        "strategy": strategy_assessment,
+        "tactics": tactics,
+        "context": context,
+    }
 
 
 def _sse(event_type: str, message: str = "", payload: dict | None = None) -> str:
@@ -169,6 +217,14 @@ async def analyze_stocks(req: AnalysisRequest, request: Request):
                             cached["tactics"] = pattern_service.matched_tactics(
                                 _tactic_ctx(q, cached_history, extra=cached_extra.get(q.code))
                             )
+                if req.debate and not cached.get("debate"):
+                    # 用户显式开了辩论，但今日缓存是没开辩论时写的 —— 就地补跑并回写。
+                    # 不补的话开关像「不生效」，要等次日缓存过期才能看到辩论。
+                    prepared = await _assemble_context(q)
+                    debate = await debate_service.run_debate(prepared["context"])
+                    if debate:
+                        cached["debate"] = debate.model_dump()
+                        await _write_cache(q.code, cached, source="debate_patch")
                 yield _sse(
                     "stock_start",
                     f"{q.name}（{q.code}）命中今日缓存...",
@@ -190,36 +246,37 @@ async def analyze_stocks(req: AnalysisRequest, request: Request):
             # 2. 组装上下文（K线 + 新闻 + 技术信号 + 形态）
             # 日线请求 900 根（行情源硬上限 640），下游一律传最近 260 根切片，
             # 保证技术信号 / 趋势模板 / LLM 上下文的输入与改动前完全一致。
-            long_history = await asyncio.to_thread(data_service.get_history, q.code, _ANALYSIS_DAYS)
-            history = _tail_history(long_history, _CONTEXT_DAYS)
-            news = await asyncio.to_thread(data_service.get_news, q.code, q.name)
-            context = data_service.build_stock_context(q, history, news)
+            prepared = await _assemble_context(q)
+            history = prepared["history"]
+            news = prepared["news"]
+            signal = prepared["signal"]
+            strategy_assessment = prepared["strategy"]
+            tactics = prepared["tactics"]
+            context = prepared["context"]
 
-            signal = None
-            strategy_assessment = None
-            if history and history.closes:
-                signal = signal_service.compute_signals(history.closes, q.price)
-                strategy_assessment = trend_template_service.assess_trend_template(history.closes, q.price)
-                if signal:
-                    context += (
-                        f"\n\n技术位（由系统计算）：支撑位 {signal['support']}，压力位 {signal['resistance']}，"
-                        f"建议买入区 {signal['buy_point']}，建议卖出区 {signal['sell_point']}，"
-                        f"止损位 {signal['stop_loss']}，风险收益比 {signal['rr_ratio']}，"
-                        f"信号强度 {signal['strength']}。请结合这些技术位给出更精确的买卖建议。"
-                    )
-                context += (
-                    f"\n\n长期趋势质量检查：{strategy_assessment['passed']}/{strategy_assessment['total']} 项通过，"
-                    f"系统结论：{strategy_assessment['action']}。这是筛选条件，不是买入信号。"
+            # 2.5 多空研究员辩论（仅在请求显式开启；无 Key / 失败一律降级为 None）
+            # 只把「分歧」喂给主分析，不喂「倾向」—— 见 debate_service.summarize 的说明。
+            debate = None
+            if req.debate and not use_mock:
+                yield _sse(
+                    "debate_start",
+                    f"{q.name} 多空研究员对辩中（额外 2 轮 LLM 调用）...",
+                    {"code": q.code},
                 )
-
-            # 形态命中：K 线量价条件的确定性核对结果（仅全部条件成立才算命中）
-            extra_periods = await pattern_service.load_tactic_periods([q.code])
-            tactics = pattern_service.matched_tactics(
-                _tactic_ctx(q, long_history, extra=extra_periods.get(q.code))
-            )
-            if tactics:
-                hits = "；".join(f"{t['name']}（{t['action']}）" for t in tactics)
-                context += f"\n\n系统形态识别命中：{hits}。这是确定性条件核对结果，请结合它评估风险与操作节奏。"
+                debate = await debate_service.run_debate(context)
+                if debate:
+                    context += f"\n\n{debate_service.summarize(debate)}"
+                    yield _sse(
+                        "debate_done",
+                        f"{q.name} 多空分歧度 {debate.divergence:.0f}/100",
+                        {"code": q.code},
+                    )
+                else:
+                    yield _sse(
+                        "debate_done",
+                        f"{q.name} 辩论未产出（已降级，不影响主分析）",
+                        {"code": q.code},
+                    )
 
             # 3a. 本地规则评分模式
             if use_mock:
@@ -230,6 +287,7 @@ async def analyze_stocks(req: AnalysisRequest, request: Request):
                     analysis.signal = signal_service.compute_signals(history.closes, q.price)
                 analysis.strategy = strategy_assessment
                 analysis.tactics = tactics
+                analysis.debate = debate  # 规则评分模式下恒为 None（无 Key，辩论没有推理后端）
                 results.append(analysis)
                 await _write_cache(q.code, analysis.model_dump(), source="rule")
                 yield _sse(
@@ -263,6 +321,7 @@ async def analyze_stocks(req: AnalysisRequest, request: Request):
                 analysis.signal = signal_service.compute_signals(history.closes, q.price)
             analysis.strategy = strategy_assessment
             analysis.tactics = tactics
+            analysis.debate = debate
             results.append(analysis)
             await _write_cache(q.code, analysis.model_dump(), source="llm")
             yield _sse(

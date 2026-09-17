@@ -65,6 +65,35 @@ export interface StrategyAssessment {
   conditions: Array<{ label: string; passed: boolean }>;
 }
 
+export interface DebateSide {
+  side: "bull" | "bear";
+  thesis: string;
+  evidence: string[];
+  rebuttal: string[];
+  confidence: number;
+}
+
+export interface DebateResult {
+  rounds: number;
+  bull: DebateSide | null;
+  bear: DebateSide | null;
+  /** 分歧度 0-100，口径 = min(多头信心, 空头信心)：两边都笃定才是真争议 */
+  divergence: number;
+  /** 辩论后的倾向：bull | bear | neutral。仅供展示，不得当作买卖依据 */
+  direction: "bull" | "bear" | "neutral";
+  key_disagreement: string;
+  evidence?: {
+    tier: string;
+    label?: string;
+    badge?: string;
+    summary?: string;
+    actionable?: boolean;
+  };
+  /** 恒为 false：辩论结论没有回测支撑，不得进入买卖点位置 */
+  executable: boolean;
+  gate_note: string;
+}
+
 export interface StockAnalysis {
   code: string;
   name: string;
@@ -77,12 +106,16 @@ export interface StockAnalysis {
   strategy?: StrategyAssessment;
   /** 命中的实战形态（全部条件成立才算命中） */
   tactics?: TacticResult[];
+  /** 多空研究员辩论（仅在请求开启 debate 时有值） */
+  debate?: DebateResult;
   holding_advice?: string;
 }
 
 export type SSEEventType =
   | "status"
   | "stock_start"
+  | "debate_start"
+  | "debate_done"
   | "delta"
   | "stock_done"
   | "stock_error"
@@ -1142,4 +1175,169 @@ export interface SpotStatus {
   cooldown_window_seconds: number;
   /** 强制刷新最小间隔（当前 60s） */
   force_min_interval_seconds: number;
+}
+
+/* ---------- 连板梯队（GET /api/limitup/snapshot · relay） ----------
+ *
+ * ⚠️ 这两种数据都**不是买卖信号**：连板接力只有「能否继续封板」这个中间指标上的
+ * 正向线索，缺少收益口径（涨停池拿不到次日成交价），后端证据等级停在「初步」，
+ * `evidence.actionable` 恒为 false。前端只做**位置描述与情绪描述**，
+ * 不得渲染成买点、加仓或任何动作话术。
+ */
+
+/** 个股的连板位置分桶 —— 统计分桶，不是建议。 */
+export interface LimitUpPosition {
+  /** 启动 / 加速 / 中继 / 高位 / 分歧 */
+  tag: string;
+  reason: string;
+}
+
+/** 涨停池个股（价格单位为元，市值/封单为亿元）。 */
+export interface LimitUpStock {
+  code: string;
+  name: string;
+  price: number;
+  change_pct: number;
+  /** 连板数：1 = 首板 */
+  boards: number;
+  /** 首次封板时间 HH:MM:SS，越早越强 */
+  seal_time: string;
+  last_seal_time: string;
+  /** 盘中开板次数，0 = 封得死 */
+  break_count: number;
+  seal_fund_yi: number;
+  float_mv_yi: number;
+  turnover: number;
+  amount_yi: number;
+  /** 所属行业板块（用于识别主线） */
+  sector: string;
+  /** 统计口径：N 天 M 板 */
+  stat_days: number;
+  stat_boards: number;
+  /** 封单占流通市值比（%），只能横向比、不能跨市值硬套 */
+  seal_ratio: number;
+  /**
+   * 连板位置分桶。后端 `get_snapshot` 会给 ladder / stocks 两处都挂上；
+   * 标注为可选是为了容忍滚动发布时连到旧后端的情况 —— 缺失时按「未知」降级，
+   * 不要因为一个字段让整个梯队渲染成空白（同 TacticHit 对 evidence 的处理）。
+   */
+  position?: LimitUpPosition;
+}
+
+/** 连板梯队的一档（>6 板合并为「6板+」）。 */
+export interface LimitUpLadderGroup {
+  key: number;
+  /** 首板 / 2板 / … / 6板+ */
+  label: string;
+  count: number;
+  items: LimitUpStock[];
+}
+
+/** 板块聚集度。 */
+export interface LimitUpSector {
+  sector: string;
+  count: number;
+  /** 其中连板（≥2 板）家数 */
+  relay_count: number;
+  max_boards: number;
+  seal_fund_yi: number;
+  avg_turnover: number;
+  codes: string[];
+  names: string[];
+}
+
+/** 当日情绪温度。 */
+export interface LimitUpSentiment {
+  limit_up_count: number;
+  broken_count: number;
+  /** 炸板率 % = 炸板家数 ÷ (涨停 + 炸板)，分母是「曾涨停过的家数」 */
+  break_rate: number;
+  max_boards: number;
+  relay_count: number;
+  first_board_count: number;
+  /** 封板期间未开板的家数 */
+  intact_count: number;
+}
+
+/** 情绪一句话点评。tone 由后端给出，前端只做配色映射。 */
+export interface LimitUpSentimentNote {
+  tone: "good" | "warn" | "neutral";
+  text: string;
+}
+
+export interface LimitUpSnapshot {
+  trade_date: string;
+  /** 时段标签：竞价 / 早盘 / 午休 / 尾盘 / 收盘 */
+  session: string;
+  cached: boolean;
+  sentiment: LimitUpSentiment;
+  sentiment_note: LimitUpSentimentNote;
+  ladder: LimitUpLadderGroup[];
+  sectors: LimitUpSector[];
+  stocks: LimitUpStock[];
+  /** 炸板池是否取到；false 时 break_rate 只反映部分信息 */
+  broken_ok: boolean;
+  evidence: TacticEvidence;
+  caliber: Caliber;
+}
+
+/** 晋级率按连板高度分档。 */
+export interface LimitUpRelayRow {
+  key: number;
+  label: string;
+  total: number;
+  promoted: number;
+  rate: number;
+}
+
+/** 晋级率按板块聚集度分档（边缘分布，受连板高度混淆，需配合分层表看）。 */
+export interface LimitUpRelayCluster {
+  key: string;
+  total: number;
+  promoted: number;
+  rate: number;
+}
+
+/** 分层交叉表的一个格子：控制住连板高度之后再看板块聚集度的影响。 */
+export interface LimitUpRelayCell {
+  boards: number;
+  cluster: string;
+  total: number;
+  promoted: number;
+  rate: number;
+}
+
+export interface LimitUpRelayStratum {
+  /** 连板高度分桶（1..6，6 表示 6板+）。注意字段名是 boards，不是 key。 */
+  boards: number;
+  label: string;
+  clusters: LimitUpRelayCell[];
+}
+
+export interface LimitUpRelayResult {
+  caliber: Caliber;
+  evidence: TacticEvidence;
+  /** 请求的窗口天数 */
+  days: number;
+  /** 请求窗口（可能大于真正有数据的窗口） */
+  date_range: string[];
+  /** 真正取到数据的日期区间 —— 早于它的日期接口返回空池 */
+  data_window: string[];
+  /** 实际有数据的交易日数 */
+  effective_days: number;
+  /** 超出接口回溯范围、返回空池的日期（已排除出样本） */
+  empty_dates: string[];
+  /** 拉取失败的日期 */
+  skipped_dates: string[];
+  sessions: number;
+  total_samples: number;
+  overall_rate: number;
+  avg_daily_limit_up: number;
+  /** 随机水平参照（不是同口径基准，见 caliber.pitfall） */
+  baseline_rate: number;
+  market_universe: number;
+  by_boards: LimitUpRelayRow[];
+  by_cluster: LimitUpRelayCluster[];
+  by_boards_cluster: LimitUpRelayStratum[];
+  cached: boolean;
 }
