@@ -9,6 +9,7 @@ import AuthModal from "./components/AuthModal";
 import BrandLogo from "./components/BrandLogo";
 import ErrorBoundary from "./components/ErrorBoundary";
 import HoldingsPanel from "./components/HoldingsPanel";
+import LimitUpBar from "./components/LimitUpBar";
 import OpportunityPanel from "./components/OpportunityPanel";
 import StockSearchInput from "./components/StockSearchInput";
 import TodayPanel from "./components/TodayPanel";
@@ -131,6 +132,10 @@ export default function App() {
           </div>
         </div>
       </header>
+
+      {/* 连板梯队常驻条：全局可见的市场情绪温度，展开看梯队 / 板块 / 晋级率回溯。
+          刻意不进 NAV —— 它是「读市场」而非「做一件事」，不占一级入口。 */}
+      <LimitUpBar />
 
       <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} />
 

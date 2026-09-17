@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { addAlertRule, fetchHoldings, fetchMonitor, fetchWatchlist } from "../api/client";
 import CollapsiblePanel from "./CollapsiblePanel";
 import { useAuth } from "../auth/AuthContext";
-import type { MonitorInterval, MonitorResult, MonitorStock } from "../types";
+import type { MonitorAdvice, MonitorInterval, MonitorResult, MonitorStock } from "../types";
 import { ensureNotCooling } from "../lib/spotGuard";
 import { pnlTone } from "../lib/tone";
 import { TacticChips } from "./TacticHit";
@@ -16,6 +16,27 @@ const LS_NOTIFY = "ai:monitorNotify";
 const LS_INTERVAL = "ai:monitorInterval";
 const DEFAULT_POLL_MS = 5 * 60 * 1000;
 const MAX_CODES = 20;
+
+/**
+ * 提醒 toast 的停留时长。sonner 默认只有 4 秒 —— 盯盘提醒是「现在该买/该卖/该止损」，
+ * 属于全站最不能错过的信息，4 秒根本读不完就没了，所以显式延长。
+ */
+const ALERT_TOAST_MS = 30_000;
+/** 同票同指令的去重窗口：窗口内重复触发只响一次 */
+const ALERT_DEDUPE_MS = 3 * 60 * 1000;
+/** 页内提醒记录上限：超出丢弃最旧的，避免长时间盯盘时无限累积 */
+const MAX_ALERTS = 30;
+
+/** 一条盯盘提醒记录（页内留痕，toast 消失后仍可回看） */
+interface MonitorAlertItem {
+  id: string;
+  code: string;
+  name: string;
+  label: string;
+  body: string;
+  tone: MonitorAdvice["tone"];
+  at: string;
+}
 
 /** 周期档位：日线定方向，分钟线定这一笔 */
 const INTERVALS: { value: MonitorInterval; label: string; hint: string }[] = [
@@ -52,7 +73,16 @@ function loadSaved(): string[] {
 
 function loadNotify(): boolean {
   try {
-    return localStorage.getItem(LS_NOTIFY) === "1";
+    const v = localStorage.getItem(LS_NOTIFY);
+    if (v === "0") return false;
+    if (v === "1") return true;
+  } catch {
+    /* ignore */
+  }
+  // 没设置过：浏览器已授权桌面通知就默认开启。
+  // 默认关闭会让「切到别的窗口盯盘」这件事完全收不到提醒，而提醒开关正是为它存在的。
+  try {
+    return "Notification" in window && window.Notification.permission === "granted";
   } catch {
     return false;
   }
@@ -97,11 +127,17 @@ export default function MonitorPanel() {
   const [alertBusy, setAlertBusy] = useState<string | null>(null);
   const [costs, setCosts] = useState<Record<string, number>>({});
   const [interval, setInterval] = useState<MonitorInterval>(loadInterval);
+  /** 页内提醒留痕：toast 会消失，这份列表不会 */
+  const [alerts, setAlerts] = useState<MonitorAlertItem[]>([]);
   const busyRef = useRef(false);
   const prevActionRef = useRef<Record<string, string>>({});
   const notifyRef = useRef<boolean>(notifyOn);
   const audioCtxRef = useRef<AudioContext | null>(null);
-  const lastHintRef = useRef<{ code: string; at: number; label: string } | null>(null);
+  /**
+   * `code:action` → 上次提醒时间戳。
+   * 必须是 map：早先只存「最后一条」，A→B→A 交替触发时去重直接失效，会重复响铃。
+   */
+  const lastHintRef = useRef<Record<string, number>>({});
   const costsRef = useRef<Record<string, number>>({});
   const intervalRef = useRef<MonitorInterval>(interval);
 
@@ -175,15 +211,28 @@ export default function MonitorPanel() {
   const fireAlert = useCallback(
     (it: MonitorStock) => {
       const key = `${it.code}:${it.advice.action}`;
-      // 同票同指令 3 分钟内不重复提醒（防止连续轮询反复响）
+      // 同票同指令窗口内不重复提醒（防止行情在阈值附近抖动时反复响铃）
       const now = Date.now();
-      const prev = lastHintRef.current;
-      if (prev && prev.code === key && now - prev.at < 3 * 60 * 1000) return;
-      lastHintRef.current = { code: key, at: now, label: it.advice.label };
+      if (now - (lastHintRef.current[key] ?? 0) < ALERT_DEDUPE_MS) return;
+      // 顺手回收过期项，避免长期盯盘时 key 无界累积
+      for (const k of Object.keys(lastHintRef.current)) {
+        if (now - lastHintRef.current[k] >= ALERT_DEDUPE_MS) delete lastHintRef.current[k];
+      }
+      lastHintRef.current[key] = now;
 
       beep();
       const title = `${it.name} · ${it.advice.label}`;
       const body = it.advice.do ? `${it.advice.do}（${it.code}）` : `${it.advice.hint}（${it.code}）`;
+
+      // 页内留痕：toast 是限时消失的，这份记录才是能回头查的那一份
+      const at = new Date(now).toISOString();
+      setAlerts((prev) =>
+        [
+          { id: `${now}-${it.code}`, code: it.code, name: it.name, label: it.advice.label, body, tone: it.advice.tone, at },
+          ...prev,
+        ].slice(0, MAX_ALERTS)
+      );
+
       const inBackground = typeof document !== "undefined" && document.hidden;
       const canNotify =
         notifyRef.current &&
@@ -197,7 +246,12 @@ export default function MonitorPanel() {
           /* fallthrough to toast */
         }
       }
-      toast.warning(title, { description: body });
+      toast.warning(title, {
+        description: body,
+        // 后台时用户根本看不到，常驻到切回来为止；前台给足 30 秒读完指令与价位
+        duration: inBackground ? Infinity : ALERT_TOAST_MS,
+        closeButton: true,
+      });
     },
     [beep]
   );
@@ -545,6 +599,41 @@ export default function MonitorPanel() {
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* 盯盘提醒留痕：顶部的浮层提示会限时消失，这里不会 */}
+      {alerts.length > 0 && (
+        <div className="mb-3 rounded-xl border border-amber-900/50 bg-slate-900/60 p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <BellRing className="h-3.5 w-3.5 text-amber-300" aria-hidden />
+            <span className="text-xs font-semibold text-ink">盯盘提醒</span>
+            <span className="text-xs text-ink-faint">
+              本次 <b className="text-ink-soft">{alerts.length}</b> 条 · 最近的在最前
+            </span>
+            <button
+              onClick={() => setAlerts([])}
+              className="ml-auto rounded-lg border border-slate-700 px-2.5 py-1 text-xs text-ink-muted transition-colors hover:text-ink"
+            >
+              清空
+            </button>
+          </div>
+          <ul className="mt-2 space-y-1">
+            {alerts.map((a) => (
+              <li key={a.id} className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="tabular-nums text-ink-faint">{fmtTime(a.at)}</span>
+                <span
+                  className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 ${
+                    toneClass[a.tone] ?? toneClass.neutral
+                  }`}
+                >
+                  <b>{a.name}</b>
+                  <span className="opacity-80">{a.label}</span>
+                </span>
+                <span className="text-ink-soft">{a.body}</span>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

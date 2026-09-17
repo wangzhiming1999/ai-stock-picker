@@ -51,11 +51,15 @@ export default function AnalysisDrawer({ open, codes, requestId, onClose, onBatc
   const [currentCode, setCurrentCode] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [infos, setInfos] = useState<Record<string, StockInfo>>({});
+  const [debate, setDebate] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
   // 用 ref 持有回调，避免它进入 run 的依赖导致每次渲染都重建分析函数
   const batchSavedRef = useRef(onBatchSaved);
   batchSavedRef.current = onBatchSaved;
+  // 辩论开关同样走 ref：run 的依赖必须保持为空，否则开关一变就会重跑分析
+  const debateRef = useRef(debate);
+  debateRef.current = debate;
 
   const run = useCallback(async (raw: string) => {
     const list = parseCodesFromText(raw);
@@ -85,6 +89,10 @@ export default function AnalysisDrawer({ open, codes, requestId, onClose, onBatc
     const handleEvent = (e: SSEEvent) => {
       switch (e.type) {
         case "status":
+          setStatus(e.message);
+          break;
+        case "debate_start":
+        case "debate_done":
           setStatus(e.message);
           break;
         case "stock_start":
@@ -121,7 +129,7 @@ export default function AnalysisDrawer({ open, codes, requestId, onClose, onBatc
     };
 
     try {
-      await Promise.all([infoTask, streamAnalysis(list, handleEvent, signal, true)]);
+      await Promise.all([infoTask, streamAnalysis(list, handleEvent, signal, true, debateRef.current)]);
       setPhase((p) => (p === "running" ? "done" : p));
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
@@ -244,6 +252,21 @@ export default function AnalysisDrawer({ open, codes, requestId, onClose, onBatc
                   )}
                 </div>
                 <p className="mt-2 text-xs text-ink-faint">提示：支持 Ctrl + Enter 快捷触发；Esc 关闭</p>
+                <label className="mt-2 flex cursor-pointer items-start gap-2 text-xs text-ink-muted">
+                  <input
+                    type="checkbox"
+                    checked={debate}
+                    onChange={(e) => setDebate(e.target.checked)}
+                    disabled={phase === "running"}
+                    className="mt-0.5 accent-blue-600"
+                  />
+                  <span>
+                    多空研究员对辩
+                    <span className="ml-1 text-ink-faint">
+                      （每只票额外 2 轮 LLM 调用，更慢；结论仅为分歧与风险提示，不构成买卖依据）
+                    </span>
+                  </span>
+                </label>
               </div>
 
               {/* 状态 */}

@@ -1,6 +1,7 @@
 import type { StockAnalysis, StockInfo } from "../types";
 import { motion } from "framer-motion";
 import KLineChart from "./KLineChart";
+import DebateBlock from "./DebateBlock";
 import ScoreBar from "./ScoreBar";
 import { fmtNum, safeArray } from "../lib/safe";
 import { CHIP, pnlTone, rrTone, scoreTone } from "../lib/tone";
@@ -116,6 +117,9 @@ export default function StockCard({ analysis, info }: Props) {
           </ul>
         </div>
       )}
+
+      {/* 多空研究员对辩：分歧与风险提示，不是买卖点（executable 恒 false） */}
+      {analysis.debate && <DebateBlock debate={analysis.debate} />}
 
       {/* 技术信号（压力位/买卖点/止损） */}
       {analysis.signal && (
