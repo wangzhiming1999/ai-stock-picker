@@ -17,6 +17,10 @@ from typing import Any
 from app.services import akshare_guard, concurrency, data_service, spot_service, supabase_store, trade_calendar_service
 from app.services.cache_utils import put_bounded
 
+# 路由层延迟导入（services ← routes 已有先例 recommend_service）：
+# _get_spot 是全站唯一的全市场快照入口（内存 5min → Supabase 6h → 真拉+跨实例冷却）。
+from app.routes import market as market_routes
+
 # 当日内存缓存：key=交易日, value=(生成时间, data)
 _quad_cache: dict[str, tuple[str, dict]] = {}
 _QUAD_CACHE_MAX = 7
@@ -69,7 +73,10 @@ def _match_hot_news(name: str, code: str, hot_titles: list[str], limit: int = 4)
 
 
 def _full_spot(force: bool = False) -> list[dict]:
-    """全市场实时快照（东财富字段，60s 缓存），失败降级腾讯。
+    """全市场实时快照（东财富字段，60s 缓存），失败降级腾讯。**同步直拉版**。
+
+    ⚠️ 新代码不要直接调它 —— 走 ``get_full_spot()``（接入 _get_spot 三层回退 +
+    跨实例冷却）。本函数保留给无法 await 的同步调用路径。
 
     force=True 时忽略缓存重新拉取（供「刷新」穿透底层快照缓存）。
     """
@@ -118,6 +125,46 @@ def _full_spot(force: bool = False) -> list[dict]:
         rows = []
     _full_spot_cache = (now, rows)
     return rows
+
+
+def _normalize_shared_row(row: dict) -> dict:
+    """_get_spot 缓存行 → 四维初筛所需结构。
+
+    兼容两代缓存行：富字段行（2026-09-18 起随快照落库 pe/pb/turnover 等）
+    与旧 5 字段行（code/name/price/change/amount）—— 后者初筛必需的
+    pe/turnover 缺失，由 _preselect 的腾讯批量补全兜底。
+    """
+    amount = row.get("amount_yi")
+    if amount is None:
+        amount = (row.get("amount") or 0) / 1e8
+    mc = row.get("market_cap_yi")
+    if mc is None:
+        mc = (row.get("market_cap") or 0) / 1e8 or None
+    return {
+        "code": str(row.get("code") or "").replace("sh", "").replace("sz", "").replace("bj", ""),
+        "name": str(row.get("name") or "").strip(),
+        "price": float(row.get("price") or 0),
+        "change_pct": float(row.get("change_pct", row.get("change") or 0)),
+        "amount_yi": float(amount or 0),
+        "volume_ratio": row.get("volume_ratio"),
+        "turnover": row.get("turnover"),
+        "pe": row.get("pe"),
+        "pb": row.get("pb"),
+        "market_cap_yi": mc,
+        "change_5min": row.get("change_5min"),
+    }
+
+
+async def get_full_spot(force: bool = False) -> list[dict]:
+    """四维榜/市场宽度的全市场快照入口：接入 _get_spot 三层回退。
+
+    修复背景：此前 generate_quad_rankings 直连 _full_spot（fetch_spot_frame），
+    是全项目唯一绕过「内存 → Supabase 热快照 → 真拉+跨实例冷却」的全市场消费者
+    —— 源一抖就 502，而 Supabase 里明明有热快照。改后与全站共享缓存与冷却：
+    冷却期直接快速失败（冷却文案），不再绕过冷却去撞行情源。
+    """
+    raw = await market_routes._get_spot(force=force)
+    return [_normalize_shared_row(row) for row in raw]
 
 
 def _is_clean(name: str) -> bool:
@@ -537,7 +584,7 @@ async def generate_quad_rankings(force_refresh: bool = False) -> dict:
         if hit:
             return hit
 
-    spot = await asyncio.to_thread(_full_spot, force_refresh)
+    spot = await get_full_spot(force_refresh)
     if not spot:
         raise RuntimeError("获取全市场行情失败")
 
@@ -597,6 +644,7 @@ async def generate_quad_rankings(force_refresh: bool = False) -> dict:
     }
     await _save_db_quad(data_day, result)
     put_bounded(_quad_cache, data_day, (data_day, result), max_entries=_QUAD_CACHE_MAX)
+    await _save_quad_to_recommendations(data_day, result)
     return result
 
 
@@ -651,3 +699,51 @@ async def _save_db_quad(data_day: str, result: dict) -> None:
             await sb.table("quad_snapshots").insert(payload).execute()
     except Exception as e:
         print(f"[quad] DB 保存失败: {e}")
+
+
+async def _save_quad_to_recommendations(data_day: str, result: dict) -> int:
+    """四维榜 Top10 落 daily_recommendations（source='quad'），接入既有次日结算。
+
+    修复背景：quad 快照只写 quad_snapshots，而结算链路只读 daily_recommendations
+    → 四维榜从未被结算，其质量好坏在系统内部不可见（推荐为空的日子整条推荐
+    闭环都是 0 样本）。落到同一张表后由 winrate_service.settle_daily_recommendations
+    统一结算；口径差异用 source 区分（'quad' ≠ 'llm'/'rule'，统计各自独立，不相加）。
+
+    幂等：同 (rec_date, code) 已存在（无论 source）就跳过 —— 推荐链路当天先落
+    过的票不重复记。表未建/未配置静默返回 0。
+    """
+    if not supabase_store.is_configured():
+        return 0
+    items = (result or {}).get("items") or []
+    if not items:
+        return 0
+    try:
+        sb = await supabase_store.get_service_client()
+        existing = (
+            await sb.table("daily_recommendations")
+            .select("code")
+            .eq("rec_date", data_day)
+            .execute()
+        )
+        have = {row.get("code") for row in (existing.data or [])}
+        rows = [
+            {
+                "rec_date": data_day,
+                "code": item["code"],
+                "name": item.get("name") or "",
+                "recommend_price": item.get("price"),
+                # reason 放四维得分摘要，便于结算后回看「当时为什么上榜」
+                "reason": f"四维榜 rank{item.get('rank')} 综合分 {item.get('overall_score')}",
+                "confidence": item.get("overall_score"),
+                "source": "quad",
+            }
+            for item in items
+            if item.get("code") and item.get("price") and item["code"] not in have
+        ]
+        if not rows:
+            return 0
+        res = await sb.table("daily_recommendations").insert(rows).execute()
+        return len(res.data or [])
+    except Exception as e:
+        print(f"[quad] 四维榜落 daily_recommendations 失败（结算闭环不可用）: {e}")
+        return 0

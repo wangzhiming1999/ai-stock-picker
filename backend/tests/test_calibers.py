@@ -160,6 +160,64 @@ class TestApiPayload:
         # 两个口径必须不同，否则同屏展示就是误导
         assert stats["prediction"]["caliber"]["window"] != stats["recommendation"]["caliber"]["window"]
 
+    @pytest.mark.asyncio
+    async def test_recommendation_excludes_quad_and_watch_from_main_rate(self, monkeypatch) -> None:
+        """口径守卫：quad（四维榜）与 watch（观察层）绝不并入推荐主口径。
+
+        三者入选机制不同，混算后的数字什么也说明不了（见 recommendation.pitfall）。
+        """
+        monkeypatch.setattr(wr.supabase_store, "is_configured", lambda: True)
+        monkeypatch.setattr(
+            wr.supabase_store,
+            "get_service_client",
+            _fake_client(
+                {
+                    "prediction_records": [],
+                    "daily_recommendations": [
+                        {"hit": True, "source": "llm"},
+                        {"hit": False, "source": "rule"},
+                        {"hit": True, "source": "quad"},
+                        {"hit": True, "source": "quad"},
+                        {"hit": False, "source": "watch"},
+                    ],
+                    "winrate_snapshot": [],
+                }
+            ),
+        )
+
+        stats = await wr.get_winrate_stats()
+        reco = stats["recommendation"]
+
+        # 主口径只算 llm+rule：2 条、1 中 → 50%
+        assert reco["total"] == 2
+        assert reco["hit_rate"] == 50.0
+        # quad/watch 单列：各自 2/1 与 1/0
+        assert reco["by_source"]["quad"]["total"] == 2
+        assert reco["by_source"]["quad"]["hit_rate"] == 100.0
+        assert reco["by_source"]["watch"]["total"] == 1
+        assert reco["by_source"]["watch"]["hit_rate"] == 0.0
+
+    @pytest.mark.asyncio
+    async def test_legacy_rows_without_source_still_counted(self, monkeypatch) -> None:
+        """旧数据行没有 source 字段（迁移前的 llm/rule 行）必须仍计入主口径。"""
+        monkeypatch.setattr(wr.supabase_store, "is_configured", lambda: True)
+        monkeypatch.setattr(
+            wr.supabase_store,
+            "get_service_client",
+            _fake_client(
+                {
+                    "prediction_records": [],
+                    "daily_recommendations": [{"hit": True}, {"hit": True}],
+                    "winrate_snapshot": [],
+                }
+            ),
+        )
+
+        stats = await wr.get_winrate_stats()
+
+        assert stats["recommendation"]["total"] == 2
+        assert stats["recommendation"]["hit_rate"] == 100.0
+
     def test_backtest_service_uses_registered_key(self) -> None:
         """回测接口的 caliber 必须来自登记表，key 写错会静默变成「未登记口径」。"""
         assert "strategy_backtest" in calibers.all_keys()

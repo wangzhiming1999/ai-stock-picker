@@ -31,7 +31,6 @@
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import math
 
@@ -521,17 +520,21 @@ def compute_breadth(rows: list[dict], prev_amount_yi: float | None = None) -> di
     }
 
 
-def _spot_rows(force: bool = False) -> list[dict]:
-    """复用四维榜单的全市场快照（东财/新浪降级 + 60s 缓存），避免重复打行情源。"""
+async def _spot_rows(force: bool = False) -> list[dict]:
+    """全市场快照：与四维榜同源，走 _get_spot 三层回退（内存 → Supabase 热快照 → 真拉+冷却）。
+
+    此前直连 quad_service._full_spot 同步直拉，行情源被风控时这条路径也会撞上去
+    （冷却对本函数不生效）。改后共享缓存与冷却，失败快速返回。
+    """
     from app.services import quad_service  # 延迟导入：避免服务间循环依赖
 
-    return quad_service._full_spot(force)
+    return await quad_service.get_full_spot(force)
 
 
 async def fetch_breadth(prev_amount_yi: float | None = None) -> dict | None:
     """取市场宽度。失败返回 None —— 宽度只是附加证据，绝不能拖垮方向预测。"""
     try:
-        rows = await asyncio.to_thread(_spot_rows)
+        rows = await _spot_rows()
     except Exception as exc:  # noqa: BLE001
         print(f"[regime] 全市场快照获取失败，市场宽度缺失: {exc}")
         return None

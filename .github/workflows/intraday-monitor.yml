@@ -1,0 +1,75 @@
+name: Intraday Monitor
+
+# 盘中监控外部调度（Vercel Hobby 计划只有 2 个 cron 名额，已被 daily/quad 占用）。
+# /api/cron/monitor 承担两件事：
+#   1. 预警评估（盘中每几分钟一次，浏览器关闭后仍能落库预警事件）
+#   2. 连板接力自动建仓（仅在 9:15~9:45 窗口内判定，开盘价 9:25 后才确定）
+#
+# 需要在仓库 Settings → Secrets and variables → Actions 配置：
+#   MONITOR_BACKEND_URL  —— 后端地址，默认线上 https://backend-smoky-kappa-70.vercel.app
+#   MONITOR_CRON_SECRET  —— 与 Vercel 环境变量 CRON_SECRET 同值
+#   （或 MONITOR_ADMIN_TOKEN —— 与 ADMIN_TOKEN 同值，走 X-Admin-Token 通道）
+# 两个 secret 都未配置时本 workflow 会跳过并给出提示，不会白跑。
+#
+# GitHub Actions 的 schedule 是 UTC 且有分钟级延迟（高峰可到 5~15 分钟），
+# 因此按「窗口重叠覆盖」设计：A 股 9:30 开盘 = UTC 1:30；建仓判定窗口
+# （北京 9:15~9:45 = UTC 1:15~1:45）内多打几次，由后端窗口判定兜底去重。
+
+on:
+  schedule:
+    # 交易时段每 5 分钟一次（北京时间 9:15-11:35 / 12:55-15:05 ≈ UTC 1:15-3:35 / 4:55-7:05）
+    - cron: "*/5 1-3 * * 1-5"
+    - cron: "*/5 4-7 * * 1-5"
+  workflow_dispatch: {} # 手动触发：补跑或验证配置
+
+concurrency:
+  group: intraday-monitor
+  cancel-in-progress: false # 上一轮没跑完也不要取消（落库预警不能丢）
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 触发盘中监控
+        env:
+          BACKEND: ${{ secrets.MONITOR_BACKEND_URL || 'https://backend-smoky-kappa-70.vercel.app' }}
+          CRON_SECRET: ${{ secrets.MONITOR_CRON_SECRET }}
+          ADMIN_TOKEN: ${{ secrets.MONITOR_ADMIN_TOKEN }}
+        run: |
+          if [ -z "$CRON_SECRET" ] && [ -z "$ADMIN_TOKEN" ]; then
+            echo "::warning::MONITOR_CRON_SECRET / MONITOR_ADMIN_TOKEN 均未配置，跳过（先去仓库 Secrets 配置其一）"
+            exit 0
+          fi
+          # 周末兜底（schedule 只保证工作日，但 UTC 边界日期可能错位）
+          DOW=$(date -u +%u) # 1=Mon ... 7=Sun
+          if [ "$DOW" -gt 5 ]; then
+            echo "周末跳过（DOW=$DOW）"
+            exit 0
+          fi
+          AUTH_HEADER=""
+          if [ -n "$ADMIN_TOKEN" ]; then
+            AUTH_HEADER="X-Admin-Token: $ADMIN_TOKEN"
+          else
+            AUTH_HEADER="Authorization: Bearer $CRON_SECRET"
+          fi
+          HTTP_CODE=$(curl -s -o /tmp/monitor_resp.json -w "%{http_code}" \
+            -X POST "$BACKEND/api/cron/monitor" \
+            -H "$AUTH_HEADER" \
+            -H "Content-Type: application/json" \
+            --max-time 240 || echo "000")
+          echo "HTTP $HTTP_CODE"
+          cat /tmp/monitor_resp.json 2>/dev/null | head -c 2000 || true
+          echo ""
+          if [ "$HTTP_CODE" = "000" ]; then
+            echo "::error::请求超时/网络失败"
+            exit 1
+          fi
+          if [ "$HTTP_CODE" = "401" ] || [ "$HTTP_CODE" = "403" ] || [ "$HTTP_CODE" = "503" ]; then
+            echo "::error::鉴权失败（$HTTP_CODE）——检查 Vercel 环境变量与仓库 Secret 是否同值"
+            exit 1
+          fi
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::warning::非 200 响应（$HTTP_CODE）——后端可能限流/源失败，留给下一轮重试"
+            exit 0 # 非 200 不标红：盘中间歇性失败是预期内的，5 分钟后重试
+          fi

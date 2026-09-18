@@ -42,16 +42,45 @@ def _is_usable_spot(rows: list | None) -> bool:
 
 
 def _rows_from_spot_frame(df) -> list[dict]:
+    """行情快照 DataFrame → 归一化行。
+
+    基础 5 字段是全站消费者共用的契约（scan/search/recommend/quad 缓存行）；
+    富字段（pe/pb/turnover 等）供四维榜初筛直接使用，缺列的数据源（新浪）自动为 None。
+    富字段随快照一起落 market_spot_cache —— 旧缓存行只有 5 字段，消费方必须容忍缺失。
+    """
     rows = []
     for _, row in df.iterrows():
         try:
+            code = str(row["代码"])
+            name = str(row["名称"]).strip()
+            price = float(row["最新价"])
+            change = float(row["涨跌幅"])
+            amount = float(row["成交额"])
+
+            def _opt(key: str) -> float | None:
+                v = row.get(key)
+                if v is None:
+                    return None
+                try:
+                    f = float(v)
+                    return f
+                except (ValueError, TypeError):
+                    return None
+
             rows.append(
                 {
-                    "code": str(row["代码"]),
-                    "name": str(row["名称"]).strip(),
-                    "price": float(row["最新价"]),
-                    "change": float(row["涨跌幅"]),
-                    "amount": float(row["成交额"]),
+                    "code": code,
+                    "name": name,
+                    "price": price,
+                    "change": change,
+                    "amount": amount,
+                    # 富字段：四维榜初筛用；新浪源缺量比/5分钟涨跌 → None
+                    "turnover": _opt("换手率"),
+                    "pe": _opt("市盈率-动态"),
+                    "pb": _opt("市净率"),
+                    "volume_ratio": _opt("量比"),
+                    "market_cap": _opt("总市值"),
+                    "change_5min": _opt("5分钟涨跌"),
                 }
             )
         except (KeyError, ValueError, TypeError):

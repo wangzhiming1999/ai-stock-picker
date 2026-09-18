@@ -122,20 +122,39 @@ async def get_winrate_stats() -> dict:
     for d, b in by_dir.items():
         b["hit_rate"] = round(b["hit"] / b["total"] * 100, 1) if b["total"] else None
 
-    # 推荐统计
+    # 推荐统计（带 source 细分）
+    # 口径纪律：'quad'（四维榜 Top10）与 'llm'/'rule'（每日推荐）的入选机制完全不同，
+    # 命中率不可相加比较 —— 主口径只算推荐链路，quad/watch 单列。
     rec_rows = []
     try:
         rec_res = (
             await sb.table("daily_recommendations")
-            .select("hit")
+            .select("hit", "source")
             .not_.is_("settled_at", None)
             .execute()
         )
         rec_rows = rec_res.data or []
     except Exception:
         pass
-    rec_total = len(rec_rows)
-    rec_hit = sum(1 for r in rec_rows if r.get("hit"))
+
+    def _is_reco_source(src) -> bool:
+        return src not in ("quad", "watch")
+
+    reco_rows = [r for r in rec_rows if _is_reco_source(r.get("source"))]
+    quad_rows = [r for r in rec_rows if r.get("source") == "quad"]
+    watch_rows = [r for r in rec_rows if r.get("source") == "watch"]
+    rec_total = len(reco_rows)
+    rec_hit = sum(1 for r in reco_rows if r.get("hit"))
+
+    def _block(rows: list[dict]) -> dict:
+        total = len(rows)
+        hit = sum(1 for r in rows if r.get("hit"))
+        return {
+            "total": total,
+            "hit": hit,
+            "hit_rate": round(hit / total * 100, 1) if total else None,
+            "sample_status": _sample_status(total),
+        }
 
     # 最新快照
     snapshot = None
@@ -166,6 +185,10 @@ async def get_winrate_stats() -> dict:
             "hit_rate": round(rec_hit / rec_total * 100, 1) if rec_total else None,
             "sample_status": _sample_status(rec_total),
             "caliber": calibers.describe("recommendation"),
+            "by_source": {
+                "quad": _block(quad_rows),
+                "watch": _block(watch_rows),
+            },
         },
         "snapshot": snapshot,
         "caliber_note": calibers.note(),

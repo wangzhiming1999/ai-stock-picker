@@ -425,6 +425,9 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
             await _save_db_recommendation(today, result)
         except Exception as e:
             print(f"[recommend] 空推荐快照写入失败: {e}")
+        # 空推荐日的观察层也落 daily_recommendations（source='watch'）：
+        # 没有它，空日胜率闭环恒 0 样本，「推荐链路质量」在系统内部不可见。
+        await save_watchlist(today, watchlist)
         return result
 
     # 3. 构造候选上下文
@@ -543,6 +546,8 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
         await _save_db_recommendation(today, result)
     except Exception as e:
         print(f"[recommend] 保存推荐记录失败: {e}")
+    # 观察层独立落库（source='watch'，与主口径分开统计；同日已有行则幂等跳过）
+    await save_watchlist(today, watchlist)
 
     return result
 
@@ -617,6 +622,48 @@ async def save_recommendations(rec_date: str, recs: list[dict]) -> dict[str, str
     ]
     res = await sb.table("daily_recommendations").insert(rows).select("id, code").execute()
     return {row["code"]: str(row["id"]) for row in (res.data or [])}
+
+
+async def save_watchlist(rec_date: str, watchlist: list[dict]) -> int:
+    """空推荐日把观察层（watchlist）落 daily_recommendations（source='watch'）。
+
+    修复背景：空结果分支提前 return 不落库 → 推荐为空的日子胜率闭环 0 样本，
+    「推荐链路质量差」在系统内部不可见。观察层是「拦截原因 + 解锁条件」，
+    不是买入建议 —— source='watch' 与主口径分开统计（winrate by_source.watch），
+    永不与 llm/rule/quad 的命中率相加。幂等：同日已有任何行则跳过。
+    """
+    if not supabase_store.is_configured() or not watchlist:
+        return 0
+    try:
+        sb = await supabase_store.get_service_client()
+        existing = (
+            await sb.table("daily_recommendations")
+            .select("code")
+            .eq("rec_date", rec_date)
+            .execute()
+        )
+        have = {row.get("code") for row in (existing.data or [])}
+        rows = [
+            {
+                "rec_date": rec_date,
+                "code": w["code"],
+                "name": w.get("name") or "",
+                "recommend_price": w.get("price"),
+                # 存拦截原因/解锁条件（观察层语义），结算后可回看「当时差在哪」
+                "reason": w.get("status") or "",
+                "confidence": w.get("score"),
+                "source": "watch",
+            }
+            for w in watchlist
+            if w.get("code") and w.get("price") and w["code"] not in have
+        ]
+        if not rows:
+            return 0
+        res = await sb.table("daily_recommendations").insert(rows).execute()
+        return len(res.data or [])
+    except Exception as e:
+        print(f"[recommend] 观察层落库失败: {e}")
+        return 0
 
 
 def _prefilter_codes(spot: list) -> list[str]:

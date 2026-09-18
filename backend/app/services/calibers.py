@@ -46,13 +46,16 @@ CALIBERS: dict[str, dict] = {
     "recommendation": {
         "key": "recommendation",
         "name": "个股推荐次日胜率（T+1 · 无基准）",
-        "target": "推荐个股",
+        "target": "每日推荐入选个股（source ∈ llm/rule）",
         "window": "T+1 首个交易日收盘",
         "bucket": "二分类：上涨 / 下跌",
         "benchmark": "无（不与指数或基准对比）",
-        "rule": "次日收盘价 > 推荐价即命中（未计手续费与滑点）",
+        "rule": "次日收盘价 > 推荐价即命中（未计手续费与滑点）。"
+        "同表的 source='quad'（四维榜 Top10）与 source='watch'（观察层）各自单列统计，"
+        "不并入本口径 —— 三者入选机制不同，命中率不可相加",
         "unit": "每条推荐 = 1 个样本",
-        "pitfall": "只看 1 个交易日、且不与基准对比 —— 普涨行情里任何买入信号都能拿到高胜率",
+        "pitfall": "只看 1 个交易日、且不与基准对比 —— 普涨行情里任何买入信号都能拿到高胜率；"
+        "观察层（watch）是「被风控拦下」的样本，它的命中率反映的是拦截条件松紧，不是推荐质量",
     },
     "strategy_backtest": {
         "key": "strategy_backtest",

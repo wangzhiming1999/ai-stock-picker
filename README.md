@@ -116,7 +116,7 @@ npm run dev                 # http://localhost:5173
 改动后至少跑一遍下面四步（CI 也是这四步，见 `.github/workflows/ci.yml`）：
 
 ```bash
-# 后端（427 个用例）
+# 后端（453 个用例）
 cd backend
 pip install -r requirements-dev.txt   # 含 pytest / pytest-asyncio
 pytest -q

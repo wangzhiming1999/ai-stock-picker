@@ -653,6 +653,8 @@ export interface WinrateStats {
     hit_rate: number | null;
     sample_status?: "insufficient" | "developing" | "established";
     caliber?: Caliber;
+    /** 按来源细分的结算数（quad=四维榜 / watch=观察层）；与主口径不可相加 */
+    by_source?: Record<string, { total: number; hit: number; hit_rate: number | null; sample_status?: string }>;
   } | null;
   snapshot: {
     snapshot_date: string;

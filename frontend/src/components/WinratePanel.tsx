@@ -120,6 +120,18 @@ export default function WinratePanel() {
             {data.recommendation?.sample_status === "insufficient" && data.recommendation.total > 0 && (
               <p className="mt-2 text-xs text-amber-400">样本不足 30 只，暂不据此判断策略有效性。</p>
             )}
+            {/* 来源细分：quad=四维榜 / watch=观察层（拦截样本），与主口径不可相加 */}
+            {data.recommendation?.by_source && Object.values(data.recommendation.by_source).some((b) => b.total > 0) && (
+              <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                {Object.entries(data.recommendation.by_source).map(([src, b]) =>
+                  b.total > 0 ? (
+                    <span key={src} className="rounded bg-slate-800/70 px-2 py-1 text-ink-muted">
+                      {src === "quad" ? "四维榜" : src === "watch" ? "观察层" : src} {b.hit}/{b.total}（{b.hit_rate ?? "-"}%）
+                    </span>
+                  ) : null,
+                )}
+              </div>
+            )}
             {data.recommendation && (
               <div className="mt-2">
                 <CaliberLine caliber={data.recommendation.caliber} />

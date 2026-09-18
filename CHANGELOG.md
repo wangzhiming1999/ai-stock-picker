@@ -10,6 +10,42 @@
 ## [Unreleased]
 
 ### Added
+- **推荐/四维榜结算闭环补口**（2026-09-18）
+  > 「四维牛股 / 每日推荐质量好差」此前在系统内部不可见：quad 快照写了 `quad_snapshots`
+  > 但结算只读 `daily_recommendations`（quad 从未被结算）；空推荐日提前 return 不落库
+  > （胜率三项恒 total=0）。本轮补上两条落库口 + 口径拆分。
+  - **四维榜接入结算**：`quad_service._save_quad_to_recommendations()` 把 Top10 以
+    `source='quad'` 落 `daily_recommendations`（reason=上榜摘要，幂等跳过同日已有 code），
+    复用既有 `settle_daily_recommendations` 次日收盘结算 —— quad 从此有可验证的命中率
+  - **空推荐日观察层落库**：`recommend_service.save_watchlist()` 以 `source='watch'` 落
+    观察层（reason=拦截原因），空日/非空日都落；同日已有推荐行则跳过（防同票双行）
+  - **口径拆分**：winrate `recommendation` 主口径只算 `llm/rule`，新增 `by_source`
+    细分（quad / watch 各自单列）；`calibers.recommendation` 登记补充三者不可相加的声明
+  - 测试：`test_recommend_closure.py` 9 例（quad 落库/幂等/跳过已荐/缺价/静默降级 +
+    watch 落库/幂等/已荐跳过/降级）+ `test_calibers.py` 增 3 例（主口径排除 quad/watch /
+    旧数据无 source 仍计入）；全量 453 例通过（双入口复验）
+- **四维榜全市场快照接入 _get_spot 三层回退**（2026-09-18）
+  > `quad_service._full_spot()` 直连 `fetch_spot_frame`，是全项目唯一绕过
+  > 「内存 5min → Supabase `market_spot_cache` 6h → 真拉+跨实例冷却」的全市场消费者
+  > —— 行情源一抖就 502，而 Supabase 里明明有热快照。
+  - `market._rows_from_spot_frame` 保留富字段（pe/pb/turnover/量比/市值/5分钟涨跌）
+    随快照落库；旧 5 字段缓存行由 `quad_service._normalize_shared_row` 归一化 +
+    既有腾讯批量补全兜底（每 60 只一请求）
+  - `quad_service.get_full_spot()`：统一入口，走 `_get_spot`（与全站共享缓存与冷却）；
+    冷却期快速失败（冷却文案直接透出，不再伪装成「候选池为空」）；`_full_spot` 保留
+    给无法 await 的路径并标注勿用
+  - `regime_service.fetch_breadth` 同源切换（市场宽度与四维榜共享快照；冷却失败返回
+    None 不拖垮方向预测 —— 原有契约不变）
+  - 测试：`test_quad_spot_fallback.py` 9 例（必须走 _get_spot / 冷却异常传播 /
+    新旧两代缓存行归一化 / 腾讯补全产出候选 / 宽度同源与失败吞并 / 富字段落库）；
+    全量 453 例通过
+- **盘中监控外部调度（GitHub Actions）**（2026-09-18）
+  - `.github/workflows/intraday-monitor.yml`：交易时段每 5 分钟触发 `POST /api/cron/monitor`
+    （Vercel Hobby 只有 2 个 cron 名额，已被 daily/quad 占用；monitor 挂不上平台调度）
+  - 覆盖预警评估落库 + 连板自动建仓窗口（北京 9:15~9:45 = UTC 1:15~1:45，窗口内多次触发
+    由后端窗口判定兜底去重）；concurrency 不取消上一轮（预警落库不能丢）
+  - 需在仓库 Secrets 配 `MONITOR_CRON_SECRET`（或 `MONITOR_ADMIN_TOKEN`），
+    与 Vercel 环境变量同值；未配置时 workflow 跳过并警告，不会白跑
 - **连板接力闭环：每日落库 + 模拟盘自动建仓 + 简报/盯盘接入**（2026-09-18）
   > 连板晋级率此前只有「封板延续率」口径（不是收益率），且东财涨停池只回溯 ~15 个交易日，
   > 样本窗口永远 3 周、不会随时间变长。本轮把三件事串起来：数据自积累 → 模拟盘跑真实可成交收益
