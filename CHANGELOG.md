@@ -10,7 +10,28 @@
 ## [Unreleased]
 
 ### Added
-- **连板追踪：全局情绪常驻条 + 涨停池晋级率回测**（2026-09-17）
+- **深度分析：TradingAgents ③④层 —— 交易员计划 + 风控终审**（2026-09-18）
+  > 把昨天上线的多空辩论接完下游：辩论结论第一次变成「可被风控检验的交易计划」，
+  > 补齐 TradingAgents 四层链路（分析师 ✓ / 辩论 ✓ / 交易员 ✓ / 风控 ✓）。
+  - `models`：新增 `TradePlan`（动作/入场/止损/目标/仓位/分批/依据/失效条件）与
+    `FundManagerVerdict`（approved / demoted / rejected + 逐条裁决理由 + 终审仓位/止损）
+  - `debate_service.draft_trade_plan`：交易员起草计划（辩论双方论据 + 系统技术位为输入，
+    prompt 明示「止损不得松于技术止损位」）；LLM 失败 / 辩论缺席一律返回 None 降级
+  - `debate_service.review_plan`：**风控终审全部代码判定，不走 LLM** ——
+    止损 ≥ 入场 → rejected；仓位超风险等级上限 / 止损松于技术位 / 风报比 < 1.5 / 分歧度 ≥ 60 →
+    demoted（压回仓位或收紧止损）；辩论方向 neutral/bear 却提交看多计划 → rejected；
+    减仓/回避等防御方向不吃看多约束
+  - 仓位铁律与 `portfolio_service._select_stop_price` 同源：止损只能收紧不能放大；
+    风险等级上限内联同一张表（保守 15 / 稳健 20 / 进取 25 / 激进 35）
+  - `analysis.py`：SSE 新增 `trade_plan_start` / `trade_plan_done` 事件；
+    主链路与缓存补跑路径都产出 ③④ 层；结果挂 `StockAnalysis.trade_plan` / `fund_manager_verdict`
+  - 前端 `TradePlanBlock`：动作徽章（走 `actionBadge` 方向语义）+ 终审徽标
+    （通过=蓝 / 降级=琥珀 / 否决=中性灰，质量判定不占红绿）+ 关键价位格 + 分批方案 +
+    逐条裁决理由；否决时仍展示计划与理由（「为什么被否」比藏起来更有用）；
+    旧缓存缺字段时整块隐藏
+  - 后端测试 335 → 350（+15：parse 收敛语义 / 终审三档 / 降级路径 / 技术位注入 prompt）
+
+### 连板追踪：全局情绪常驻条 + 涨停池晋级率回测（2026-09-17）
   > 目标：回答「追连板能不能吃到鱼腹的利润」。新增独立行情源东财涨停板池
   > `push2ex.eastmoney.com`（与被风控的 `push2` 完全独立域名，单请求拿全市场涨停池 +
   > 连板数 + 板块 + 封单，风控压力比 60 页分页快照低两个数量级），支持 `date=` 回溯。
