@@ -7,7 +7,15 @@ from fastapi.responses import StreamingResponse
 
 from app import store
 from app.models import AnalysisRequest, StockHistory
-from app.services import data_service, debate_service, pattern_service, signal_service, supabase_store, trend_template_service
+from app.services import (
+    agent_decision_service,
+    data_service,
+    debate_service,
+    pattern_service,
+    signal_service,
+    supabase_store,
+    trend_template_service,
+)
 from app.services.llm_service import mock_analyze, parse_analysis, should_use_mock, stream_analyze
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
@@ -105,6 +113,11 @@ async def _assemble_context(q):
         hits = "；".join(f"{t['name']}（{t['action']}）" for t in tactics)
         context += f"\n\n系统形态识别命中：{hits}。这是确定性条件核对结果，请结合它评估风险与操作节奏。"
 
+    # 2.7 决策记忆（P1）：该票此前 agent 计划的实际结算结果，注入上下文供 LLM 参考。
+    # 只注入「事实 + 偏差」，不下结论；无样本 / 表未建时返回空串，零影响。
+    memory = agent_decision_service.memory_block(await agent_decision_service.latest_settled(q.code))
+    context += memory
+
     return {
         "long_history": long_history,
         "history": history,
@@ -156,6 +169,8 @@ async def analyze_stocks(req: AnalysisRequest, request: Request):
         yield _sse("status", f"获取到 {len(quotes)} 只股票行情，开始逐一分析...")
 
         results = []
+        # 本轮每个 code 落库成功的 agent 决策行 id（挂到 stock_done 结果上）
+        _latest_decision_id: dict[str, int | None] = {}
         # 当前交易日（按交易日缓存：每天每只股票只跑一次 LLM）
         from app.services import trade_calendar_service
 
@@ -230,9 +245,18 @@ async def analyze_stocks(req: AnalysisRequest, request: Request):
                         )
                         if trade_plan:
                             cached["trade_plan"] = trade_plan.model_dump()
-                            cached["fund_manager_verdict"] = debate_service.review_plan(
+                            verdict_obj = debate_service.review_plan(
                                 trade_plan, debate, signal=prepared["signal"]
-                            ).model_dump()
+                            )
+                            cached["fund_manager_verdict"] = verdict_obj.model_dump()
+                            # 执行闭环：终审结论落 agent 决策对照行（表未建时静默跳过）
+                            if user_id:
+                                decision_id = await agent_decision_service.record_for_user_if_absent(
+                                    code=q.code, name=q.name, data_date=cache_date,
+                                    plan=trade_plan, verdict=verdict_obj, user_id=user_id,
+                                )
+                                if decision_id:
+                                    cached["agent_decision_id"] = decision_id
                         await _write_cache(q.code, cached, source="debate_patch")
                 yield _sse(
                     "stock_start",
@@ -296,10 +320,24 @@ async def analyze_stocks(req: AnalysisRequest, request: Request):
                         verdict = debate_service.review_plan(
                             trade_plan, debate, signal=signal
                         )
+                        # 执行闭环：终审结论落 agent 决策对照行（表未建时静默跳过）。
+                        # 登录用户归属到本人并拿回 id（前端一键采纳用）；未登录落平台对照样本。
+                        decision_id = None
+                        if user_id:
+                            decision_id = await agent_decision_service.record_for_user_if_absent(
+                                code=q.code, name=q.name, data_date=cache_date,
+                                plan=trade_plan, verdict=verdict, user_id=user_id,
+                            )
+                            _latest_decision_id[q.code] = decision_id
+                        else:
+                            await agent_decision_service.record_from_analysis(
+                                code=q.code, name=q.name, data_date=cache_date,
+                                plan=trade_plan, verdict=verdict, user_id=None,
+                            )
                         yield _sse(
                             "trade_plan_done",
                             f"{q.name} 交易计划已终审：{verdict.decision}",
-                            {"code": q.code},
+                            {"code": q.code, "agent_decision_id": decision_id},
                         )
                     else:
                         verdict = None
@@ -363,6 +401,9 @@ async def analyze_stocks(req: AnalysisRequest, request: Request):
             analysis.debate = debate
             analysis.trade_plan = trade_plan if debate else None
             analysis.fund_manager_verdict = verdict if debate else None
+            # 执行闭环：登录用户把 decision id 挂到结果上（前端一键采纳建仓用）。
+            # 未登录/表未建/落库失败时为 None —— StockAnalysis 模型字段缺省，前端降级隐藏按钮。
+            analysis.agent_decision_id = _latest_decision_id.get(q.code)
             results.append(analysis)
             await _write_cache(q.code, analysis.model_dump(), source="llm")
             yield _sse(

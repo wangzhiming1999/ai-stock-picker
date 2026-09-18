@@ -23,6 +23,87 @@ from app.services import (
     trade_calendar_service,
 )
 
+
+async def _build_limitup_block(user_id: str | None) -> dict | None:
+    """连板结论块：早盘简报直接说「今天环境能不能碰连板、资金面最强的是谁」。
+
+    数据复用 limitup_service.get_snapshot（60s 缓存），失败返回 None（前端隐藏区块）。
+    措辞直接透传后端结论 —— play_advice/tier summary 本身已带证据纪律（不是买入指令），
+    这里只做聚合不做二次解读，避免简报层越过闸门发明新话术。
+
+    登录用户且持有连板股时，附盯盘减仓优先级：relay_score 越低（封板质量越差）
+    的持仓越靠前 —— 那是「明天还接不接得动」最弱的，开盘走弱时先动谁。
+    """
+    try:
+        from app.services import limitup_service
+
+        snap = await limitup_service.get_snapshot()
+    except Exception as e:
+        print(f"[briefing] 连板全景获取失败: {e}")
+        return None
+
+    advice = snap.get("play_advice") or {}
+    summary = snap.get("relay_tier_summary") or {}
+    top_group = (summary.get("groups") or [None])[0]
+    block: dict = {
+        "trade_date": snap.get("trade_date"),
+        "session": snap.get("session"),
+        "play_advice": advice,
+        "headline": summary.get("headline"),
+        "top_tier": (
+            {
+                "label": top_group.get("label"),
+                "names": top_group.get("names", [])[:5],
+                "codes": top_group.get("codes", [])[:5],
+                "rate": top_group.get("rate"),
+                "rate_n": top_group.get("rate_n"),
+            }
+            if top_group
+            else None
+        ),
+        "sentiment": snap.get("sentiment"),
+        "evidence": snap.get("evidence"),
+        "caliber": snap.get("caliber"),
+        "holdings_relay": None,
+    }
+
+    # 盯盘减仓优先级：持仓 ∩ 当日连板股，按 relay_score 升序（最弱先提示）。
+    if user_id:
+        try:
+            holdings = (await portfolio_service.list_holdings(user_id)).get("holdings", []) or []
+            held_codes = {str(h.get("code")) for h in holdings if h.get("code")}
+            relay_map = {r["code"]: r for r in (snap.get("relay_stocks") or [])}
+            hits = [relay_map[c] for c in sorted(held_codes & set(relay_map))]
+            if hits:
+                hits.sort(key=lambda r: (r.get("score", 0), -(r.get("boards", 0))))
+                block["holdings_relay"] = [
+                    {
+                        "code": r["code"],
+                        "name": r.get("name", ""),
+                        "boards": r.get("boards"),
+                        "score": r.get("score"),
+                        "tier_label": r.get("tier_label"),
+                        "tier_note": r.get("tier_note"),
+                        "rate": r.get("rate"),
+                        "hint": _relay_hold_hint(r),
+                    }
+                    for r in hits
+                ]
+        except Exception as e:
+            print(f"[briefing] 持仓连板对照失败: {e}")
+    return block
+
+
+def _relay_hold_hint(relay: dict) -> str:
+    """持仓连板股的一句盯盘提示。措辞纪律：讲资金面强弱与观察点，不下卖单指令。"""
+    score = relay.get("score", 0)
+    boards = relay.get("boards", 0)
+    if score >= 3:
+        return f"{boards}板 · 资金面最强（三因子全达标），尾盘仍封死则明日观察封板质量"
+    if score >= 2:
+        return f"{boards}板 · 资金面较强，若明日开盘走弱优先留意"
+    return f"{boards}板 · 封板质量有短板（{relay.get('tier_note', '')}），开盘走弱时减仓优先级最高"
+
 # 风险等级 → 单只最大仓位占比（与 portfolio_service 对齐）
 _RISK_POS_PCT: dict[str, int] = {
     "保守": 15,
@@ -339,6 +420,9 @@ async def build_today(user_id: str | None = None) -> dict:
     # 形态命中汇总：关注池偏买点，持仓偏卖点/风险
     tactics_block = _build_tactics_block(morning_stocks, tail.get("holdings") or [])
 
+    # 连板结论块：环境三档 + 资金面最强分组 + 持仓连板盯盘提示（失败为 None，前端隐藏）
+    limitup_block = await _build_limitup_block(user_id)
+
     # 目标交易日：pred 里 target_date 才是"这份简报针对哪个交易日"；
     # pred["date"] 只是行情数据的最后一根 K 线日（数据基准），不能当目标日展示
     pred_date = pred.get("date") if isinstance(pred, dict) else None
@@ -376,6 +460,7 @@ async def build_today(user_id: str | None = None) -> dict:
         "tail": tail,
         "review": review,
         "tactics": tactics_block,
+        "limitup": limitup_block,
     }
 
 

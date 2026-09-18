@@ -84,6 +84,31 @@ async def next_trading_day(date: dt.date | None = None) -> dt.date:
     return d
 
 
+async def shift_trading_days(date: dt.date | None = None, n: int = 1) -> dt.date:
+    """从 date 往前/往后平移 n 个交易日（n<0 向前，date 本身不算）。
+
+    用于「N 个交易日后结算」这类到期判定：shift_trading_days(today, -5)
+    = 今天往前数第 5 个交易日，data_date <= 该日的行都已到期待结算。
+    """
+    d = date or now_cn().date()
+    cal = await _get_calendar()
+    step = dt.timedelta(days=-1 if n < 0 else 1)
+    remaining = abs(n)
+    d += step
+    for _ in range(60):
+        if cal.get(d.isoformat(), d.weekday() < 5):
+            remaining -= 1
+            if remaining == 0:
+                return d
+        d += step
+    # fallback：纯周末推断（交易日历异常时兜底，宁多结不漏结）
+    while remaining > 0:
+        d += step
+        if d.weekday() < 5:
+            remaining -= 1
+    return d
+
+
 def session_label() -> str:
     """当前交易时段标识（北京时间）。"""
     t = now_cn()

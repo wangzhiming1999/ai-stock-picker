@@ -22,10 +22,26 @@ def _hist(closes) -> StockHistory:
 
 class TestRegistryIntegrity:
     def test_every_tactic_is_registered(self) -> None:
-        """新增技巧必须同时登记证据等级，否则会以「未验证」身份悄悄进入 UI。"""
+        """在册技巧必须同时登记证据等级，否则会以「未验证」身份悄悄进入 UI。
+
+        已下线技巧（RETIRED_TACTICS）的历史结论仍保留在 EVIDENCE 里（可追溯），
+        所以这里是「EVIDENCE ⊇ TACTICS」而不要求相等 —— 但下线的绝不能还挂在 TACTICS。
+        """
         keys = {t["key"] for t in ps.TACTICS}
 
-        assert set(ev.EVIDENCE) == keys
+        assert set(ev.EVIDENCE) >= keys
+        assert not (set(ps.RETIRED_TACTICS) & keys)
+
+    def test_retired_tactic_has_recorded_evidence(self) -> None:
+        """下线不等于抹掉历史：ma20_slope 的负超额结论必须可追溯。"""
+        for key in ps.RETIRED_TACTICS:
+            assert key in ev.EVIDENCE
+            assert ev.tier_of(key) == "unsupported"
+
+    def test_detectors_carry_retired_keys_for_backtest_reuse(self) -> None:
+        """detect 函数保留在 DETECTORS 里：日后重新校准口径可直接复用回测链路。"""
+        for key in ps.RETIRED_TACTICS:
+            assert key in ps.DETECTORS
 
     def test_tiers_stay_within_the_allowed_set(self) -> None:
         assert {e.tier for e in ev.EVIDENCE.values()} <= ALLOWED_TIERS

@@ -37,6 +37,11 @@ import requests
 
 from app.services import calibers, cache_utils, concurrency, tactic_evidence, trade_calendar_service
 
+try:  # supabase 未配置时落库/读回静默降级，不影响实时链路
+    from app.services import supabase_store
+except Exception:  # pragma: no cover
+    supabase_store = None
+
 _BASE = "https://push2ex.eastmoney.com"
 _UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -73,6 +78,101 @@ _RELAY_CACHE: dict[str, tuple[float, dict]] = {}
 # 即**只覆盖最近约 15 个交易日（3 周）**。回测默认就取这个窗口 —— 取更大值只会
 # 白白多打十几次必然返回空池的请求，统计量不会有任何变化（这个坑实测踩过）。
 MAX_RELAY_DAYS = 15
+
+
+# ---------- 每日落库（解决 15 交易日回溯上限） ----------
+#
+# 为什么必须落库：涨停池接口对更早日期一律返回空池，relay_backtest 的样本窗口
+# 永远只有 ~3 周，且**不会随时间变长** —— 昨天跑是 08-28~09-16，明天跑还是只剩
+# 最近 15 天，更早的样本永久丢失。每天收盘后把当日池子写进 Supabase，
+# 回测读路径优先用累积表补齐窗口外样本：跑得越久，可回测窗口越长。
+#
+# 表未建 / Supabase 未配置时**全部静默降级**（与 market_source_state 同一策略）：
+# 实时快照与现有 relay_backtest 完全不受影响。
+
+# 落库字段 = normalize_limit_up 输出的子集（不含派生的 position 等展示字段）。
+_SNAPSHOT_COLUMNS = (
+    "code", "name", "boards", "sector", "seal_time", "last_seal_time",
+    "break_count", "seal_fund_yi", "float_mv_yi", "seal_ratio", "turnover",
+    "amount_yi", "price", "change_pct", "stat_days", "stat_boards",
+)
+
+
+def _snapshot_rows(trade_date: str, stocks: list[dict]) -> list[dict]:
+    """当日全景里的涨停股 → 落库行（trade_date 冗余进每行，UNIQUE 去重键）。"""
+    text_cols = {"name", "sector", "seal_time", "last_seal_time"}
+    rows = []
+    for t in stocks:
+        if not t.get("code"):
+            continue
+        row = {"trade_date": trade_date}
+        for col in _SNAPSHOT_COLUMNS:
+            v = t.get(col)
+            if v is None:
+                v = "" if col in text_cols else 0
+            row[col] = v
+        rows.append(row)
+    return rows
+
+
+async def save_daily_snapshot(trade_date: str | None = None, stocks: list[dict] | None = None) -> int:
+    """把某日涨停池写入 limitup_daily_snapshot（幂等，重复写自动跳过已有行）。
+
+    默认落**当日**快照：盘中调用时池子还在变，只写不删 —— 以 UNIQUE(trade_date, code)
+    冲突跳过，收盘后由 cron 再跑一次拿最终状态。直接传 ``stocks`` 时（如从
+    ``get_snapshot`` 结果回填）用传入数据，否则拉当日池子。
+
+    返回新写入行数；Supabase 未配置 / 表未建时返回 0（静默降级，不抛异常）。
+    """
+    if supabase_store is None or not supabase_store.is_configured():
+        return 0
+    date_key = trade_date or trade_calendar_service.now_cn().date().isoformat()
+    try:
+        if stocks is None:
+            raw = await asyncio.to_thread(_fetch_pool_sync, "zt", date_key.replace("-", ""))
+            stocks = [normalize_limit_up(x) for x in raw]
+        rows = _snapshot_rows(date_key, stocks)
+        if not rows:
+            return 0
+        sb = await supabase_store.get_service_client()
+        # upsert on UNIQUE(trade_date, code)：盘中重复写自动覆盖为最新状态
+        res = await (
+            sb.table("limitup_daily_snapshot")
+            .upsert(rows, on_conflict="trade_date,code")
+            .execute()
+        )
+        return len(res.data or [])
+    except Exception as e:
+        # 表未建是预期内降级（需执行 v10 迁移）；其他异常同样只记录，不拖垮调用方
+        print(f"[limitup] 每日快照落库失败({date_key}): {e}")
+        return 0
+
+
+async def load_accumulated_snapshots(start_date: str, end_date: str) -> dict[str, list[dict]]:
+    """读取 [start_date, end_date] 内已落库的涨停池（trade_date -> normalize 后的 stocks）。
+
+    供 relay_backtest 补齐接口回溯窗口外的样本：本地窗口 + 累积表 = 更长回测窗口。
+    表未建 / 无数据返回空 dict，调用方按「没有累积样本」处理。
+    """
+    if supabase_store is None or not supabase_store.is_configured():
+        return {}
+    try:
+        sb = await supabase_store.get_service_client()
+        res = (
+            await sb.table("limitup_daily_snapshot")
+            .select("*")
+            .gte("trade_date", start_date)
+            .lte("trade_date", end_date)
+            .order("trade_date", desc=False)
+            .execute()
+        )
+        out: dict[str, list[dict]] = {}
+        for row in (res.data or []):
+            out.setdefault(str(row["trade_date"]), []).append(row)
+        return out
+    except Exception as e:
+        print(f"[limitup] 累积快照读取失败({start_date}~{end_date}): {e}")
+        return {}
 
 
 # ---------- 抓取 ----------
@@ -613,6 +713,14 @@ async def get_snapshot(force: bool = False) -> dict:
         "caliber": calibers.describe("limitup_relay"),
     }
     cache_utils.put_bounded(_SNAP_CACHE, key, (now, data), max_entries=_SNAP_CACHE_MAX)
+
+    # 每日落库（fire-and-forget）：实时拉到的池子顺手写入累积表，收盘后的最后一次
+    # 请求会落最终状态。失败静默（save_daily_snapshot 内部已兜底），绝不影响实时链路。
+    try:
+        await save_daily_snapshot(key, stocks)
+    except Exception as e:  # pragma: no cover - 双保险，save 内部不应抛
+        print(f"[limitup] 快照落库异常(主流程不受影响): {e}")
+
     return {**data, "cached": False}
 
 
@@ -765,6 +873,20 @@ async def relay_backtest(days: int = MAX_RELAY_DAYS, force: bool = False) -> dic
             continue
         per_day[d.isoformat()] = [normalize_limit_up(x) for x in res]
 
+    # 累积表补样本：接口回溯窗口外（或当日请求失败）的日期，若已每日落库则有真实数据。
+    # 这是「窗口自积累」的读路径 —— 落库跑得越久，这里能补回来的天数越多。
+    accumulated_from = trading_days[0].isoformat() if trading_days else None
+    accumulated_to = trading_days[-1].isoformat() if trading_days else None
+    accumulated_days = 0
+    if accumulated_from and accumulated_to and empty:
+        saved = await load_accumulated_snapshots(accumulated_from, accumulated_to)
+        for d_key in list(empty):
+            rows = saved.get(d_key)
+            if rows:
+                per_day[d_key] = rows  # 落库行字段与 normalize_limit_up 输出对齐
+                empty.remove(d_key)
+                accumulated_days += 1
+
     stats = _relay_stats(trading_days, per_day)
     # 随机基线：不看任何条件、随手买一只票，次日刚好封上涨停的概率 ≈ 日均涨停家数 ÷ 全市场股票数。
     # 注意它不是「同口径基准」—— 晋级率的样本本身就是今日已封板的强势股，天然占优，
@@ -780,6 +902,7 @@ async def relay_backtest(days: int = MAX_RELAY_DAYS, force: bool = False) -> dic
         "effective_days": len(covered),
         "empty_dates": empty,
         "skipped_dates": skipped,
+        "accumulated_days": accumulated_days,
         "avg_daily_limit_up": avg_daily,
         "baseline_rate": round(avg_daily / _MARKET_UNIVERSE * 100, 4),
         "market_universe": _MARKET_UNIVERSE,

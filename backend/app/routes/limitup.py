@@ -44,6 +44,8 @@ async def relay(
     默认取满接口回溯窗口（约 15 个交易日）。传更大的 ``days`` 不会扩大样本 ——
     更早的日期接口返回空池，会被识别为「无数据」并排除，这一点在返回体的
     ``empty_dates`` / ``data_window`` 里可自查。
+    若这些日期已每日落库（``save_daily_snapshot``），回测会用累积表自动补齐，
+    补回的天数见返回体 ``accumulated_days``。
     """
     try:
         return await limitup_service.relay_backtest(days=days, force=force)

@@ -55,12 +55,27 @@ async def daily_cron(request: Request):
         except Exception as se:
             print(f"[cron] sim snapshot failed: {se}")
             result["sim_snapshots"] = None
+        # Agent 执行闭环：到期结算 agent 决策（agent_decisions 表未建时静默跳过）
+        try:
+            result["agent_settled"] = await sim_service.settle_agent_decisions()
+        except Exception as ge:
+            print(f"[cron] agent decisions settle failed: {ge}")
+            result["agent_settled"] = None
         # 每日收盘推荐：策略扫描 + AI 精选（落库 + 预热全市场快照缓存，用户白天访问秒回）
         try:
             result["recommendations"] = await recommend_service.generate_daily_recommendations(force_refresh=True)
         except Exception as re_:
             print(f"[cron] recommend gen failed: {re_}")
             result["recommendations"] = None
+        # 涨停池每日落库：收盘后把当日涨停池写入累积表（回测窗口自积累）。
+        # 表未建/Supabase 未配置时内部静默返回 0，不影响其他结算步骤。
+        try:
+            from app.services import limitup_service
+
+            result["limitup_snapshot_rows"] = await limitup_service.save_daily_snapshot()
+        except Exception as le:
+            print(f"[cron] limitup snapshot save failed: {le}")
+            result["limitup_snapshot_rows"] = None
         return result
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"定时任务失败: {e}")
@@ -93,7 +108,22 @@ async def monitor_cron(request: Request):
     if not market_open:
         return {"ok": True, "skipped": "market_closed", "executed_at": now.isoformat(timespec="seconds")}
     try:
+        # 连板接力自动建仓：只在开盘初期（9:15~9:45）执行一次判定 ——
+        # 判定数据是 T-1 日涨停池 + 今日开盘价，9:25 集合竞价后开盘价才确定；
+        # 9:45 之后开盘结构已经走样（追高成交价失真），不再按「开盘价」口径建仓。
+        relay_result = None
+        if dt.time(9, 15) <= local_time <= dt.time(9, 45):
+            try:
+                relay_result = await sim_service.auto_relay_buy_all()
+            except Exception as re_:
+                print(f"[cron] relay auto buy failed: {re_}")
+                relay_result = {"errors": [f"fatal:{re_}"]}
         result = await alert_service.evaluate_all()
-        return {"ok": True, "executed_at": now.isoformat(timespec="seconds"), **result}
+        return {
+            "ok": True,
+            "executed_at": now.isoformat(timespec="seconds"),
+            "relay_auto_buy": relay_result,
+            **result,
+        }
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"盘中监控失败: {type(e).__name__}")

@@ -13,10 +13,22 @@ from app.services import winrate_service as wr
 
 REQUIRED_FIELDS = ("key", "name", "target", "window", "bucket", "benchmark", "rule", "unit", "pitfall")
 
-# 界面上会出现「率」的五个出处，改动口径必须动这里，不能悄悄新增第六个。
+# 界面上会出现「率」的六个出处，改动口径必须动这里，不能悄悄新增第七个。
 # limitup_relay 是 2026-09-17 新增的连板晋级率：**它和上面四个都不可比**，
 # 因为它根本不是收益率口径（详见该条 pitfall）。
-EXPECTED_KEYS = {"prediction", "recommendation", "strategy_backtest", "tactic_backtest", "limitup_relay"}
+# limitdown_repair 是 2026-09-18 新增的跌停次日修复：它是**收益率**口径，
+# 但结论为负（n=133、期望 −4.47%/次、胜率 4.5%）—— 登记它正是为了让这个负数
+# 在界面上有出处可查，而不是被藏起来或换个说法。它与上面几条同样不可比：
+# 标的（全量跌停股）、持有期（D+1 集合竞价）与判定方向都不同。
+EXPECTED_KEYS = {
+    "prediction",
+    "recommendation",
+    "strategy_backtest",
+    "tactic_backtest",
+    "limitup_relay",
+    "limitdown_repair",
+    "agent_plan",
+}
 
 
 class _Chain:

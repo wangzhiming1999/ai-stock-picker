@@ -571,3 +571,268 @@ async def reset(user_id: str) -> dict:
     await sb.table("portfolio_snapshots").delete().eq("user_id", user_id).execute()
     await _set_cash(user_id, 0)
     return await get_account(user_id)
+
+
+# 模拟盘自动建仓：连板接力（source=limitup_relay）。
+#
+# 目的：连板晋级率目前只有「封板延续率」口径（calibers.limitup_relay，不是收益率）。
+# 让模拟盘在 T+1 开盘自动按规则建仓 tier1 连板股，跑几周后 by_source 里就有
+# limitup_relay 的**真实可成交收益**（含手续费、含一字板买不进的情况），
+# 把晋级率升级成可验证的胜率口径。
+#
+# 规则（刻意极简，避免变成「策略调参」）：
+# - 只买**资金面最强档**（relay tier 1，三因子全达标）；
+# - 只在 T 日 play_advice == "hunt"（环境允许打板）时才执行；
+# - T+1 开盘价成交（竞价挂开盘价，能成交的极端情况也就这个价附近）；
+# - 一字板开盘（high==low 且开盘即涨停）**买不进**，记 missed 而不是假装成交 ——
+#   这是该口径最容易自欺的地方：晋级率高，但很多根本买不到。
+# 幂等：同一 (user, code, 建仓日) 只写一次，靠查询 sim_trades 已有记录去重。
+
+# 连板接力单票预算占账户总资金比例。tier1 样本量小、且一字板买不进是常态，
+# 仓位刻意保守；这只影响模拟盘数字，不影响真实资金。
+RELAY_BUDGET_PCT = 10.0
+
+# 一字板判定容差（与 limitdown_service._FLAT_EPS 同源）：日内高低价差 < 0.5% 视为无波动区间。
+_RELAY_FLAT_EPS = 0.005
+
+
+def _relay_build_shares(total_capital: float, price: float) -> int:
+    """预算 → 整手数（向下取整，不足 1 手返回 0）。"""
+    if total_capital <= 0 or price <= 0:
+        return 0
+    return int(total_capital * RELAY_BUDGET_PCT / 100.0 / price / 100) * 100
+
+
+async def _relay_already_done(user_id: str, code: str, trade_date: str) -> bool:
+    """该用户该票在建仓日是否已有 limitup_relay 流水（幂等判重）。"""
+    sb = await supabase_store.get_service_client()
+    res = (
+        await sb.table("sim_trades")
+        .select("id")
+        .eq("user_id", user_id)
+        .eq("code", code)
+        .eq("source", "limitup_relay")
+        .eq("trade_date", trade_date)
+        .limit(1)
+        .execute()
+    )
+    return bool(res.data)
+
+
+async def _relay_history_dates(user_id: str) -> set[str]:
+    """该用户已建仓过的 trade_date 集合（跨票去重由 _relay_already_done 处理）。"""
+    sb = await supabase_store.get_service_client()
+    res = (
+        await sb.table("sim_trades")
+        .select("trade_date")
+        .eq("user_id", user_id)
+        .eq("source", "limitup_relay")
+        .execute()
+    )
+    return {str(r.get("trade_date")) for r in (res.data or [])}
+
+
+def _relay_pick_targets(snapshot: dict) -> list[dict]:
+    """从 T 日连板全景里挑出可建仓目标：环境 hunt + tier1。
+
+    返回 [{code, name, boards, score}]；环境非 hunt 返回空列表。
+    纯函数，便于单测。
+    """
+    advice = (snapshot or {}).get("play_advice") or {}
+    if advice.get("level") != "hunt":
+        return []
+    tier1 = [
+        r for r in ((snapshot or {}).get("relay_stocks") or [])
+        if r.get("tier") == 1 and r.get("code")
+    ]
+    # build_relay_stocks 已按 (-score, -boards, seal_time) 排序，直接取即可
+    return [
+        {"code": r["code"], "name": r.get("name", ""), "boards": r.get("boards", 0), "score": r.get("score", 0)}
+        for r in tier1
+    ]
+
+
+def _relay_unfillable(open_p: float, prev_close: float, high: float, low: float) -> bool:
+    """一字板不可成交判定：全天无波动区间 + 开盘即涨停（相对昨收 ≥9.5%）。
+
+    与 limitdown_service.repair_backtest 的 next_unsellable 同源逻辑，
+    方向镜像（那边是卖不出，这边是买不进）。纯函数，便于单测。
+    """
+    if open_p <= 0 or prev_close <= 0:
+        return False
+    flat = (high - low) < _RELAY_FLAT_EPS * prev_close
+    at_limit = open_p / prev_close - 1 >= 0.095
+    return flat and at_limit
+
+
+async def _relay_next_open(code: str, base_date: str) -> dict | None:
+    """取某票在 base_date（T 日）之后第一个交易日的开盘数据。
+
+    返回 {date, open, high, low, prev_close}；拿不到（停牌/数据缺失/T+1 未到）返回 None。
+    prev_close 取 T 日收盘价，供一字板判定。
+    """
+    from app.services.data_service import get_history
+
+    h = await asyncio.to_thread(get_history, code, 60)
+    if h is None or not h.opens or not h.dates:
+        return None
+    base_norm = str(base_date).replace("-", "")
+    dates_norm = [str(x).replace("-", "") for x in h.dates]
+    try:
+        i = dates_norm.index(base_norm)
+    except ValueError:
+        return None
+    if i + 1 >= len(dates_norm):
+        return None
+    prev_close = h.closes[i]
+    open_p, high, low = h.opens[i + 1], h.highs[i + 1], h.lows[i + 1]
+    if not open_p or open_p <= 0:
+        return None
+    return {
+        "date": h.dates[i + 1],
+        "open": float(open_p),
+        "high": float(high or 0),
+        "low": float(low or 0),
+        "prev_close": float(prev_close or 0),
+    }
+
+
+async def auto_relay_buy_for_user(user_id: str, snapshot: dict, *, trade_date: str | None = None) -> dict:
+    """为单个用户执行连板接力自动建仓（T+1 开盘价）。
+
+    ``snapshot`` 是 T 日（昨日）的 limitup 全景，由调用方传入 —— 本函数不负责拉取，
+    以便测试注入与 T 日数据复用。流程：
+    1. 判定 T 日环境 hunt + tier1 名单；
+    2. 对每只票取 T+1 开盘价；一字板开盘 → missed（不成交）；
+    3. 按 RELAY_BUDGET_PCT 预算整手买入（source=limitup_relay），幂等判重。
+
+    返回执行摘要 {targets, bought, missed, skipped, errors}；不抛异常（cron 链路容错）。
+    """
+    summary: dict = {"targets": [], "bought": [], "missed": [], "skipped": [], "errors": []}
+    try:
+        targets = _relay_pick_targets(snapshot)
+        if not targets:
+            summary["skipped"].append("no_targets_or_not_hunt")
+            return summary
+        summary["targets"] = [t["code"] for t in targets]
+
+        base_date = trade_date or (snapshot.get("trade_date") or "")
+        if not base_date:
+            summary["skipped"].append("no_trade_date")
+            return summary
+
+        # 注意：_get_or_create_profile 依赖 Supabase 配置，mock 场景（测试注入）直接跳过。
+        profile = dict(await _get_or_create_profile(user_id))
+        capital = float(profile.get("total_capital") or 0)
+        if capital <= 0:
+            summary["skipped"].append("account_not_initialized")
+            return summary
+
+        base_date = trade_date or (snapshot.get("trade_date") or "")
+        if not base_date:
+            summary["skipped"].append("no_trade_date")
+            return summary
+
+        for t in targets:
+            code = t["code"]
+            try:
+                if await _relay_already_done(user_id, code, base_date):
+                    summary["skipped"].append(f"{code}:already_done")
+                    continue
+                nxt = await _relay_next_open(code, base_date)
+                if nxt is None:
+                    summary["skipped"].append(f"{code}:no_open_data")
+                    continue
+                if _relay_unfillable(nxt["open"], nxt["prev_close"], nxt["high"], nxt["low"]):
+                    summary["missed"].append(f"{code}:一字板买不进")
+                    continue
+                shares = _relay_build_shares(capital, nxt["open"])
+                if shares <= 0:
+                    summary["skipped"].append(f"{code}:insufficient_budget")
+                    continue
+                try:
+                    await buy(
+                        user_id, code, shares, price=nxt["open"],
+                        source="limitup_relay",
+                        note=f"连板接力{base_date}日{t['boards']}板tier1·T+1开盘建仓",
+                    )
+                    summary["bought"].append(f"{code}:{shares}股@{nxt['open']}")
+                except ValueError as ve:
+                    # 现金不足等业务性失败：跳过该票继续下一只
+                    summary["skipped"].append(f"{code}:{ve}")
+            except Exception as e:  # 单票失败不拖垮其余
+                summary["errors"].append(f"{code}:{type(e).__name__}")
+        return summary
+    except Exception as e:
+        summary["errors"].append(f"fatal:{type(e).__name__}:{e}")
+        return summary
+
+
+async def auto_relay_buy_all(snapshot: dict | None = None) -> dict:
+    """为所有已初始化模拟账户的用户执行连板接力建仓（cron 入口）。
+
+    snapshot 缺省时自动拉 T 日全景（内部有缓存）。Supabase 未配置返回空摘要。
+    """
+    if not supabase_store.is_configured():
+        return {"skipped": ["supabase_not_configured"], "targets": [], "bought": [], "missed": [], "errors": []}
+    if snapshot is None:
+        from app.services import limitup_service
+
+        try:
+            snapshot = await limitup_service.get_snapshot()
+        except Exception as e:
+            return {"skipped": [f"snapshot_failed:{e}"], "targets": [], "bought": [], "missed": [], "errors": []}
+
+    sb = await supabase_store.get_service_client()
+    res = await sb.table("sim_trades").select("user_id").execute()
+    user_ids = sorted({t["user_id"] for t in (res.data or [])})
+    if not user_ids:
+        return {"skipped": ["no_sim_users"], "targets": [], "bought": [], "missed": [], "errors": []}
+
+    out: dict = {"targets": [], "bought": [], "missed": [], "skipped": [], "errors": [], "users": {}}
+    for uid in user_ids:
+        s = await auto_relay_buy_for_user(uid, snapshot)
+        out["users"][uid[:8] + "…"] = {
+            "bought": len(s["bought"]), "missed": len(s["missed"]), "errors": len(s["errors"]),
+        }
+        for k in ("targets", "bought", "missed", "skipped", "errors"):
+            out[k].extend(s[k])
+    return out
+
+
+async def settle_agent_decisions() -> int:
+    """每日 cron：到期结算 agent 决策记录（执行闭环的回写端）。
+
+    结算规则（口径 agent_plan，calibers.py）：
+    - data_date + horizon_days 个交易日之前的行，用**当日收盘价**结算 pnl/hit + 反思；
+    - 到期判定用 trade_calendar（跳过周末/节假日），行情拿不到（停牌等）顺延到下一天；
+    - adopted（用户已按计划建仓）与 ignored（未采纳对照组）同样结算 —— 对照组的存在
+      让「采纳 vs 没采纳」可对比，这是 agent track record 的核心价值。
+    返回结算行数；agent_decisions 表未建时静默返回 0。
+    """
+    from app.services import agent_decision_service, trade_calendar_service
+
+    # 只处理「计划产出日 + horizon 之后」的行：用交易日历把 horizon_days 换算成日期门槛
+    today = _today()
+    threshold = await trade_calendar_service.shift_trading_days(today, -(agent_decision_service.DEFAULT_HORIZON + 1))
+    rows = await agent_decision_service.pending_settlements(threshold.isoformat())
+    if not rows:
+        return 0
+
+    settled = 0
+    # 按 code 去重后逐票拉收盘价：一次 get_spot_quote 批量请求，不逐只打行情源
+    codes = sorted({r["code"] for r in rows})
+    try:
+        quotes = await asyncio.to_thread(data_service.get_spot_quote, codes)
+        price_map = {q.code: q.price for q in quotes if q.price}
+    except Exception as e:
+        print(f"[sim] agent 结算行情拉取失败: {e}")
+        return 0
+
+    for row in rows:
+        price = price_map.get(row["code"])
+        if not price:
+            continue  # 停牌/拿不到行情：顺延到下次 cron
+        if await agent_decision_service.settle_one(row, price):
+            settled += 1
+    return settled

@@ -402,8 +402,15 @@ class Ma20SlopeTests(unittest.TestCase):
 
 class RegistryTests(unittest.TestCase):
     def test_all_tactics_have_detector(self) -> None:
+        """在册技巧必须有 detector；下线技巧的 detector 保留（回测可复用），反向不成立。"""
         keys = {t["key"] for t in ps.TACTICS}
-        self.assertEqual(keys, set(ps.DETECTORS))
+        self.assertEqual(keys, set(ps.DETECTORS) - set(ps.RETIRED_TACTICS))
+
+    def test_retired_tactics_are_out_of_registry_but_keep_detector(self) -> None:
+        """下线技巧不进 TACTIC_MAP（扫描/面板不再出现），detect 函数保留供回测复用。"""
+        self.assertEqual(set(ps.RETIRED_TACTICS) & set(ps.TACTIC_MAP), set())
+        for key in ps.RETIRED_TACTICS:
+            self.assertIn(key, ps.DETECTORS)
 
     def test_check_one_isolates_detector_failure(self) -> None:
         # daily=None 时每个 detector 都应走 insufficient，而不是抛异常
@@ -415,7 +422,8 @@ class RegistryTests(unittest.TestCase):
     def test_list_tactics_shape(self) -> None:
         items = ps.list_tactics()
 
-        self.assertEqual(len(items), 9)
+        # ma20_slope 已下线（2026-09-17）：9 → 8 条
+        self.assertEqual(len(items), 8)
         self.assertEqual({i["direction"] for i in items}, {"buy", "sell"})
         self.assertTrue(all({"key", "name", "category", "desc"} <= set(i) for i in items))
 

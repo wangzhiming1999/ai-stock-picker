@@ -190,6 +190,9 @@ class StockAnalysis(BaseModel):
     # 交易员计划 + 基金经理终审（TradingAgents ③④层），仅在开启辩论且辩论成功时产出
     trade_plan: TradePlan | None = None
     fund_manager_verdict: FundManagerVerdict | None = None
+    # 本次分析落库的 agent 决策行 id（agent_decisions，执行闭环：一键采纳建仓用）。
+    # None = 未登录 / 表未建 / 落库失败 —— 前端据此隐藏「按计划建仓」按钮。
+    agent_decision_id: int | None = None
     holding_advice: str | None = None
 
 
