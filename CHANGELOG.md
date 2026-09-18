@@ -9,6 +9,19 @@
 
 ## [Unreleased]
 
+### Fixed
+- **新浪市值单位修正（万元→元），修复 Sina 降级窗口四维榜池空**（2026-09-18）
+  > 根因：新浪快照 `mktcap`/`nmc` 单位是「万元」，此前直接按「元」契约落
+  > `market_spot_cache`，下游 `/1e8` 后 `market_cap_yi` 全体缩小 1e4 倍
+  > （安徽凤凰 125418.24 万元 → 0.0012 亿），全部卡在 `60<=mc<=3000` 硬筛
+  > → 候选池为空（502「候选池为空」）。该 bug 自 09-03 quad 上线即存在，
+  > 只在东财被风控、降级新浪的窗口暴露。实测修复后 quad refresh 200，
+  > pool=40 / Top10 正常产出。
+  - `spot_service._num` 增加 `scale` 参数；`_frame_from_sina` 对 mktcap/nmc ×1e4，
+    对齐东财 f20/f21 的「元」契约
+  - quad_service 移除临时诊断 RuntimeError（root-cause 定位后撤掉），恢复干净池空文案
+  - 测试：新增回归测试锁定换算链（万元→元→亿 + 800 亿样本过市值硬筛）；全量 455 例通过（双入口复验）
+
 ### Added
 - **推荐/四维榜结算闭环补口**（2026-09-18）
   > 「四维牛股 / 每日推荐质量好差」此前在系统内部不可见：quad 快照写了 `quad_snapshots`
@@ -23,8 +36,7 @@
     细分（quad / watch 各自单列）；`calibers.recommendation` 登记补充三者不可相加的声明
   - 测试：`test_recommend_closure.py` 9 例（quad 落库/幂等/跳过已荐/缺价/静默降级 +
     watch 落库/幂等/已荐跳过/降级）+ `test_calibers.py` 增 3 例（主口径排除 quad/watch /
-    旧数据无 source 仍计入）；全量 453 例通过（双入口复验）
-- **四维榜全市场快照接入 _get_spot 三层回退**（2026-09-18）
+    旧数据无 source 仍计入）；全量 453 例通过（双入口复验）- **四维榜全市场快照接入 _get_spot 三层回退**（2026-09-18）
   > `quad_service._full_spot()` 直连 `fetch_spot_frame`，是全项目唯一绕过
   > 「内存 5min → Supabase `market_spot_cache` 6h → 真拉+跨实例冷却」的全市场消费者
   > —— 行情源一抖就 502，而 Supabase 里明明有热快照。
