@@ -596,7 +596,16 @@ async def generate_quad_rankings(force_refresh: bool = False) -> dict:
 
     pool = _preselect(spot, top_n=40)
     if not pool:
-        raise RuntimeError("四维牛股候选池为空（今日全市场无符合条件标的）")
+        # 诊断信息随错误透出：池空必须能区分「真没有标的」和「数据形态问题」
+        sample = spot[0] if spot else {}
+        priced = sum(1 for r in spot if (r.get("price") or 0) > 0)
+        with_amount = sum(1 for r in spot if (r.get("amount_yi") or 0) >= 3)
+        with_pe = sum(1 for r in spot if r.get("pe") is not None)
+        raise RuntimeError(
+            "四维牛股候选池为空"
+            f"（rows={len(spot)} priced={priced} amount≥3亿={with_amount} 有pe={with_pe}"
+            f" sample_keys={sorted(sample.keys())}）"
+        )
 
     # 预拉当日公告 + 全市场快讯（各一次请求，覆盖全部候选），失败自动降级为空
     notices, global_news = await asyncio.gather(
