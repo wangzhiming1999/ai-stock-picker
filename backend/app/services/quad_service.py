@@ -238,7 +238,13 @@ def _preselect(rows: list[dict], top_n: int = 40) -> list[dict]:
             x["turnover"] = turnover if turnover is not None else x.get("turnover")
             x["market_cap_yi"] = (q.market_cap / 1e8) if q.market_cap else x.get("market_cap_yi")
             filled.append(x)
-        hard = filled
+        # ⚠️ 补全全挂（腾讯被限/网络失败）不能把候选池清空 —— 缺 pe 的行
+        # 打分时估值维度给中性分即可，直接丢池会把数据故障伪装成「无符合标的」。
+        # 阈值：补全成功率 < 1/3 视为补全整体失败，回退到未补全集合。
+        if len(filled) < max(1, len(hard) // 3):
+            print(f"[quad] 腾讯补全几乎全失败（{len(filled)}/{len(hard)}），回退未补全行继续打分")
+        else:
+            hard = filled
 
     pool: list[dict] = []
     for r in hard:

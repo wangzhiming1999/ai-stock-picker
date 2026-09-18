@@ -193,6 +193,19 @@ async def test_preselect_works_on_legacy_rows_with_tencent_fill(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_preselect_survives_total_tencent_fill_failure(monkeypatch):
+    """腾讯补全全挂时必须回退未补全行继续打分，不得把数据故障伪装成「无符合标的」。"""
+    def fail_fill(codes):
+        raise RuntimeError("腾讯行情请求失败")
+
+    monkeypatch.setattr(quad_service.data_service, "get_spot_quote", fail_fill)
+    normalized = [quad_service._normalize_shared_row(r) for r in _legacy_rows(size=120)]
+    pool = quad_service._preselect(normalized, top_n=40)
+    assert pool, "补全失败时回退未补全行，池不能为空"
+    assert all(p.get("pe") is None for p in pool)
+
+
+@pytest.mark.asyncio
 async def test_regime_breadth_uses_shared_spot(monkeypatch):
     """市场宽度与四维榜同源：走 get_full_spot，冷却失败返回 None 不拖垮方向预测。"""
     calls = []
