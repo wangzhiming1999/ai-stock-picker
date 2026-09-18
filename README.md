@@ -82,9 +82,9 @@ npm run dev                 # http://localhost:5173
 
 ### 2. 接入 Supabase（完整能力）
 
-1. 在 Supabase 新建项目，按顺序执行 `backend/supabase-schema.sql`（v1）及 `supabase-schema-v2.sql` … `supabase-schema-v8.sql`；
+1. 在 Supabase 新建项目，按顺序执行 `backend/supabase-schema.sql`（v1）及 `supabase-schema-v2.sql` … `supabase-schema-v10.sql`；
    或部署后端后调用 `POST /api/admin/migrate` 自动执行全部迁移（需先配置 `ADMIN_TOKEN` 与 `SUPABASE_MANAGEMENT_API_KEY`）。
-   所有脚本均幂等，可重复执行。v8（`market_source_state`）可选：不执行则行情源冷却降级为单实例可见。
+   所有脚本均幂等，可重复执行。v8（`market_source_state`）/ v9（`agent_decisions`）/ v10（`limitup_daily_snapshot` + `sim_trades.source` 放宽）可选：不执行则对应功能静默降级。
 2. 在项目设置中获取 URL 与 anon / service_role Key，写入 `backend/.env`：
    ```ini
    SUPABASE_URL=https://xxxx.supabase.co
@@ -116,7 +116,7 @@ npm run dev                 # http://localhost:5173
 改动后至少跑一遍下面四步（CI 也是这四步，见 `.github/workflows/ci.yml`）：
 
 ```bash
-# 后端（318 个用例）
+# 后端（427 个用例）
 cd backend
 pip install -r requirements-dev.txt   # 含 pytest / pytest-asyncio
 pytest -q
@@ -197,14 +197,14 @@ ai-stock-picker/
 │   │   ├── config.py             # pydantic-settings 配置
 │   │   ├── models.py             # 数据模型
 │   │   ├── store.py              # SQLite 本地分析历史
-│   │   ├── routes/               # 17 个路由模块（见下）
-│   │   └── services/            # 31 个服务模块（见下）
-│   ├── supabase-schema*.sql      # 建表脚本 v1–v8（幂等，可重复执行）
+│   │   ├── routes/               # 18 个路由模块（见下）
+│   │   └── services/            # 33 个服务模块（见下）
+│   ├── supabase-schema*.sql      # 建表脚本 v1–v10（幂等，可重复执行）
 │   ├── requirements.txt
 │   └── vercel.json
 ├── frontend/
 │   └── src/
-│       ├── App.tsx              # 4 Tab 主框架：发现好股 / 选股扫描 / 深度分析 / 我的
+│       ├── App.tsx              # 3 入口主框架：今日作战 / 选机会 / 持仓（深度分析走全局抽屉）
 │       ├── api/                 # client / auth / supabase
 │       ├── auth/AuthContext.tsx # 登录态
 │       ├── components/          # 20+ 组件（简报/推荐/扫描/回测/持仓/模拟盘/预警…）
@@ -216,10 +216,10 @@ ai-stock-picker/
 ```
 
 **后端路由**（`app/routes`）：
-`stock`（行情 / K 线 / 新闻）· `analysis`（选股分析 SSE）· `market`（板块 / 扫描 / 推荐 / 大盘推衍 / 机会）· `history`（历史批次）· `auth`（登录注册）· `cron`（每日结算 / 扫描）· `alerts`（预警中心）· `backtest`（回测）· `portfolio`（持仓）· `sim`（模拟盘）· `watchlist`（自选股）· `briefing`（今日简报）· `quad`（榜单）· `monitor`（监控）· `limitup`（连板梯队 / 涨停情绪）
+`stock`（行情 / K 线 / 新闻）· `analysis`（选股分析 SSE）· `market`（板块 / 扫描 / 推荐 / 大盘推衍 / 机会）· `history`（历史批次）· `auth`（登录注册）· `cron`（每日结算 / 扫描）· `alerts`（预警中心）· `backtest`（回测）· `portfolio`（持仓）· `sim`（模拟盘）· `watchlist`（自选股）· `briefing`（今日简报）· `quad`（榜单）· `monitor`（监控）· `limitup`（连板梯队 / 涨停情绪）· `limitdown`（跌停池 / 次日修复收益）
 
 **后端服务**（`app/services`）：
-`data_service`（akshare 行情 / 新闻）· `llm_service`（DeepSeek + 规则兜底）· `signal_service`（技术信号）· `market_prediction`（大盘推衍）· `recommend_service`（每日推荐）· `backtest_service` · `portfolio_service` · `sim_service`（交易引擎）· `watchlist_service` · `alert_service` · `winrate_service`（胜率）· `trade_calendar_service`（交易日历）· `opportunity_service`（盘前 / 尾盘机会）· `pattern_service`（实战形态）· `quad_service` · `briefing_service` · `import_service`（持仓截图 / 文本导入）· `supabase_store`（Supabase 持久化）· `debate_service`（多空研究员对辩）· `limitup_service`（涨停池 / 连板梯队 / 晋级率）
+`data_service`（akshare 行情 / 新闻）· `llm_service`（DeepSeek + 规则兜底）· `signal_service`（技术信号）· `market_prediction`（大盘推衍）· `recommend_service`（每日推荐）· `backtest_service` · `portfolio_service` · `sim_service`（交易引擎）· `watchlist_service` · `alert_service` · `winrate_service`（胜率）· `trade_calendar_service`（交易日历）· `opportunity_service`（盘前 / 尾盘机会）· `pattern_service`（实战形态）· `quad_service` · `briefing_service` · `import_service`（持仓截图 / 文本导入）· `supabase_store`（Supabase 持久化）· `agent_decision_service`（agent 决策闭环）· `debate_service`（多空研究员对辩）· `limitup_service`（涨停池 / 连板梯队 / 晋级率）· `limitdown_service`（跌停池 / 连跌梯队 / 次日修复收益回测）· `tactic_evidence`（证据等级闸门）· `calibers`（统计口径登记表）
 
 ---
 

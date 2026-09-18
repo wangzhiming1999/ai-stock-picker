@@ -10,6 +10,89 @@
 ## [Unreleased]
 
 ### Added
+- **连板接力闭环：每日落库 + 模拟盘自动建仓 + 简报/盯盘接入**（2026-09-18）
+  > 连板晋级率此前只有「封板延续率」口径（不是收益率），且东财涨停池只回溯 ~15 个交易日，
+  > 样本窗口永远 3 周、不会随时间变长。本轮把三件事串起来：数据自积累 → 模拟盘跑真实可成交收益
+  > → 简报/盯盘直接给结论。
+  - **每日落库**：`supabase-schema-v10.sql` 新增 `limitup_daily_snapshot`（UNIQUE(trade_date, code) 幂等）；
+    `limitup_service.save_daily_snapshot()` 挂进 `get_snapshot`（顺手写）与每日 cron（收盘兜底），
+    `relay_backtest` 读路径优先用累积表补齐接口回溯窗口外的空池日期（返回体新增 `accumulated_days`）
+    —— 表未建 / Supabase 未配置全部静默降级，实时链路零影响
+  - **模拟盘自动建仓**：`sim_service.auto_relay_buy_for_user / auto_relay_buy_all`
+    —— T 日 `play_advice=="hunt"` 且 relay tier1（三因子全达标）才执行；T+1 开盘价成交
+    （竞价挂开盘价口径）；**一字板开盘（high==low 且开盘即涨停 ≥9.5%）记 missed 不假装成交**；
+    预算 `RELAY_BUDGET_PCT=10%` 整手向下取整；同 (user, code, trade_date) 幂等判重。
+    触发挂在 `POST /api/cron/monitor` 开盘窗口 9:15–9:45（9:25 后开盘价才确定，9:45 后追高失真）
+  - **v10 顺带修复**：`sim_trades.source` CHECK 约束此前只有 manual/briefing/recommend ——
+    v9 起 agent 采纳路径写 `source='agent'` 实际会被 DB 约束静默拒绝（潜在 bug），本次一并放宽为
+    `('manual','briefing','recommend','agent','limitup_relay')`；`TradeRequest` 正则与前端 `simTrade` 类型同步
+  - **简报接入**：`briefing_service._build_limitup_block` 注入 `limitup` 块 —— 早盘直接回答
+    「今天环境能不能碰连板」（三档结论 + 资金面最强分组 + 免责句）；
+    登录用户持仓 ∩ 当日连板股按 relay_score 升序给盯盘提示（封板质量最弱的排最前）；
+    `DailyBriefing` 新增「连板梯队」区、`MonitorPanel` 新增「持仓连板对照」条
+    —— 措辞全部透传后端结论（分层是强弱读数不是买卖指令），前端不发明新话术
+  - 测试：`test_sim_relay_auto_buy.py` 7 例（hunt+tier1 双闸门 / 一字板 missed / 仓位换算 /
+    幂等 / 未初始化 / 预算不足 / 单票失败不拖垮）+ `test_limitup_snapshot_store.py` 8 例
+    （落库行映射 / 缺值兜底 / 累积回补 / 未配置降级）；全量 427 例通过
+- **技术债清理：下线 ma20_slope 负超额技巧**（2026-09-18）
+  - 两轮回测（2026-09-13 / 09-16）收益与胜率超额均为负（−0.26/−0.35pt、−5.4/−5.0pt），
+    「黄金区间」口径跑不赢基准 —— 从 `TACTICS` 移除（扫描/回测/面板不再出现，9→8 条）；
+    `RETIRED_TACTICS` 登记下线名单，detect 函数与证据记录保留（历史结论可追溯、日后重新校准可复用回测链路）
+  - 守卫测试同步重定义：`EVIDENCE ⊇ TACTICS`（不要求相等）+ 下线 key 必须有 detector + 必须留证据
+- **Agent 执行闭环 + 决策记忆（TradingAgents 第五层：track record）**（2026-09-18）
+  > 背景：四层链路（分析师 → 多空辩论 → 交易员计划 → 风控终审）此前「跑完即散」，
+  > 没有任何表记录「agent 说买 → 实际结果如何」——agent 自己的结论没有 n，违反证据纪律。
+  > 本轮补上执行闭环（P0）与决策记忆（P1），agent 第一次拥有自己的战绩单。
+  - 新增 `services/agent_decision_service.py` + `supabase-schema-v9.sql`（`agent_decisions` 表，幂等）：
+    深度分析产出终审结论时自动落对照行（rejected 直接落、approved/demoted 落 ignored 待采纳）；
+    **表未建时全链路静默降级**，不影响任何现有功能（与 market_spot_cache 同策略，迁移可选）
+  - **一键采纳建仓**：`POST /api/sim/from-plan` —— 校验 status=ignored + verdict∈{approved,demoted} +
+    action∈{buy,add}，按 `final_position_pct × total_capital ÷ entry` 换算整手数（不足 1 手明确报错），
+    `sim_service.buy(source="agent")` 成交后回填 `sim_trade_id`；`sim_trades.source` CHECK 扩入 `agent`
+    - 同票同日同用户幂等落库（`record_for_user_if_absent`）；采纳接口带用户归属二次校验
+  - **到期自动结算**：每日 cron 合并执行 `sim_service.settle_agent_decisions()`（不新增 cron，
+    Hobby 限制）—— data_date + 5 个交易日（`trade_calendar.shift_trading_days` 新增）后按收盘价
+    结算 pnl/hit + 代码模板反思（不额外调 LLM）；停牌顺延；**未采纳计划同样结算**（对照组）
+  - **P1 决策记忆**：`_assemble_context` 注入该票最近已结算决策（`memory_block` 只含事实与偏差，
+    不含指令词，测试锁定）；无样本/表未建返回空串零影响
+  - **口径纪律**：calibers 新增 `agent_plan`（命中率基准=计划入场价、窗口=N 交易日、
+    **样本 <5 不计算命中率**、采纳组与对照组不同质不可相减归因）；stats 随数据下发 caliber；
+    前端 SimPanel「Agent 决策记录」区只展示不下发的数字，绝不自己算
+  - 前端：`TradePlanBlock` 终审通过且为建仓计划时显示「按此计划建仓模拟盘」一键（decisionId 缺失/
+    旧缓存隐藏）；SimPanel 增 Agent 决策区（状态徽章 adopted=蓝 / rejected=中性，pnl 走 pnlTone，
+    命中率不占红绿）；`simTrade` source 类型扩 `agent`
+  - 测试：`test_agent_decision_service.py` 16 例（落库状态机、幂等、结算方向化口径、
+    无入场价降级、反思无指令词、记忆块、<5 样本不给命中率、口径必下发）；全量 417 例通过（双入口复验）
+- **跌停池观察层：跌停次日修复收益实测 —— 结论为负，因此只读不推**（2026-09-18）
+  > 起因是一个很常见的想法：「每天挑跌停的票低吸，次日竞价修复就卖出」。
+  > 本项目第一次用**真实收益口径**把它跑了出来 —— 结果是负期望，于是这个功能的产品形态
+  > 从「抄底候选列表」改成了「抛压温度 + 代价读数」。
+  - 数据源新增东财跌停板池 `getTopicDTPool`（与涨停池同域不同端点，风控特征一致）；
+    ⚠️ 该端点的 `sort` **必须用 `zdp:asc`** —— 照抄涨停池的 `fbt:asc` 会返回**空池**（实测踩过）
+  - 新增 `services/limitdown_service.py`：跌停池 / 连跌梯队 / 板块聚集（60s 短缓存）+
+    **次日修复收益回测**（D 日跌停价买入 → D+1 集合竞价 / 收盘 / 盘中最高三种卖出口径）
+  - 新增 `GET /api/limitdown/snapshot`、`GET /api/limitdown/repair?days=N`
+    （口径 `limitdown_repair`，新登记进 `calibers`，被 `test_calibers` 的覆盖守卫锁定）
+  - **实测结论（2026-08-31 ~ 09-17，13 个交易日 / 133 个样本）**：期望 **−4.47%/次**、
+    竞价卖出胜率 **4.5%**、打平需 **80.6%** 胜率（均盈 +1.14% / 均亏 −4.74%）
+  - **三个反直觉发现**：
+    ① 「跌停能买到」不是优势而是弱势信号 —— 全天封死组（随时买得到）期望 −6.23%、次日仍跌停 26.7%，
+       盘中开过板组 −4.25% / 16.1%，即**越好买次日越差**；
+    ② 按「跌停的板块」筛反而最差 —— 同板块 ≥5 只跌停 −7.17% / 2-4 只 −5.19% / 仅 1 只 −4.04%，
+       说明板块级同时跌停是**板块利空**而非个股错杀；
+    ③ 竞价卖出是全天最差时点 —— 次日盘中最高价平均 +0.57%、50.4% 曾转正（反抽真实存在），
+       但覆盖不了平均低开；持有到收盘 −3.94% 仍为负。按当日跌停家数 / 板块家数 / 连跌天数
+       逐一切片，**n≥8 的切片无一为正期望**
+  - 尾部风险：14.3% 的样本次日跌停开盘，其中 3 次一字跌停**挂单也卖不出去** ——
+    T+1 之下这条路径在最需要止损的时刻没有止损能力
+  - 证据等级登记为 **`unsupported`**（不是「还没跑」，而是「有明确结论且为负」），
+    `actionable` 恒为 false；`calibers.limitdown_repair.pitfall` 写明「这是负期望口径，不是机会口径」
+  - 前端 `LimitDownBar`：与 `LimitUpBar` 对称的全局常驻温度带（**同样不进 NAV**）——
+    折叠态只报跌停家数 / 连跌家数 / 最集中板块 / 跌停涨停比；展开态把
+    「期望 −4.47% + 离打平还差 76.1 个百分点」摆在最显眼处，位置标签只占中性 / 琥珀，
+    全程无动作词；`limitDownLogic.ts` 抽出纯逻辑（胜率缺口 / 涨跌停比 null 语义 / 带样本量门槛的极值切片）
+  - 后端测试 355 → 399（+44：字段错位（`fba` 非 `fund`、`days` 非 `lbc`）/ 单位换算 /
+    收益统计打平线 / `ret_close=None` 不得当 0 / 负期望策略不得 actionable）；前端测试 9 → 19（+10）
 - **深度分析：TradingAgents ③④层 —— 交易员计划 + 风控终审**（2026-09-18）
   > 把昨天上线的多空辩论接完下游：辩论结论第一次变成「可被风控检验的交易计划」，
   > 补齐 TradingAgents 四层链路（分析师 ✓ / 辩论 ✓ / 交易员 ✓ / 风控 ✓）。
