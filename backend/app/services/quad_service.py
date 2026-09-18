@@ -601,10 +601,16 @@ async def generate_quad_rankings(force_refresh: bool = False) -> dict:
         priced = sum(1 for r in spot if (r.get("price") or 0) > 0)
         with_amount = sum(1 for r in spot if (r.get("amount_yi") or 0) >= 3)
         with_pe = sum(1 for r in spot if r.get("pe") is not None)
+        pe_ok = sum(1 for r in spot if r.get("pe") is not None and 0 < r["pe"] <= 80)
+        pb_ok = sum(1 for r in spot if r.get("pb") is not None and 0 < r["pb"] <= 12)
+        to_ok = sum(1 for r in spot if r.get("turnover") is not None and 0.8 <= r["turnover"] <= 18)
+        chg_ok = sum(1 for r in spot if -4 <= (r.get("change_pct") or 0) <= 9.5)
+        price_ok = sum(1 for r in spot if 2 <= (r.get("price") or 0) <= 300)
         raise RuntimeError(
             "四维牛股候选池为空"
-            f"（rows={len(spot)} priced={priced} amount≥3亿={with_amount} 有pe={with_pe}"
-            f" sample_keys={sorted(sample.keys())}）"
+            f"（rows={len(spot)} priced={priced} price2-300={price_ok} amount≥3亿={with_amount}"
+            f" pe非None={with_pe} pe合规={pe_ok} pb合规={pb_ok} 换手合规={to_ok} 涨跌幅合规={chg_ok}"
+            f" sample={ {k: sample.get(k) for k in ('code','name','price','change_pct','amount_yi','pe','pb','turnover','market_cap_yi')} }）"
         )
 
     # 预拉当日公告 + 全市场快讯（各一次请求，覆盖全部候选），失败自动降级为空
