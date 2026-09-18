@@ -235,3 +235,50 @@ async def test_regime_breadth_swallows_cooldown(monkeypatch):
     monkeypatch.setattr(quad_service, "get_full_spot", cooling)
     breadth = await regime_service.fetch_breadth()
     assert breadth is None
+
+
+def test_sina_mktcap_unit_converted_to_yuan():
+    """新浪 mktcap/nmc 是「万元」，必须 ×1e4 对齐东财 f20/f21 的「元」契约。
+
+    反例：09-18 线上 quad 502，Sina 降级窗口内全市场 market_cap_yi≈0.0012
+    （125418.24 万元被当 125418.24 元 → 0.0012 亿），全部卡在 60<=mc<=3000
+    硬筛 → 候选池为空。
+    """
+    from app.services.spot_service import _frame_from_sina
+
+    rows = [
+        # 安徽凤凰 bj920000 实测值：12.54 亿（万元口径 125418.24）
+        {
+            "symbol": "bj920000",
+            "name": "安徽凤凰",
+            "trade": 13.68,
+            "changepercent": 1.0,
+            "amount": 1.368e8,
+            "mktcap": 125418.24,  # 万元
+            "nmc": 78788.4894,  # 万元
+        },
+        # 800 亿档：验证换算后能通过 60~3000 亿硬筛（800 亿 = 8e10 元 = 8e6 万元）
+        {
+            "symbol": "sh600000",
+            "name": "大盘股",
+            "trade": 10.0,
+            "changepercent": 1.0,
+            "amount": 5e8,
+            "mktcap": 8e6,  # 万元 = 800 亿元
+            "nmc": 7e6,
+        },
+    ]
+    frame = _frame_from_sina(rows)
+    rec = frame.iloc[0]
+    # 万元 → 元：125418.24 万 = 1.2541824e9 元
+    assert rec["总市值"] == pytest.approx(125418.24 * 1e4)
+    assert rec["流通市值"] == pytest.approx(78788.4894 * 1e4)
+    # 换算后的行能通过初筛市值档（60~3000 亿）—— 走 _normalize_shared_row 的换算链
+    from app.services.quad_service import _normalize_shared_row
+
+    quad_rows = [_normalize_shared_row(r) for r in market._rows_from_spot_frame(frame)]
+    # 安徽凤凰 12.54 亿 < 60 亿下限（本身就该被筛掉，但换算必须正确）
+    assert quad_rows[0]["market_cap_yi"] == pytest.approx(12.541824)
+    # 大盘股 800 亿 → 落在 60~3000 亿合规档
+    assert quad_rows[1]["market_cap_yi"] == pytest.approx(800.0)
+    assert 60 <= quad_rows[1]["market_cap_yi"] <= 3000

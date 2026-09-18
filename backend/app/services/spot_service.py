@@ -64,12 +64,12 @@ _MIN_ROWS = 100
 _MIN_PRICED_RATIO = 0.5
 
 
-def _num(value) -> float | None:
-    """东财/新浪缺值时可能是 '-'、''、None。"""
+def _num(value, scale: float = 1.0) -> float | None:
+    """东财/新浪缺值时可能是 '-'、''、None。scale 用于单位换算（如万元→元）。"""
     try:
         if value is None or value == "" or value == "-":
             return None
-        return float(value)
+        return float(value) * scale
     except (TypeError, ValueError):
         return None
 
@@ -231,8 +231,9 @@ def _frame_from_sina(rows: list[dict]) -> pd.DataFrame:
                 "最低": low,
                 "今开": _num(item.get("open")),
                 "昨收": prev,
-                "总市值": _num(item.get("mktcap")),
-                "流通市值": _num(item.get("nmc")),
+                # 新浪 mktcap/nmc 单位是「万元」，东财 f20/f21 是「元」，此处统一转成元
+                "总市值": _num(item.get("mktcap"), scale=1e4),
+                "流通市值": _num(item.get("nmc"), scale=1e4),
                 "市净率": _num(item.get("pb")),
             }
         )
