@@ -1,4 +1,5 @@
 import type {
+  AgentDecisionsData,
   AnalysisBatch,
   AnalysisBatchDetail,
   AlertEvent,
@@ -11,6 +12,8 @@ import type {
   HoldingsData,
   IndexHistory,
   Industry,
+  LimitDownRepairResult,
+  LimitDownSnapshot,
   LimitUpRelayResult,
   LimitUpSnapshot,
   MonitorInterval,
@@ -338,6 +341,39 @@ export async function fetchLimitUpRelay(days?: number, force = false): Promise<L
   return res.json();
 }
 
+// ---------- 跌停池（抄底观察层）----------
+
+/**
+ * 当日跌停全景（家数 / 连跌梯队 / 板块聚集 / 个股位置）。
+ *
+ * ⚠️ 这不是抄底信号源。后端 `evidence.actionable` 恒为 false，证据等级是
+ * `unsupported` —— 因为它**有明确的收益结论，而且是负的**（n=133、期望 −4.47%/次）。
+ */
+export async function fetchLimitDownSnapshot(force = false): Promise<LimitDownSnapshot> {
+  const res = await fetch(`${API}/limitdown/snapshot${force ? "?force=true" : ""}`);
+  if (!res.ok) throw await errorFrom(res, "获取跌停池失败");
+  return res.json();
+}
+
+/**
+ * 跌停次日修复收益回溯（D 日跌停价买入 → D+1 集合竞价 / 收盘 / 盘中最高）。
+ *
+ * ⚠️ 比 snapshot 贵得多：后端要为**每只**跌停股拉一次日 K（逐只请求是行情源风控主因）。
+ * 因此后端有样本上限、结果缓存 6 小时，前端只在用户展开时请求一次，**不要轮询**。
+ */
+export async function fetchLimitDownRepair(
+  days?: number,
+  force = false,
+): Promise<LimitDownRepairResult> {
+  const qs = new URLSearchParams();
+  if (days != null) qs.set("days", String(days));
+  if (force) qs.set("force", "true");
+  const query = qs.toString();
+  const res = await fetch(`${API}/limitdown/repair${query ? `?${query}` : ""}`);
+  if (!res.ok) throw await errorFrom(res, "获取跌停修复回测失败");
+  return res.json();
+}
+
 // ---------- 持仓 ----------
 
 async function authFetch(url: string, init?: RequestInit): Promise<Response> {
@@ -533,7 +569,7 @@ export async function simTrade(payload: {
   side: "buy" | "sell";
   shares: number;
   price?: number;
-  source?: "manual" | "briefing" | "recommend";
+  source?: "manual" | "briefing" | "recommend" | "agent" | "limitup_relay";
   related_reco_id?: string | null;
   note?: string;
 }): Promise<{ trade: unknown; account: SimAccount; realized_pnl?: number }> {
@@ -541,6 +577,48 @@ export async function simTrade(payload: {
   if (!res.ok) {
     const d = await res.json().catch(() => ({}));
     throw new Error(d.detail || `模拟交易失败: ${res.status}`);
+  }
+  return res.json();
+}
+
+/* ---------- Agent 决策闭环（TradingAgents 执行闭环） ---------- */
+
+export interface AgentAdoptResult {
+  trade: unknown;
+  account: SimAccount;
+  plan: {
+    decision_id: number;
+    code: string;
+    shares: number;
+    budget: number;
+    position_pct: number;
+    stop_price?: number | null;
+    target_price?: number | null;
+  };
+}
+
+/** 按终审计划建仓模拟盘（后端换算手数；-approved/demoted 才放行）。 */
+export async function simAdoptPlan(
+  decision_id: number,
+  price?: number
+): Promise<AgentAdoptResult> {
+  const res = await authFetch(`${API}/sim/from-plan`, {
+    method: "POST",
+    body: JSON.stringify({ decision_id, price: price ?? null }),
+  });
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(d.detail || `计划建仓失败: ${res.status}`);
+  }
+  return res.json();
+}
+
+/** 当前用户的 agent 决策记录 + 闭环统计。 */
+export async function fetchAgentDecisions(limit = 30): Promise<AgentDecisionsData> {
+  const res = await authFetch(`${API}/sim/agent-decisions?limit=${limit}`);
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(d.detail || `获取 agent 决策记录失败: ${res.status}`);
   }
   return res.json();
 }

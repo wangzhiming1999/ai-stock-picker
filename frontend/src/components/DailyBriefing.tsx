@@ -1,5 +1,5 @@
 import { type MouseEvent, type ReactNode, useCallback, useEffect, useState } from "react";
-import { ArrowDownRight, ArrowUpRight, Bell, ClipboardCheck, Plus, RefreshCw, ShieldCheck, Sunrise, Target } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Bell, ClipboardCheck, Flame, Plus, RefreshCw, ShieldCheck, Sunrise, Target } from "lucide-react";
 import { addToWatchlist, fetchBriefing, getAuthToken, simTrade } from "../api/client";
 import type { Briefing, BriefingHolding, BriefingStock, BriefingTactics } from "../types";
 import { actionBadge, actionTone, CHIP, dirTone, downTone, pnlTone, upTone } from "../lib/tone";
@@ -514,6 +514,78 @@ function TacticsBlock({ tactics, onPick }: { tactics: BriefingTactics; onPick: (
   );
 }
 
+/** 连板结论块：环境三档结论 + 资金面最强分组 + 持仓连板盯盘提示。
+ *
+ * 措辞直接透传后端（play_advice/headline 本身已带「不是买入指令」纪律）；
+ * 层级配色只表达强弱方向（hunt 红 / watch 琥珀 / avoid 绿=离场），
+ * 不发明新话术。区块在 limitup 为 null（后端获取失败）时整体隐藏。
+ */
+function LimitUpBlock({ limitup }: { limitup: NonNullable<Briefing["limitup"]> }) {
+  const advice = limitup.play_advice;
+  const levelTone = advice
+    ? advice.level === "hunt"
+      ? upTone(300)
+      : advice.level === "watch"
+        ? "text-amber-300"
+        : downTone(300)
+    : "text-ink";
+  const relays = limitup.holdings_relay ?? [];
+
+  return (
+    <div className="space-y-2">
+      {advice && (
+        <div className={`${SUB} px-3 py-2.5`}>
+          <div className="flex items-center justify-between gap-2">
+            <span className={`text-base font-semibold ${levelTone}`}>{advice.title}</span>
+            <span className={TEXT.meta}>连板环境</span>
+          </div>
+          <ul className="mt-1 space-y-0.5">
+            {advice.reasons.map((r, i) => (
+              <li key={i} className="text-xs leading-relaxed text-ink-soft">
+                · {r}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {limitup.headline && <p className="text-xs leading-relaxed text-ink-muted">{limitup.headline}</p>}
+      {limitup.top_tier && limitup.top_tier.names.length > 0 && (
+        <div className={`${SUB_QUIET} px-2 py-1.5`}>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className={`text-xs font-medium ${upTone(300)}`}>{limitup.top_tier.label}</span>
+            <span className={TEXT.meta}>
+              历史同档晋级读数 {limitup.top_tier.rate}%（n={limitup.top_tier.rate_n}）
+            </span>
+          </div>
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {limitup.top_tier.names.map((n, i) => (
+              <span key={i} className={`rounded-md px-1.5 py-0.5 text-xs ${CHIP.neutral.bg} ${CHIP.neutral.text}`}>
+                {n}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+      {relays.length > 0 && (
+        <div className="space-y-1">
+          <div className={TEXT.meta}>持仓中的连板股 · 按封板质量从弱到强排（走弱先动谁）</div>
+          {relays.map((r) => (
+            <div key={r.code} className={`${SUB_QUIET} px-2 py-1.5`}>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-medium text-ink-strong">{r.name}</span>
+                <span className={TEXT.meta}>
+                  {r.boards}板 · {r.tier_label ?? `${r.score}/3 分`}
+                </span>
+              </div>
+              <div className="mt-0.5 text-xs leading-relaxed text-ink-soft">{r.hint}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function DailyBriefing({ onPick, onSettled }: Props) {
   const [data, setData] = useState<Briefing | null>(null);
   const [loading, setLoading] = useState(false);
@@ -687,6 +759,13 @@ export default function DailyBriefing({ onPick, onSettled }: Props) {
           {tacticsReady && data.tactics && (
             <Section icon={<Target className="h-4 w-4 text-sky-400" aria-hidden />} title="形态命中">
               <TacticsBlock tactics={data.tactics} onPick={onPick} />
+            </Section>
+          )}
+
+          {/* ③ 分区：连板结论（早盘直接回答「今天能不能碰连板」；数据缺失整体隐藏） */}
+          {data.limitup && (
+            <Section icon={<Flame className="h-4 w-4 text-orange-400" aria-hidden />} title="连板梯队">
+              <LimitUpBlock limitup={data.limitup} />
             </Section>
           )}
 

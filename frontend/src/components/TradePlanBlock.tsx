@@ -1,6 +1,10 @@
+import { useState } from "react";
+import { toast } from "sonner";
 import { CheckCircle2, ShieldAlert, XCircle, MinusCircle } from "lucide-react";
 import { actionBadge } from "../lib/tone";
 import { SUB_QUIET, TEXT } from "../lib/ui";
+import { simAdoptPlan } from "../api/client";
+import Button from "./Button";
 import type { FundManagerVerdict, TradePlan } from "../types";
 
 /**
@@ -39,16 +43,45 @@ const ACTION_LABELS: Record<string, string> = {
 export default function TradePlanBlock({
   plan,
   verdict,
+  decisionId,
 }: {
   plan: TradePlan;
   verdict?: FundManagerVerdict;
+  /** agent_decisions 行 id：有值 = 已登录且落库成功，才显示「按计划建仓」按钮 */
+  decisionId?: number | null;
 }) {
+  const [adopting, setAdopting] = useState(false);
+  const [adoptError, setAdoptError] = useState("");
   const badge = actionBadge(ACTION_LABELS[plan.action] ?? plan.action);
   const isRejected = verdict?.decision === "rejected";
   // 终审否决时仓位/止损以终审为准（为 0 / 无效），展示终审值避免误导
   const pct = isRejected ? 0 : (verdict?.final_position_pct ?? plan.position_pct);
   const stop = verdict?.final_stop_price ?? plan.stop_price;
   const entry = plan.entry_price;
+
+  // 一键采纳条件：终审通过（approved/demoted）+ 建仓类动作 + 落库成功
+  const adoptable =
+    !isRejected &&
+    (plan.action === "buy" || plan.action === "add") &&
+    decisionId != null &&
+    pct > 0;
+
+  const handleAdopt = async () => {
+    if (decisionId == null) return;
+    setAdopting(true);
+    setAdoptError("");
+    try {
+      const r = await simAdoptPlan(decisionId);
+      toast.success("已按计划建仓模拟盘", {
+        description: `${r.plan.code} ${r.plan.shares} 股（约 ¥${r.plan.budget.toLocaleString()}）`,
+      });
+    } catch (e) {
+      setAdoptError((e as Error).message);
+      toast.error((e as Error).message);
+    } finally {
+      setAdopting(false);
+    }
+  };
 
   return (
     <div className="mt-4 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
@@ -128,6 +161,27 @@ export default function TradePlanBlock({
             ))}
           </ul>
         </div>
+      )}
+
+      {/* 一键采纳（执行闭环）：仅终审通过 + 建仓类动作 + 落库成功（有 decision_id）时出现 */}
+      {adoptable && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-800/60 pt-2.5">
+          <Button
+            variant="primary"
+            size="md"
+            disabled={adopting}
+            onClick={() => void handleAdopt()}
+            title="按终审仓位自动换算手数，用模拟盘资金按实时价买入（A 股整手）"
+          >
+            {adopting ? "建仓中…" : "按此计划建仓模拟盘"}
+          </Button>
+          <span className={`text-xs leading-snug ${TEXT.meta}`}>
+            按终审仓位 {pct}% 自动换算整手数 · 虚拟资金 · 不会真实下单
+          </span>
+        </div>
+      )}
+      {adoptError && (
+        <p className="mt-2 text-xs text-amber-300">{adoptError}</p>
       )}
 
       <p className={`mt-2.5 flex items-start gap-1.5 text-xs leading-relaxed ${TEXT.meta}`}>

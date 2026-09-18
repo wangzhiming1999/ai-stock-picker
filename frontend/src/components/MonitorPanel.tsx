@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bell, BellPlus, BellRing, Download, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { addAlertRule, fetchHoldings, fetchMonitor, fetchWatchlist } from "../api/client";
+import { addAlertRule, fetchHoldings, fetchLimitUpSnapshot, fetchMonitor, fetchWatchlist } from "../api/client";
 import CollapsiblePanel from "./CollapsiblePanel";
 import { useAuth } from "../auth/AuthContext";
-import type { MonitorAdvice, MonitorInterval, MonitorResult, MonitorStock } from "../types";
+import type { LimitUpRelayStock, MonitorAdvice, MonitorInterval, MonitorResult, MonitorStock } from "../types";
 import { ensureNotCooling } from "../lib/spotGuard";
 import { pnlTone } from "../lib/tone";
 import { TacticChips } from "./TacticHit";
@@ -177,6 +177,33 @@ export default function MonitorPanel() {
       alive = false;
     };
   }, [user?.id]);
+
+  /**
+   * 持仓 ∩ 当日连板股：盯盘页的连板减仓优先级提示。
+   * relay_score 越低（封板质量越差）的持仓，明天还接不接得动越存疑 —— 排最前。
+   * 连板快照获取失败（行情源风控等）时静默隐藏，绝不影响盯盘主链路。
+   */
+  const [relayHits, setRelayHits] = useState<LimitUpRelayStock[]>([]);
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const snap = await fetchLimitUpSnapshot();
+        if (!alive) return;
+        const relayMap = new Map((snap.relay_stocks ?? []).map((r) => [r.code, r]));
+        const hits = codes
+          .filter((c) => relayMap.has(c))
+          .map((c) => relayMap.get(c) as LimitUpRelayStock)
+          .sort((a, b) => a.score - b.score || b.boards - a.boards);
+        setRelayHits(hits);
+      } catch {
+        if (alive) setRelayHits([]);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [codes.join(",")]);
 
   /** 提示音：双声"叮" */
   const beep = useCallback(() => {
@@ -599,6 +626,34 @@ export default function MonitorPanel() {
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* 持仓连板提示：封板质量差的排最前，走弱时减仓优先级最高。
+          措辞只讲资金面强弱与观察点，不下卖单指令（与后端证据闸门口径一致）。 */}
+      {relayHits.length > 0 && (
+        <div className="mb-3 rounded-xl border border-orange-900/50 bg-orange-950/20 p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold text-orange-300">持仓连板对照</span>
+            <span className="text-xs text-ink-faint">
+              {relayHits.length} 只在当日连板池 · 按封板质量从弱到强
+            </span>
+          </div>
+          <div className="mt-2 space-y-1">
+            {relayHits.map((r) => (
+              <div key={r.code} className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="font-medium text-ink-strong">{r.name}</span>
+                <span className="text-ink-faint">{r.code}</span>
+                <span className="text-ink-soft">
+                  {r.boards}板 · {r.tier_label ?? `${r.score}/${r.max_score} 分`}
+                </span>
+                <span className="text-ink-faint">历史同档晋级读数 {r.rate}%（n={r.rate_n}）</span>
+              </div>
+            ))}
+          </div>
+          <p className="mt-1.5 text-xs text-ink-faint">
+            分层是相对强弱读数，不是买卖指令；晋级了也常一字板买不进。开盘走弱时，封板质量最弱的优先留意。
+          </p>
         </div>
       )}
 

@@ -135,6 +135,8 @@ export interface StockAnalysis {
   /** 交易员计划 + 终审结论：辩论成功才产出；旧缓存缺省 undefined，前端须降级隐藏 */
   trade_plan?: TradePlan;
   fund_manager_verdict?: FundManagerVerdict;
+  /** 本次分析在 agent_decisions 里落的对照行 id（一键采纳建仓用；旧缓存/未登录无值） */
+  agent_decision_id?: number;
   holding_advice?: string;
 }
 
@@ -879,6 +881,44 @@ export interface SimTradesData {
   offset: number;
 }
 
+// ---------- Agent 决策闭环 ----------
+
+/** 一条 agent 决策记录（agent_decisions 行） */
+export interface AgentDecision {
+  id: number;
+  code: string;
+  name?: string;
+  data_date: string;
+  action: string;
+  verdict: "approved" | "demoted" | "rejected";
+  entry_price?: number | null;
+  stop_price?: number | null;
+  target_price?: number | null;
+  position_pct: number;
+  horizon_days: number;
+  status: "adopted" | "ignored" | "rejected";
+  sim_trade_id?: number | null;
+  settled_at?: string | null;
+  settle_price?: number | null;
+  settle_basis?: string | null;
+  pnl_pct?: number | null;
+  hit?: boolean | null;
+  reflection?: string;
+  created_at: string;
+}
+
+/** 闭环统计（口径 agent_plan，随数据下发） */
+export interface AgentPlanStats {
+  adopted: { settled: number; hits: number; hit_rate: number | null; avg_pnl_pct: number | null; sample_note: string | null };
+  ignored_control: { settled: number; hits: number; hit_rate: number | null; avg_pnl_pct: number | null; sample_note: string | null };
+  caliber: { key: string; name: string; window: string; rule: string; unit: string; pitfall: string; registered: boolean };
+}
+
+export interface AgentDecisionsData {
+  decisions: AgentDecision[];
+  stats: AgentPlanStats | null;
+}
+
 
 // ---------- 今日作战简报（V6 体验重构） ----------
 
@@ -991,6 +1031,43 @@ export interface Briefing {
   } | null;
   /** 形态命中汇总：关注池（买点向）+ 持仓（卖点/风险向） */
   tactics?: BriefingTactics;
+  /** 连板结论块：环境三档 + 资金面最强分组 + 持仓连板盯盘提示；后端获取失败为 null/缺省 */
+  limitup?: BriefingLimitUp | null;
+}
+
+/** 简报连板块（briefing_service._build_limitup_block 产出）。 */
+export interface BriefingLimitUp {
+  trade_date?: string;
+  session?: string;
+  /** 三档操作建议（环境层，不是个股指令） */
+  play_advice?: LimitUpPlayAdvice;
+  /** 分层总括一句话（含「不是买入指令」免责） */
+  headline?: string;
+  /** 资金面最强档摘要（当日有连板股时才有） */
+  top_tier?: {
+    label: string;
+    names: string[];
+    codes: string[];
+    rate: number;
+    rate_n: number;
+  } | null;
+  sentiment?: LimitUpSentiment;
+  evidence?: TacticEvidence;
+  caliber?: Caliber;
+  /** 持仓 ∩ 当日连板股，按 relay_score 升序（封板质量最差的优先提示） */
+  holdings_relay?: BriefingHoldingRelay[] | null;
+}
+
+/** 持仓里的连板股：盯盘减仓优先级提示。 */
+export interface BriefingHoldingRelay {
+  code: string;
+  name: string;
+  boards: number;
+  score: number;
+  tier_label?: string;
+  tier_note?: string;
+  rate: number;
+  hint: string;
 }
 
 // ---------- 实战形态（pattern_service） ----------
@@ -1440,5 +1517,182 @@ export interface LimitUpRelayResult {
   by_boards: LimitUpRelayRow[];
   by_cluster: LimitUpRelayCluster[];
   by_boards_cluster: LimitUpRelayStratum[];
+  cached: boolean;
+}
+
+// ---------- 跌停池（抄底观察层）----------
+//
+// ⚠️ 这一组类型描述的是一个**负期望**策略的观测数据（n=133、期望 −4.47%/次）。
+// 字段命名沿用 `LimitDown*` 只为与涨停侧对称，**不代表它是可执行信号** ——
+// 后端 `evidence.actionable` 恒为 false，任何调用方都不得据此产出买点文案。
+
+/** 跌停位置分桶（统计分组，不是建议）。 */
+export interface LimitDownPosition {
+  /** 首跌 / 换手 / 封死 / 连跌 / 深跌 */
+  tag: string;
+  reason: string;
+}
+
+/** 跌停池个股（价格单位为元，市值/封单为亿元）。 */
+export interface LimitDownStock {
+  code: string;
+  name: string;
+  price: number;
+  change_pct: number;
+  /** 连续跌停天数，1 = 首日跌停 */
+  down_days: number;
+  /** 最后封板时间 HH:MM:SS */
+  last_seal_time: string;
+  seal_fund_yi: number;
+  float_mv_yi: number;
+  turnover: number;
+  amount_yi: number;
+  sector: string;
+  /**
+   * 封单占流通市值比（%）。**与涨停侧同名指标语义相反**：那边封单厚 = 买盘强，
+   * 这边封单厚 = 卖不掉。因此两者不能跨侧比较、也不能共用配色。
+   */
+  seal_ratio: number;
+  /** 位置标注。旧后端缺省时按「未知」降级，不要让整段梯队渲染成空白。 */
+  position?: LimitDownPosition;
+}
+
+/** 连续跌停梯队的一档（≥4 连跌合并为「4连跌+」）。 */
+export interface LimitDownLadderGroup {
+  key: number;
+  /** 首日跌停 / 2连跌 / 3连跌 / 4连跌+ */
+  label: string;
+  count: number;
+  items: LimitDownStock[];
+}
+
+/**
+ * 跌停板块聚集度。
+ *
+ * ⚠️ 与涨停侧的板块聚集度**方向相反**：那边家数多是资金抱团做多，
+ * 这边家数多是板块级利空。回测显示这里家数越多、次日越差（≥5 家期望 −7.17%），
+ * 所以它是**风险读数**，不是机会读数。
+ */
+export interface LimitDownSector {
+  sector: string;
+  count: number;
+  max_down_days: number;
+  /** 其中连续跌停（≥2 日）家数 */
+  chain_count: number;
+  seal_fund_yi: number;
+  avg_turnover: number;
+  codes: string[];
+  names: string[];
+}
+
+/** 当日跌停情绪。 */
+export interface LimitDownSentiment {
+  limit_down_count: number;
+  limit_up_count: number;
+  /** 跌停/涨停家数比；涨停数没取到时为 null（0 与「算不出来」是两件事） */
+  down_up_ratio: number | null;
+  chain_count: number;
+  max_down_days: number;
+  sector_count: number;
+  top_sector: string | null;
+  top_sector_count: number;
+}
+
+export interface LimitDownSentimentNote {
+  tone: string;
+  text: string;
+}
+
+export interface LimitDownSnapshot {
+  trade_date: string;
+  session: string;
+  cached: boolean;
+  sentiment: LimitDownSentiment;
+  sentiment_note: LimitDownSentimentNote;
+  ladder: LimitDownLadderGroup[];
+  sectors: LimitDownSector[];
+  stocks: LimitDownStock[];
+  /** 涨停池是否取到；false 时 down_up_ratio 为 null */
+  limit_up_ok: boolean;
+  evidence: TacticEvidence;
+  caliber: Caliber;
+}
+
+/**
+ * 一个收益切片（全体 / 按是否封死 / 按连跌天数 / 按板块聚集度）。
+ *
+ * 字段可选是因为空桶只返回 `{ n: 0 }` —— 读取方一律用 `?? 0` 兜底，
+ * 不要假定每个切片都有完整统计（那会让「某档无样本」直接抛错）。
+ */
+export interface LimitDownStats {
+  n: number;
+  /** 主口径：D 日跌停价买入 → D+1 集合竞价卖出的期望收益（%） */
+  expect_open?: number;
+  median_open?: number;
+  /** 竞价卖出为正的比例（%） */
+  win_rate_open?: number;
+  avg_win?: number;
+  avg_loss?: number;
+  /** 在当前盈亏结构下期望为 0 所需的胜率（%）—— 本模块最该被看见的数字 */
+  breakeven_win_rate?: number;
+  expect_close?: number | null;
+  win_rate_close?: number | null;
+  /** 次日盘中最高价相对买入价（%）：反抽的弹性有多大 */
+  avg_high?: number | null;
+  /** 次日盘中曾转正的比例（%） */
+  high_positive_rate?: number | null;
+  /** 次日收盘仍跌停的比例（%），池子口径 */
+  next_sealed_down_rate?: number;
+  /** 次日反转涨停（地天板）的比例（%） */
+  next_limit_up_rate?: number;
+}
+
+export interface LimitDownBucket extends LimitDownStats {
+  key: string;
+  label: string;
+}
+
+export interface LimitDownBrief {
+  date: string;
+  code: string;
+  name: string;
+  sector: string;
+  /** 竞价卖出收益（%） */
+  ret_open: number;
+}
+
+export interface LimitDownRepairResult {
+  caliber: Caliber;
+  evidence: TacticEvidence;
+  days: number;
+  date_range: string[];
+  data_window: string[];
+  effective_days: number;
+  /** 所有空池日期（= 下面两者之和） */
+  empty_dates: string[];
+  /** 窗口内但当天真的没有跌停 —— 是有效信息（市场强），不是数据缺陷 */
+  zero_down_dates: string[];
+  /** 早于回溯下界、接口不提供数据 —— 是数据缺陷 */
+  out_of_window_dates: string[];
+  skipped_dates: string[];
+  /** 候选样本总数（截断前） */
+  candidate_size: number;
+  /** 实际参与统计的样本数 */
+  sample_size: number;
+  /** true 表示候选超过样本上限，只统计了最近的部分 */
+  truncated: boolean;
+  overall: LimitDownStats;
+  by_sealed: LimitDownBucket[];
+  by_down_days: LimitDownBucket[];
+  by_cluster: LimitDownBucket[];
+  tail: {
+    /** 次日跌停开盘（≤ −9%）的样本数 */
+    drop9_n: number;
+    drop9_rate: number;
+    /** 次日一字跌停、挂单也卖不出去的样本数 */
+    unsellable_n: number;
+  };
+  worst: LimitDownBrief[];
+  best: LimitDownBrief[];
   cached: boolean;
 }
