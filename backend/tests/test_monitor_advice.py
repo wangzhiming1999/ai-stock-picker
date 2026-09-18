@@ -146,5 +146,53 @@ class MonitorSummaryTests(unittest.TestCase):
         self.assertEqual([t["code"] for t in result["top"]], ["601318", "000858"])
 
 
+class SignalLevelTests(unittest.TestCase):
+    """结构位必须来自「已走完的那根」。
+
+    盘中日 K 最后一根的收盘价就是现价（实测差异 0.000%）。若定档参考价含这一根，
+    则 support 恒 ≤ 现价、resistance 恒 ≥ 现价、stop_loss 恒 < 现价，
+    「跌破支撑 / 突破压力 / 止损离场」三档在定义上永远不可能成立
+    （实测 10500 个样本触发 0 次）。下面几条断言把这个可达性钉住。
+    """
+
+    def test_in_progress_bar_does_not_participate_in_level_selection(self) -> None:
+        sig = compute_signals([50.0] * 79 + [60.0], 60.0)
+
+        self.assertLess(sig["high60"], 60.0)
+
+    def test_crash_day_reads_as_support_break_not_a_buy(self) -> None:
+        # 前 79 根横在 50，最后一根（当日）跌到 49 —— 旧实现会给出「回踩可买」
+        closes = [50.0] * 79 + [49.0]
+        result = _advice(49.0, compute_signals(closes, 49.0))
+
+        self.assertEqual(result["action"], "sell")
+        self.assertEqual(result["label"], "跌破支撑")
+
+    def test_drop_through_stop_is_reachable(self) -> None:
+        closes = [50.0] * 79 + [47.0]  # 支撑 50 → 止损 48.5
+        result = _advice(47.0, compute_signals(closes, 47.0))
+
+        self.assertEqual(result["action"], "stop")
+        self.assertEqual(result["label"], "止损离场")
+
+    def test_gap_up_can_reach_the_resistance_branch(self) -> None:
+        closes = [50.0] * 79 + [51.0]
+        result = _advice(51.0, compute_signals(closes, 51.0))
+
+        self.assertEqual(result["action"], "hold")
+        self.assertEqual(result["label"], "突破待确认")
+
+    def test_buy_and_sell_points_are_structural_and_do_not_drift(self) -> None:
+        closes = [50.0] * 40 + [48.0] * 39 + [49.0]
+        a = compute_signals(closes, 49.0)
+        b = compute_signals(closes, 49.6)
+
+        # 买卖点等于结构位，且不随现价移动
+        self.assertEqual(a["buy_point"], a["support"])
+        self.assertEqual(a["sell_point"], a["resistance"])
+        self.assertEqual(a["buy_point"], b["buy_point"])
+        self.assertEqual(a["sell_point"], b["sell_point"])
+
+
 if __name__ == "__main__":
     unittest.main()

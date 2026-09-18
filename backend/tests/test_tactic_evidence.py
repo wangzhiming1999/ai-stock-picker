@@ -91,6 +91,13 @@ class TestStrategyRegistry:
         assert ev.tier_of("limitup_relay") == "preliminary"
         assert ev.is_actionable("limitup_relay") is False
 
+    def test_monitor_levels_are_registered_and_not_actionable(self) -> None:
+        """盯盘的支撑/压力/买卖点是独立建议链路，必须登记，且买入侧实测为负 → 不得当买点。"""
+        evi = ev.get("monitor_levels")
+
+        assert evi.tier == "unsupported"
+        assert evi.actionable is False
+
     def test_strategy_survey_is_separate_from_tactic_survey(self) -> None:
         survey = ev.strategy_survey()
 

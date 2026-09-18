@@ -293,6 +293,24 @@
   - 预警规则新增 `buy_point`（回踩到买点，≤触发）/ `sell_point`（冲高到卖点，≥触发）
   - 前端盯盘面板：今日决策条 + 「只看要操作的」过滤 + 挂单计划列（买/卖/止损价位）+ 一键设到价提醒 + 一键导入自选股/持仓（持仓带成本）
 
+### Changed
+- **深度分析抽屉改为非模态：分析期间主界面可继续操作**（2026-09-18）
+  > 一次分析要跑几十秒到几分钟（多只票 + 可选多空辩论）。旧实现是全屏遮罩
+  > （`fixed inset-0` + `bg-slate-950/70 backdrop-blur`）加 `body overflow: hidden`，
+  > 等待期间主界面既点不动也滚不动 —— 与「日内操作指令台」的定位直接冲突：
+  > 用户要的是一边等结果一边继续看行情，不是被锁在抽屉里干等。
+  - 去掉遮罩与背景滚动锁，外层 `pointer-events-none` / 面板 `pointer-events-auto`：主界面照常可点可滚
+  - 面板新增**收起**（`PanelRightClose` / Esc）：收成右下角常驻胶囊，**分析继续在后台跑**，
+    胶囊实时显示「已完成 2/3 只」与当前状态，点开还原；`role` 从 `dialog/aria-modal` 降级为 `region`
+  - 「关闭」（X）语义保持「真的关掉」：运行中先中止并 toast 说明，另补卸载时 `abort()`
+    —— 旧实现关闭只是把组件摘掉，SSE 仍在后台空烧 token
+  - 面板宽度可拖拽调整（左边缘，记忆在 `localStorage: ai:analysisDrawerWidth`）：默认 768px、
+    下限 360px，且永远给主界面留 ≥260px；移动端面板高度让出 4rem 给底部导航，
+    否则收起前的面板会把导航压住、连 tab 都切不了
+  - Esc 语义按非模态重新定义：运行中 Esc **只收起**（不中断不丢结果），空闲才关闭；
+    主界面正在输入框/文本域打字时不响应 —— 不做这个判断，用户在主搜索框按 Esc 想清空会被抽屉抢走
+  - 验证：`tsc -p tsconfig.app.json` / `vite build` 通过，`npm test` 19 例通过
+
 ### Fixed
 - **全市场行情源稳定性**（2026-09-11）
   - 新增 `backend/app/services/spot_service.py`：东财多域名轮换（`82.push2` 不可用时自动切 `push2/48/1/…`）+ 浏览器 UA/Referer + 页间节流 + 退避重试，解决 akshare `stock_zh_a_spot_em` 硬编码单域名、无 UA、无重试导致的 `('Connection aborted.', RemoteDisconnected(...))`

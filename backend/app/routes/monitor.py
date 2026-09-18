@@ -324,7 +324,11 @@ async def monitor(req: MonitorRequest):
         if history.dates and q.quote_time and history.dates[-1] == q.quote_time[:10]:
             historical_volumes = historical_volumes[:-1]
         volume_ratio = _projected_volume_ratio(q.volume, historical_volumes, q.quote_time)
-        sig = signal_service.compute_signals(history.closes, q.price)
+        # 传入真实高低价：只给收盘价时 60 日区间会被算窄，压力位系统性偏低
+        # （实测 98.5% 的样本低于真实 60 日最高价，中位偏低 6.4%），导致卖点总是来得太早。
+        sig = signal_service.compute_signals(
+            history.closes, q.price, highs=history.highs, lows=history.lows
+        )
         if not sig:
             continue
         sig["volume_ratio"] = volume_ratio
