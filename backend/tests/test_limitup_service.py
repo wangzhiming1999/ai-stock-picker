@@ -514,5 +514,74 @@ class RelayScoreTests(unittest.TestCase):
             self.assertIn("rule", f)
 
 
+class RelayTierTests(unittest.TestCase):
+    """强弱分层：把「N/N 分」翻译成人话，但仍不许变成买卖指令。"""
+
+    @staticmethod
+    def _stock(**overrides) -> dict:
+        base = {
+            "code": "600001",
+            "name": "测试股",
+            "boards": 2,
+            "sector": "半导体",
+            "seal_time": "09:31:00",
+            "seal_fund_yi": 2.0,
+            "seal_ratio": 3.0,
+            "turnover": 5.0,
+            "break_count": 0,
+            "float_mv_yi": 50.0,
+        }
+        base.update(overrides)
+        return base
+
+    def test_every_score_has_tier_fields(self) -> None:
+        for score in range(4):
+            sc = L.relay_score(
+                self._stock(seal_ratio=3.0 if score >= 1 else 0.1,
+                            turnover=5.0 if score >= 2 else 40.0,
+                            break_count=0 if score >= 3 else 2)
+            )
+            self.assertEqual(sc["score"], score)
+            self.assertIn("tier", sc)
+            self.assertIn("tier_label", sc)
+            self.assertIn("tier_note", sc)
+
+    def test_tier_label_has_no_action_words(self) -> None:
+        """分层标签是强弱描述，不能出现动作词。"""
+        banned = ("买", "建仓", "加仓", "建议", "推荐", "介入", "可进")
+        for score in range(4):
+            sc = L.relay_score(
+                self._stock(seal_ratio=3.0 if score >= 1 else 0.1,
+                            turnover=5.0 if score >= 2 else 40.0,
+                            break_count=0 if score >= 3 else 2)
+            )
+            text = sc["tier_label"] + sc["tier_note"]
+            for word in banned:
+                self.assertNotIn(word, text, f"得分 {score} 分层出现动作词 {word!r}: {text}")
+
+    def test_summary_groups_by_tier(self) -> None:
+        relays = L.build_relay_stocks([
+            self._stock(code="600001"),                                                  # 3 分
+            self._stock(code="600002", break_count=2),                                   # 2 分
+            self._stock(code="600003", seal_ratio=0.1, turnover=40.0, break_count=5),    # 0 分
+            self._stock(code="600004", boards=1),                                        # 首板被滤掉
+        ])
+        summary = L.relay_tier_summary(relays)
+        self.assertEqual(len(summary["groups"]), 3)
+        self.assertEqual(summary["groups"][0]["tier"], 1)
+        self.assertEqual(summary["groups"][0]["names"], ["测试股"])
+        self.assertEqual(summary["groups"][1]["tier"], 2)
+        self.assertEqual(summary["groups"][2]["tier"], 3)
+
+    def test_summary_headline_mentions_not_buy_instruction(self) -> None:
+        relays = L.build_relay_stocks([self._stock()])
+        summary = L.relay_tier_summary(relays)
+        self.assertIn("不是买入指令", summary["headline"])
+
+    def test_summary_empty_input(self) -> None:
+        summary = L.relay_tier_summary([])
+        self.assertEqual(summary["groups"], [])
+
+
 if __name__ == "__main__":
     unittest.main()

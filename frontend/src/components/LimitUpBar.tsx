@@ -4,7 +4,7 @@ import { Activity, ChevronDown, RefreshCw } from "lucide-react";
 import { fetchLimitUpRelay, fetchLimitUpSnapshot } from "../api/client";
 import { breakRateTone, playAdviceTone, sentimentTone, upTone } from "../lib/tone";
 import { DIVIDER, SUB, SUB_QUIET, TEXT } from "../lib/ui";
-import type { LimitUpLadderGroup, LimitUpPlayAdvice, LimitUpRelayResult, LimitUpRelayStock, LimitUpSnapshot, LimitUpStock } from "../types";
+import type { LimitUpLadderGroup, LimitUpPlayAdvice, LimitUpRelayResult, LimitUpRelayStock, LimitUpSnapshot, LimitUpStock, LimitUpTierSummary } from "../types";
 import { CaliberLine } from "./CaliberNote";
 import { ladderGaps } from "./limitUpLogic";
 
@@ -89,53 +89,125 @@ function AdviceSection({ advice }: { advice: LimitUpPlayAdvice }) {
   );
 }
 
-/** 得分档配色：质量判断走蓝/琥珀/中性，不占红绿。 */
-function scoreTone(score: number, max: number): string {
-  if (score >= max) return "text-brand-light";
-  if (score === 0) return "text-amber-300";
-  return "text-ink";
+/**
+ * 强弱分层芯片配色（tier 1/2/3）：质量判断，不占红绿。
+ * 1=主色（达标）/ 2=琥珀（一般）/ 3=中性灰（弱）。
+ */
+const TIER_CHIP: Record<number, { chip: string; dot: string }> = {
+  1: { chip: "bg-brand/15 text-brand-light", dot: "bg-brand" },
+  2: { chip: "bg-amber-500/15 text-amber-300", dot: "bg-amber-400" },
+  3: { chip: "bg-slate-800/60 text-ink-muted", dot: "bg-slate-500" },
+};
+
+function tierChip(tier: number | undefined): { chip: string; dot: string } {
+  return TIER_CHIP[tier ?? 3] ?? TIER_CHIP[3];
+}
+
+/**
+ * 单只连板股的资金面行：分层徽章 + 人话解释 + 得分/晋级读数。
+ *
+ * 可读性设计（用户反馈「看不懂哪个可以买」的解法）：
+ * 把抽象的「3/3 分」前置翻译成「资金面最强」徽章 + 一句解释，
+ * 数字（分 / %）退居次行——先给结论再看依据，而不是反过来。
+ * 徽章仍是强弱描述而非买卖指令。
+ */
+function RelayStockRow({ r }: { r: LimitUpRelayStock }) {
+  const tc = tierChip(r.tier);
+  return (
+    <div className={`${SUB_QUIET} px-3 py-2`}>
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+        <span className="flex flex-wrap items-center gap-2">
+          <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-semibold ${tc.chip}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${tc.dot}`} aria-hidden />
+            {r.tier_label ?? "未分层"}
+          </span>
+          <span className="text-sm font-semibold text-ink">{r.name}</span>
+          <span className="text-xs text-ink-faint">{r.code}</span>
+          <span className="text-xs text-ink-muted">{r.boards} 板 · {r.sector}</span>
+        </span>
+        <span className="text-xs text-ink-muted">
+          明日晋级读数 <span className="font-semibold text-ink">{r.rate}%</span>
+          <span className="text-ink-faint">（回测 n={r.rate_n}）</span>
+        </span>
+      </div>
+      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs">
+        <span className="text-ink-faint" title={r.tier_note}>
+          {r.tier_note ?? `${r.score}/${r.max_score} 分`}
+        </span>
+        {r.factors.map((f) => (
+          <span key={f.name} className={f.hit ? "text-brand-light" : "text-amber-300"} title={f.rule}>
+            {f.hit ? "✓" : "✗"} {f.name}
+            {f.name === "炸板次数" ? ` ${f.value} 次` : ` ${f.value}%`}
+          </span>
+        ))}
+        <span className="text-ink-faint">封单 {r.seal_fund_yi} 亿 · 首封 {r.seal_time || "--"}</span>
+      </div>
+    </div>
+  );
 }
 
 /**
  * 连板资金面区块：连板股抽离列表，每只按三因子打分并给明日晋级概率读数。
  *
- * ⚠️ 措辞纪律：标题用「概率读数」而不是「预测」—— 它是「历史上同得分档的晋级率」，
- * 样本窗口只有 ~13 个交易日；排序展示的是相对强弱，不是收益承诺。
+ * 可读性分层（回答「哪个可以买」而不越证据闸门）：
+ *   - 顶部一句 headline（后端 relay_tier_summary）：直接说今日哪些股资金面最强，
+ *     同时点明「相对强弱分组 ≠ 买入指令」；
+ *   - 列表按 tier 分组渲染，组标题带该档的历史晋级读数；
+ *   - 单只行内「资金面最强」徽章前置，数字退居次行。
+ * 措辞纪律不变：全文无动作词，position 是描述、读数带样本量。
  */
-function RelayStocksSection({ stocks }: { stocks: LimitUpRelayStock[] }) {
+function RelayStocksSection({ stocks, summary }: { stocks: LimitUpRelayStock[]; summary?: LimitUpTierSummary }) {
   if (stocks.length === 0) return null;
+
+  // 有分层字段（tier_label）才走分组视图；旧后端逐股缺省时退回平铺排序。
+  const grouped = stocks.some((r) => r.tier != null);
+  const groups = summary?.groups ?? [];
+  // 按 tier 升序渲染（最强在前），组内保持后端已排好的顺序。
+  const byTier = new Map<number, LimitUpRelayStock[]>();
+  if (grouped) {
+    for (const r of stocks) {
+      const t = r.tier ?? 3;
+      if (!byTier.has(t)) byTier.set(t, []);
+      byTier.get(t)!.push(r);
+    }
+  }
+
   return (
     <div>
-      <h3 className={TEXT.label}>连板资金面持续性（抽离排序 · 非买点）</h3>
-      <div className="mt-2 space-y-1.5">
-        {stocks.map((r) => (
-          <div key={r.code} className={`${SUB_QUIET} px-3 py-2`}>
-            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-              <span className="flex items-baseline gap-2">
-                <span className="text-sm font-semibold text-ink">{r.name}</span>
-                <span className="text-xs text-ink-faint">{r.code}</span>
-                <span className="text-xs text-ink-muted">{r.boards} 板 · {r.sector}</span>
-              </span>
-              <span className="text-xs">
-                <span className={`font-semibold ${scoreTone(r.score, r.max_score)}`}>
-                  {r.score}/{r.max_score} 分
-                </span>
-                <span className="text-ink-faint"> · 明日晋级读数 </span>
-                <span className={`font-semibold ${scoreTone(r.score, r.max_score)}`}>{r.rate}%</span>
-                <span className="text-ink-faint">（回测 n={r.rate_n}）</span>
-              </span>
-            </div>
-            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
-              {r.factors.map((f) => (
-                <span key={f.name} className={f.hit ? "text-brand-light" : "text-amber-300"} title={f.rule}>
-                  {f.hit ? "✓" : "✗"} {f.name}
-                  {f.name === "炸板次数" ? ` ${f.value} 次` : ` ${f.value}%`}
-                </span>
-              ))}
-              <span className="text-ink-faint">封单 {r.seal_fund_yi} 亿 · 首封 {r.seal_time || "--"}</span>
-            </div>
-          </div>
-        ))}
+      <h3 className={TEXT.label}>连板资金面持续性（相对强弱分组 · 非买点）</h3>
+      {summary && (
+        <p className="mt-1.5 rounded-lg bg-slate-800/50 px-3 py-2 text-xs leading-relaxed text-ink-soft">
+          {summary.headline}
+        </p>
+      )}
+      <div className="mt-2 space-y-3">
+        {grouped
+          ? [...byTier.entries()]
+              .sort(([a], [b]) => a - b)
+              .map(([tier, members]) => {
+                const g = groups.find((x) => x.tier === tier);
+                const tc = tierChip(tier);
+                return (
+                  <div key={tier}>
+                    <div className="mb-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                      <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-semibold ${tc.chip}`}>
+                        <span className={`h-1.5 w-1.5 rounded-full ${tc.dot}`} aria-hidden />
+                        {g?.label ?? members[0].tier_label ?? `第 ${tier} 梯队`}
+                      </span>
+                      <span className="text-xs text-ink-faint">
+                        {members.length} 只 · 明日晋级读数 {g?.rate ?? members[0].rate}%（n={g?.rate_n ?? members[0].rate_n}）
+                      </span>
+                      {g?.desc && <span className="text-xs text-ink-faint">· {g.desc}</span>}
+                    </div>
+                    <div className="space-y-1.5">
+                      {members.map((r) => (
+                        <RelayStockRow key={r.code} r={r} />
+                      ))}
+                    </div>
+                  </div>
+                );
+              })
+          : stocks.map((r) => <RelayStockRow key={r.code} r={r} />)}
       </div>
       <p className="mt-2 text-xs leading-relaxed text-ink-faint">
         概率读数 = 回测窗口内同得分档连板股的次日晋级率（08-28~09-16，共 164 个连板样本）。
@@ -439,7 +511,9 @@ export default function LimitUpBar() {
 
                 {snapshot?.play_advice && <AdviceSection advice={snapshot.play_advice} />}
 
-                {snapshot?.relay_stocks && <RelayStocksSection stocks={snapshot.relay_stocks} />}
+                {snapshot?.relay_stocks && (
+                  <RelayStocksSection stocks={snapshot.relay_stocks} summary={snapshot.relay_tier_summary} />
+                )}
 
                 {snapshot && <LadderSection ladder={snapshot.ladder} />}
 

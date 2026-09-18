@@ -1317,6 +1317,8 @@ export interface LimitUpSnapshot {
   play_advice?: LimitUpPlayAdvice;
   /** 连板股抽离 + 资金面持续性评分（三因子 0-3 分 → 回测晋级率读数）；旧后端缺省 */
   relay_stocks?: LimitUpRelayStock[];
+  /** 强弱分层一览：给「哪个强哪个弱」一个分组层面的直接回答；旧后端缺省 */
+  relay_tier_summary?: LimitUpTierSummary;
   ladder: LimitUpLadderGroup[];
   sectors: LimitUpSector[];
   stocks: LimitUpStock[];
@@ -1344,7 +1346,7 @@ export interface LimitUpScoreFactor {
   rule: string;
 }
 
-/** 连板股抽离条目：资金面持续性评分 + 明日晋级概率读数。 */
+/** 连板股抽离条目：资金面持续性评分 + 明日晋级概率读数 + 相对强弱分层。 */
 export interface LimitUpRelayStock {
   code: string;
   name: string;
@@ -1363,6 +1365,30 @@ export interface LimitUpRelayStock {
   /** 该得分档的回测样本量 */
   rate_n: number;
   factors: LimitUpScoreFactor[];
+  /** 强弱分层：1=资金面最强 / 2=较强 / 3=偏弱（含 0 分）；旧后端缺省 */
+  tier?: number;
+  /** 分层的人话标签，如「资金面最强」；旧后端缺省 */
+  tier_label?: string;
+  /** 分层一句话解释（缺哪个因子）；旧后端缺省 */
+  tier_note?: string;
+}
+
+/** 资金面强弱分层一览（后端 relay_tier_summary 聚合产出）；旧后端缺省。 */
+export interface LimitUpTierGroup {
+  tier: number;
+  label: string;
+  desc: string;
+  /** 该档的历史晋级率读数（%） */
+  rate: number;
+  rate_n: number;
+  codes: string[];
+  names: string[];
+}
+
+export interface LimitUpTierSummary {
+  groups: LimitUpTierGroup[];
+  /** 一句话总括（含「不是买入指令」的免责句） */
+  headline: string;
 }
 
 /** 晋级率按板块聚集度分档（边缘分布，受连板高度混淆，需配合分层表看）。 */

@@ -421,6 +421,16 @@ _BREAK_FREE = 1           # 炸板次数 < 此值（即 0 次）→ +1 分
 _SCORE_RATE = [11.8, 26.2, 34.2, 54.0]
 _SCORE_RATE_N = [34, 42, 38, 50]  # 各得分档样本量，前端展示用
 
+# 得分 → 相对强弱分层。解决的是「3/3 分 · 54%」这种数字用户读不懂的问题：
+# 把三档合成一个直观的分层标签。措辞纪律：分层是**相对强弱描述**，
+# 不含动作词（买/进/关注），"强/中/弱"只是统计分组命名。
+_TIER_BY_SCORE = {
+    3: {"tier": 1, "tier_label": "资金面最强", "tier_note": "三因子全达标：封单厚、换手低、全天未开板"},
+    2: {"tier": 2, "tier_label": "资金面较强", "tier_note": "两项达标，一项欠缺（通常是盘中开过板）"},
+    1: {"tier": 3, "tier_label": "资金面偏弱", "tier_note": "只一项达标，封板质量有明显短板"},
+    0: {"tier": 3, "tier_label": "资金面最弱", "tier_note": "三项全不达标，封板质量最差"},
+}
+
 
 def relay_score(stock: dict) -> dict:
     """单只连板股的资金面持续性评分（0-3）与明日晋级概率读数。
@@ -455,6 +465,7 @@ def relay_score(stock: dict) -> dict:
         "rate": _SCORE_RATE[score],
         "rate_n": _SCORE_RATE_N[score],
         "factors": factors,
+        **_TIER_BY_SCORE[score],
     }
 
 
@@ -483,6 +494,52 @@ def build_relay_stocks(stocks: list[dict]) -> list[dict]:
         )
     out.sort(key=lambda x: (-x["score"], -x["boards"], x["seal_time"] or "99:99:99"))
     return out
+
+
+def relay_tier_summary(relay_stocks: list[dict]) -> dict:
+    """资金面分层一览：给「哪个可以碰」一个**统计分组层面**的直接回答。
+
+    用户看不懂「3/3 分 · 54%」意味着什么 —— 这层把当日连板股按得分聚合成三组，
+    每组给一句人话概括（谁在里面、历史晋级读数多少）。措辞纪律：
+    分层名是强弱描述不是动作指令；summary 里不出现个股「买/进」话术。
+    """
+    if not relay_stocks:
+        return {"groups": [], "headline": "今日无连板股，无分层可言"}
+    groups: dict[int, list[dict]] = {}
+    for r in relay_stocks:
+        groups.setdefault(r["tier"], []).append(r)
+
+    tier_defs = [
+        (1, "资金面最强", "三因子全达标（封单厚 / 换手低 / 未开板），历史同档晋级读数最高"),
+        (2, "资金面较强", "两项达标，通常差在盘中开过板"),
+        (3, "资金面偏弱", "至多一项达标，封板质量有短板，相对风险最高"),
+    ]
+    out_groups = []
+    for tier, label, desc in tier_defs:
+        members = groups.get(tier) or []
+        if not members:
+            continue
+        out_groups.append(
+            {
+                "tier": tier,
+                "label": label,
+                "desc": desc,
+                "rate": members[0]["rate"],
+                "rate_n": members[0]["rate_n"],
+                "codes": [m["code"] for m in members],
+                "names": [m["name"] for m in members],
+            }
+        )
+
+    top = out_groups[0] if out_groups else None
+    headline = (
+        f"今日 {len(relay_stocks)} 只连板股中，{top['names'][0]}等 {len(top['names'])} 只资金面最强"
+        f"（历史同档明日晋级读数 {top['rate']}%）。"
+        "这是相对强弱分组，不是买入指令 —— 晋级了也常一字板买不进。"
+        if top
+        else "今日无连板股"
+    )
+    return {"groups": out_groups, "headline": headline}
 
 
 def position_tag(item: dict) -> dict:
@@ -539,6 +596,7 @@ async def get_snapshot(force: bool = False) -> dict:
     stocks = sorted(decorated, key=lambda x: (-x["boards"], x["seal_time"] or "99:99:99"))
     ladder = build_ladder(decorated)
     sectors = build_sectors(decorated)
+    relay_stocks = build_relay_stocks(stocks)
     data = {
         "trade_date": key,
         "session": trade_calendar_service.session_label(),
@@ -547,7 +605,8 @@ async def get_snapshot(force: bool = False) -> dict:
         "play_advice": play_advice(sentiment, ladder, sectors),
         "ladder": ladder,
         "sectors": sectors,
-        "relay_stocks": build_relay_stocks(stocks),
+        "relay_stocks": relay_stocks,
+        "relay_tier_summary": relay_tier_summary(relay_stocks),
         "stocks": stocks,
         "broken_ok": broken_ok,
         "evidence": tactic_evidence.describe("limitup_relay"),
