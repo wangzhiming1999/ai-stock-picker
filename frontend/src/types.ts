@@ -94,6 +94,30 @@ export interface DebateResult {
   gate_note: string;
 }
 
+/** 交易员基于辩论结论起草的交易计划（TradingAgents ③层）。
+ *  是否采纳由 fund_manager_verdict 终审决定，本结构自身不携带执行许可。 */
+export interface TradePlan {
+  /** buy | add | hold | reduce | avoid */
+  action: string;
+  entry_price?: number | null;
+  stop_price?: number | null;
+  target_price?: number | null;
+  /** 建议仓位占总资金 % */
+  position_pct: number;
+  batches: string[];
+  rationale: string;
+  invalidation: string;
+}
+
+/** 基金经理终审结论（TradingAgents ④层）：approved | demoted | rejected。
+ *  硬约束（止损有效/仓位上限/辩论方向一致）全部由后端代码判定，非 LLM 裁量。 */
+export interface FundManagerVerdict {
+  decision: "approved" | "demoted" | "rejected";
+  verdict_notes: string[];
+  final_position_pct: number;
+  final_stop_price?: number | null;
+}
+
 export interface StockAnalysis {
   code: string;
   name: string;
@@ -108,6 +132,9 @@ export interface StockAnalysis {
   tactics?: TacticResult[];
   /** 多空研究员辩论（仅在请求开启 debate 时有值） */
   debate?: DebateResult;
+  /** 交易员计划 + 终审结论：辩论成功才产出；旧缓存缺省 undefined，前端须降级隐藏 */
+  trade_plan?: TradePlan;
+  fund_manager_verdict?: FundManagerVerdict;
   holding_advice?: string;
 }
 
@@ -116,6 +143,8 @@ export type SSEEventType =
   | "stock_start"
   | "debate_start"
   | "debate_done"
+  | "trade_plan_start"
+  | "trade_plan_done"
   | "delta"
   | "stock_done"
   | "stock_error"

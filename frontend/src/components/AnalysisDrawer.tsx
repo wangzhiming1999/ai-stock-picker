@@ -93,6 +93,8 @@ export default function AnalysisDrawer({ open, codes, requestId, onClose, onBatc
           break;
         case "debate_start":
         case "debate_done":
+        case "trade_plan_start":
+        case "trade_plan_done":
           setStatus(e.message);
           break;
         case "stock_start":
