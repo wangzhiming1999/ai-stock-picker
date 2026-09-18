@@ -40,7 +40,7 @@ import asyncio
 import json
 
 from app.config import get_settings
-from app.models import DebateResult, DebateSide
+from app.models import DebateResult, DebateSide, FundManagerVerdict, TradePlan
 from app.services import llm_service, tactic_evidence
 
 # 辩论轮数上限。1 轮 = 双方各自立论；2 轮 = 各自拿到对方观点后逐条反驳。
@@ -57,6 +57,10 @@ _DEBATE_EVIDENCE = tactic_evidence.Evidence(
     summary="多空辩论为 LLM 推理结果，尚无回测样本，仅作分歧与风险提示",
     provenance="debate_service（未接入任何回测口径）",
 )
+
+# 交易员计划同样没有回测支撑（它只是把辩论结论翻译成结构），证据等级与辩论同源。
+# 终审层不新增证据，只核对计划是否违反已有硬约束。
+_TRADER_EVIDENCE = _DEBATE_EVIDENCE
 
 _BULL_SYSTEM = """你是一位 A 股买方机构的多头研究员。你的唯一职责是：在给定资料范围内，为「看多」找出最强论证。
 
@@ -274,4 +278,238 @@ def summarize(debate: DebateResult) -> str:
         f"核心分歧：{debate.key_disagreement}。"
         f"注意：这是 LLM 推理结果，没有统计回测支撑，不得作为评分依据，"
         f"只用于提示该股存在争议、需在风险提示中体现。"
+    )
+
+
+# ---------------------------------------------------------------------------
+# TradingAgents ③ 交易员层：把辩论结论翻译成「可被风控检验」的计划草案
+# ---------------------------------------------------------------------------
+# 仓位硬上限（占总资金 %）—— 与 portfolio_service 的风险等级参数一致，
+# 这里内联一份是因为辩论/计划阶段拿不到 user_id（深度分析未登录也可用），
+# 终审层再按用户真实风险等级收紧（只会更严，不会更松）。
+_POSITION_CAPS = {"保守": 15.0, "稳健": 20.0, "进取": 25.0, "激进": 35.0}
+_DEFAULT_RISK_LEVEL = "稳健"
+
+_TRADER_SYSTEM = """你是一位 A 股买方机构的交易员。研究员团队刚完成多空辩论，你的职责是：
+把辩论结论翻译成一份**可被风控检验**的交易计划。你不是研究员，你不辩论——你只决定「做不做、做多少、错了怎么办」。
+
+【纪律】
+1. 只能引用辩论双方论据与系统技术位，严禁引入资料外的信息
+2. 止损价必须低于入场触发价（看多计划），且必须尊重系统给出的技术止损位（只能更严，不能更松）
+3. 仓位不超过给定的上限；辩论分歧度大时主动降低仓位
+4. 辩论倾向为 neutral 或看空时，计划必须是 hold / reduce / avoid，严禁编造买入理由
+5. 必须给出计划失效条件——出现什么信号说明论证已破
+6. 这份计划会交给风控终审，他们会否决违反纪律的条目，不要试图绕过
+
+【输出】只输出一个合法 JSON 对象，不要任何其他文字、注释或 Markdown 代码块标记：
+{
+  "action": "buy | add | hold | reduce | avoid",
+  "entry_price": 入场触发价数字或 null,
+  "stop_price": 止损价数字或 null,
+  "target_price": 目标价数字或 null,
+  "position_pct": 0到仓位上限的数字,
+  "batches": ["分批方案，每条一句话，1-3 条"],
+  "rationale": "计划依据：引用辩论双方论据与技术位的具体数字，2-3 句",
+  "invalidation": "计划失效条件，一句话"
+}"""
+
+_FM_SYSTEM = """你是 A 股买方机构的风控总监（基金经理终审）。交易员提交了一份交易计划，你的职责是**核对纪律**，不是重新研究。
+
+【硬约束（违反任意一条即 rejected）】
+1. 看多计划（buy/add）的止损价必须低于入场触发价
+2. 仓位不得超过给定的仓位上限
+3. 辩论倾向为 neutral/bear 时计划不得是 buy/add
+4. 计划依据里出现「感觉」「应该会」「大概率」等无数据断言 → 整份计划可信度不足，rejected
+
+【降级情形（demoted）】
+- 计划方向可参考但仓位顶格、或止损贴近入场价（风险收益比 < 1.5）→ 修正仓位/止损后 demoted
+- 分歧度 ≥ 60 → 仓位减半后 demoted
+
+【批准（approved）】全部硬约束通过且无降级情形。
+
+【输出】只输出一个合法 JSON 对象，不要任何其他文字、注释或 Markdown 代码块标记：
+{
+  "decision": "approved | demoted | rejected",
+  "verdict_notes": ["逐条裁决理由，必须引用具体数字，2-4 条"],
+  "final_position_pct": 终审后仓位数字（rejected 时为 0）,
+  "final_stop_price": 终审后止损价数字或 null（只能比交易员的更严）
+}"""
+
+
+def _format_debate_for_trader(debate: DebateResult) -> str:
+    """把辩论结论压成交易员的输入文本（只带数据与论据，不带证据等级标签）。"""
+    def _fmt(side: DebateSide | None, tag: str) -> str:
+        if side is None:
+            return f"{tag}：缺席"
+        lines = [f"{tag}（信心 {side.confidence:.0f}/100）：{side.thesis}"]
+        lines += [f"  论据: {e}" for e in (side.evidence or [])[:4]]
+        if side.rebuttal:
+            lines += [f"  反驳: {r}" for r in side.rebuttal[:3]]
+        return "\n".join(lines)
+
+    return (
+        f"{_fmt(debate.bull, '多头研究员')}\n\n"
+        f"{_fmt(debate.bear, '空头研究员')}\n\n"
+        f"分歧度: {debate.divergence:.0f}/100\n"
+        f"核心分歧: {debate.key_disagreement}\n"
+        f"辩论倾向: {debate.direction}"
+    )
+
+
+def _parse_plan(raw: dict, price: float) -> TradePlan:
+    """把交易员 JSON 收敛成 TradePlan；数值越界一律取保守值。"""
+    action = str(raw.get("action", "hold")).strip().lower()
+    if action not in {"buy", "add", "hold", "reduce", "avoid"}:
+        action = "hold"
+
+    def _num(key: str) -> float | None:
+        v = raw.get(key)
+        try:
+            return max(0.0, float(v)) if v is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    # 只防负数/NaN；100 是模型层物理上限（pydantic le=100 会硬抛 ValidationError）。
+    # **风险上限**（按风险等级压仓位）是终审职责，parse 阶段刻意不做 —— 提前压顶
+    # 会让 review_plan 的「仓位超限」判定永远测不到。
+    try:
+        pct = min(max(0.0, float(raw.get("position_pct", 0))), 100.0)
+    except (TypeError, ValueError):
+        pct = 0.0
+    return TradePlan(
+        action=action,
+        entry_price=_num("entry_price"),
+        stop_price=_num("stop_price"),
+        target_price=_num("target_price"),
+        position_pct=pct,
+        batches=[str(b)[:80] for b in (raw.get("batches") or [])[:3] if str(b).strip()],
+        rationale=str(raw.get("rationale", ""))[:400],
+        invalidation=str(raw.get("invalidation", ""))[:200],
+        source="trader",
+    )
+
+
+async def draft_trade_plan(
+    debate: DebateResult,
+    context: str,
+    *,
+    price: float,
+    signal: dict | None = None,
+) -> TradePlan | None:
+    """交易员起草计划（TradingAgents ③）。任何一环失败返回 None。
+
+    输入三样：辩论结论（结构化）、系统技术位（signal_service 的确定性输出）、
+    原始 context 只给兜底（交易员纪律要求以辩论论据为主）。
+    """
+    if debate.bull is None or debate.bear is None:
+        return None
+    tech_lines = []
+    if signal:
+        tech_lines = [
+            f"系统技术位（确定性计算，非 LLM 输出）：支撑 {signal['support']}，压力 {signal['resistance']}，"
+            f"建议买入区 {signal['buy_point']}，止损位 {signal['stop_loss']}，"
+            f"风险收益比 {signal['rr_ratio']}，信号强度 {signal['strength']}/10。",
+            "你的止损不得松于系统止损位。",
+        ]
+    user = (
+        f"{_format_debate_for_trader(debate)}\n\n"
+        f"现价: {price}\n"
+        + ("\n".join(tech_lines) + "\n\n" if tech_lines else "")
+        + f"仓位上限: {_POSITION_CAPS[_DEFAULT_RISK_LEVEL]}%（总资金占比）\n"
+        "请输出交易计划 JSON。"
+    )
+    raw = await _ask("trader", _TRADER_SYSTEM, user)
+    if raw is None:
+        return None
+    return _parse_plan(raw, price)
+
+
+# ---------------------------------------------------------------------------
+# TradingAgents ④ 风控/基金经理终审：批准 / 降级 / 否决
+# ---------------------------------------------------------------------------
+def review_plan(
+    plan: TradePlan,
+    debate: DebateResult,
+    *,
+    signal: dict | None = None,
+    risk_level: str = _DEFAULT_RISK_LEVEL,
+) -> FundManagerVerdict:
+    """对交易员计划做确定性风控核对（TradingAgents ④）。
+
+    设计：硬约束判定**全部代码算**，LLM 不参与 —— 风控红线交给 LLM 自由裁量等于没有风控。
+    场景 1（合规但止损过松于技术位）会 demote，这是刻意的：止损只能收紧不能放大，与
+    portfolio_service._select_stop_price 同一铁律。
+    """
+    cap = _POSITION_CAPS.get(risk_level, _POSITION_CAPS[_DEFAULT_RISK_LEVEL])
+    notes: list[str] = []
+    violations: list[str] = []
+    demotions: list[str] = []
+
+    final_pct = plan.position_pct
+    final_stop = plan.stop_price
+    bullish = plan.action in {"buy", "add"}
+
+    # --- 硬约束 1：看多计划必须带有效止损 ---
+    if bullish:
+        if plan.entry_price is None or plan.stop_price is None:
+            violations.append("看多计划缺少入场价或止损价，风控无法评估亏损边界")
+        elif plan.stop_price >= plan.entry_price:
+            violations.append(
+                f"止损价 {plan.stop_price} 不低于入场价 {plan.entry_price}，亏损边界无效"
+            )
+        else:
+            risk_per_share = plan.entry_price - plan.stop_price
+            rr = (
+                (plan.target_price - plan.entry_price) / risk_per_share
+                if plan.target_price and plan.target_price > plan.entry_price
+                else None
+            )
+            if rr is not None and rr < 1.5:
+                demotions.append(
+                    f"风险收益比 {rr:.2f} < 1.5（入场 {plan.entry_price} / 止损 {plan.stop_price}"
+                    + (f" / 目标 {plan.target_price}" if plan.target_price else "")
+                    + "），仓位与止损需收紧"
+                )
+            # 止损只能比交易员的更严：贴技术止损再校一次
+            if signal and signal.get("stop_loss"):
+                tech_stop = float(signal["stop_loss"])
+                if final_stop is not None and final_stop <= tech_stop:
+                    pass  # 交易员止损不松于技术位（更低=更严），保留
+                elif final_stop is not None:
+                    demotions.append(f"止损上移至技术止损位 {tech_stop}（原 {final_stop} 过松）")
+                    final_stop = tech_stop
+
+    # --- 硬约束 2：仓位上限（只对看多计划生效 —— 减仓/回避不存在「手太大」的风险）---
+    if bullish and final_pct > cap:
+        demotions.append(f"仓位 {final_pct:.0f}% 超过「{risk_level}」等级上限 {cap:.0f}%，已压回")
+        final_pct = cap
+
+    # --- 硬约束 3：辩论方向与动作一致性 ---
+    if bullish and debate.direction in {"neutral", "bear"}:
+        violations.append(
+            f"辩论倾向为 {debate.direction}（多头信心 {debate.bull.confidence if debate.bull else 0:.0f}"
+            f" vs 空头 {debate.bear.confidence if debate.bear else 0:.0f}），"
+            "没有共识方向却提交看多计划"
+        )
+
+    # --- 降级 4：高分歧 ---
+    if debate.divergence >= 60 and bullish and final_pct > 0:
+        halved = round(final_pct / 2, 1)
+        demotions.append(f"分歧度 {debate.divergence:.0f}/100 ≥ 60，仓位 {final_pct:.0f}% 减半至 {halved}%")
+        final_pct = halved
+
+    if violations:
+        return FundManagerVerdict(
+            decision="rejected",
+            verdict_notes=violations,
+            final_position_pct=0,
+            final_stop_price=None,
+        )
+
+    decision = "demoted" if demotions else "approved"
+    return FundManagerVerdict(
+        decision=decision,
+        verdict_notes=demotions or ["全部硬约束通过：止损有效、仓位合规、辩论方向一致"],
+        final_position_pct=final_pct,
+        final_stop_price=final_stop,
     )

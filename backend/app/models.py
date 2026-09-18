@@ -138,6 +138,40 @@ class DebateResult(BaseModel):
     gate_note: str = Field("", description="闸门说明，前端必须原样展示")
 
 
+class TradePlan(BaseModel):
+    """交易员基于辩论结论起草的交易计划。
+
+    定位：辩论的下游——把多空论据翻译成「可被风控检验」的计划草案，而不是可执行指令。
+    是否采纳由 fund_manager_verdict（风控/基金经理终审）决定，本模型自身不带任何执行许可。
+    """
+
+    action: str = Field("hold", description="计划动作：buy | add | hold | reduce | avoid")
+    entry_price: float | None = Field(None, description="入场触发价（buy/add 时必填）")
+    stop_price: float | None = Field(None, description="止损价（buy/add 时必填）")
+    target_price: float | None = Field(None, description="目标价（可选，到达即分批止盈）")
+    position_pct: float = Field(0, ge=0, le=100, description="建议仓位占总资金 %")
+    batches: list[str] = Field(default_factory=list, description="分批方案，每条一句话（如「现价 1/3，回踩 MA20 再 1/3」）")
+    rationale: str = Field("", description="计划依据：必须引用辩论双方论据与技术位，禁止空话")
+    invalidation: str = Field("", description="计划失效条件：出现什么信号说明论证已破，必须放弃")
+    source: str = Field("trader", description="产出来源标识：trader")
+
+
+class FundManagerVerdict(BaseModel):
+    """风控/基金经理终审结论：对交易员计划的批准 / 降级 / 否决。
+
+    三档语义：
+    - approved：计划未违反任何硬约束，可按计划参考（仍非买点承诺）
+    - demoted：计划方向可参考，但仓位/触发价被降级修正（verdict_notes 说明改了什么）
+    - rejected：计划违反证据闸门或风控红线，不可参考
+    """
+
+    decision: str = Field("rejected", description="approved | demoted | rejected")
+    verdict_notes: list[str] = Field(default_factory=list, description="逐条裁决理由（违反/通过的风控项）")
+    final_position_pct: float = Field(0, ge=0, le=100, description="终审后允许参考的仓位 %（rejected 时为 0）")
+    final_stop_price: float | None = Field(None, description="终审后止损价：只能比交易员的更严，不能更松")
+    source: str = Field("fund_manager", description="产出来源标识")
+
+
 class StockAnalysis(BaseModel):
     """单只股票的分析结果"""
     code: str
@@ -153,6 +187,9 @@ class StockAnalysis(BaseModel):
     tactics: list[dict] = Field(default_factory=list)
     # 多空研究员辩论（debate_service），仅在请求显式开启时才有值
     debate: DebateResult | None = None
+    # 交易员计划 + 基金经理终审（TradingAgents ③④层），仅在开启辩论且辩论成功时产出
+    trade_plan: TradePlan | None = None
+    fund_manager_verdict: FundManagerVerdict | None = None
     holding_advice: str | None = None
 
 

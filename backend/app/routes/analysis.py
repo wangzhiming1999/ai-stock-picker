@@ -224,6 +224,15 @@ async def analyze_stocks(req: AnalysisRequest, request: Request):
                     debate = await debate_service.run_debate(prepared["context"])
                     if debate:
                         cached["debate"] = debate.model_dump()
+                        # 补跑辩论时同样补跑 ③④ 层，保持「开辩论 = 全链路」的语义
+                        trade_plan = await debate_service.draft_trade_plan(
+                            debate, prepared["context"], price=q.price, signal=prepared["signal"]
+                        )
+                        if trade_plan:
+                            cached["trade_plan"] = trade_plan.model_dump()
+                            cached["fund_manager_verdict"] = debate_service.review_plan(
+                                trade_plan, debate, signal=prepared["signal"]
+                            ).model_dump()
                         await _write_cache(q.code, cached, source="debate_patch")
                 yield _sse(
                     "stock_start",
@@ -257,6 +266,8 @@ async def analyze_stocks(req: AnalysisRequest, request: Request):
             # 2.5 多空研究员辩论（仅在请求显式开启；无 Key / 失败一律降级为 None）
             # 只把「分歧」喂给主分析，不喂「倾向」—— 见 debate_service.summarize 的说明。
             debate = None
+            trade_plan = None
+            verdict = None
             if req.debate and not use_mock:
                 yield _sse(
                     "debate_start",
@@ -271,6 +282,32 @@ async def analyze_stocks(req: AnalysisRequest, request: Request):
                         f"{q.name} 多空分歧度 {debate.divergence:.0f}/100",
                         {"code": q.code},
                     )
+                    # 2.6 交易员起草计划 + 基金经理终审（TradingAgents ③④层）。
+                    # 辩论成功才跑；任何一环失败都静默降级为 None，不影响主分析。
+                    yield _sse(
+                        "trade_plan_start",
+                        f"{q.name} 交易员起草计划并提交风控终审...",
+                        {"code": q.code},
+                    )
+                    trade_plan = await debate_service.draft_trade_plan(
+                        debate, context, price=q.price, signal=signal
+                    )
+                    if trade_plan:
+                        verdict = debate_service.review_plan(
+                            trade_plan, debate, signal=signal
+                        )
+                        yield _sse(
+                            "trade_plan_done",
+                            f"{q.name} 交易计划已终审：{verdict.decision}",
+                            {"code": q.code},
+                        )
+                    else:
+                        verdict = None
+                        yield _sse(
+                            "trade_plan_done",
+                            f"{q.name} 交易计划未产出（已降级，不影响主分析）",
+                            {"code": q.code},
+                        )
                 else:
                     yield _sse(
                         "debate_done",
@@ -288,6 +325,8 @@ async def analyze_stocks(req: AnalysisRequest, request: Request):
                 analysis.strategy = strategy_assessment
                 analysis.tactics = tactics
                 analysis.debate = debate  # 规则评分模式下恒为 None（无 Key，辩论没有推理后端）
+                analysis.trade_plan = None  # 同上：无 Key 时辩论/计划整条链路都不跑
+                analysis.fund_manager_verdict = None
                 results.append(analysis)
                 await _write_cache(q.code, analysis.model_dump(), source="rule")
                 yield _sse(
@@ -322,6 +361,8 @@ async def analyze_stocks(req: AnalysisRequest, request: Request):
             analysis.strategy = strategy_assessment
             analysis.tactics = tactics
             analysis.debate = debate
+            analysis.trade_plan = trade_plan if debate else None
+            analysis.fund_manager_verdict = verdict if debate else None
             results.append(analysis)
             await _write_cache(q.code, analysis.model_dump(), source="llm")
             yield _sse(

@@ -247,3 +247,161 @@ def test_summarize_hides_direction_from_downstream(monkeypatch) -> None:
     assert "55" in text and "量能能否持续放大" in text
     assert "bull" not in text and "bear" not in text  # 倾向词不得外泄
     assert "不得作为评分依据" in text
+
+
+class TestTradePlan:
+    """TradingAgents ③ 交易员层：辩论 → 结构化计划。
+
+    两条纪律：
+    1. 数值越界一律取保守值（仓位压上限、非法动作归 hold）
+    2. 任何失败降级为 None，不影响主分析
+    """
+
+    def _debate(self, direction="bull", divergence=40) -> DebateResult:
+        bull = ds.side_from({"thesis": "多头", "confidence": 70 if direction == "bull" else 45}, "bull")
+        bear = ds.side_from({"thesis": "空头", "confidence": 30 if direction == "bull" else 42}, "bear")
+        return DebateResult(
+            rounds=2, bull=bull, bear=bear, divergence=divergence, direction=direction,
+            key_disagreement="量能",
+        )
+
+    def test_parse_plan_clamps_action_only(self) -> None:
+        """非法动作归 hold；仓位**不压到风险上限**（越界是终审的 demote 职责）。
+        100% 是模型层物理上限（pydantic le=100），超出会被收敛到 100 再交给终审降级。"""
+        plan = ds._parse_plan(
+            {"action": "yolo", "position_pct": 999, "entry_price": 10, "stop_price": 9},
+            price=10,
+        )
+        assert plan.action == "hold"
+        assert plan.position_pct == 100  # pydantic 物理上限；风险上限由 review_plan 压
+
+    def test_parse_plan_tolerates_garbage_numbers(self) -> None:
+        plan = ds._parse_plan(
+            {"action": "buy", "position_pct": "abc", "entry_price": None, "stop_price": "x"},
+            price=10,
+        )
+        assert plan.position_pct == 0
+        assert plan.entry_price is None
+        assert plan.stop_price is None
+
+    @pytest.mark.asyncio
+    async def test_draft_plan_without_debate_returns_none(self) -> None:
+        """辩论缺一半（bull/bear 为 None）时交易员不开工。"""
+        lone = DebateResult(rounds=1, bull=None, bear=None)
+        assert await ds.draft_trade_plan(lone, "ctx", price=10) is None
+
+    @pytest.mark.asyncio
+    async def test_draft_plan_downgrades_on_llm_failure(self, monkeypatch) -> None:
+        """LLM 失败返回 None，不抛异常 —— 计划是增强项。"""
+        async def _boom(*a, **k):
+            raise RuntimeError("network")
+        monkeypatch.setattr(ds.llm_service, "complete", _boom)
+        assert await ds.draft_trade_plan(self._debate(), "ctx", price=10) is None
+
+    @pytest.mark.asyncio
+    async def test_draft_plan_includes_tech_stop_in_prompt(self, monkeypatch) -> None:
+        """系统技术位必须进 prompt 且明示「不得松于」——交易员的止损纪律来源。"""
+        captured = {}
+
+        async def _fake(system, user):
+            captured["user"] = user
+            return '{"action": "buy", "entry_price": 10, "stop_price": 9.2, "position_pct": 15, "batches": [], "rationale": "r", "invalidation": "i"}'
+
+        monkeypatch.setattr(ds.llm_service, "complete", _fake)
+        plan = await ds.draft_trade_plan(
+            self._debate(), "ctx", price=10.0,
+            signal={"support": 9.5, "resistance": 11, "buy_point": 9.8, "stop_loss": 9.0,
+                    "rr_ratio": 2.0, "strength": 6, "sell_point": 11.5},
+        )
+        assert plan is not None and plan.action == "buy"
+        assert "不得松于" in captured["user"]
+        assert "9.0" in captured["user"]  # 技术止损位注入
+
+
+class TestFundManagerVerdict:
+    """TradingAgents ④ 终审层：硬约束全部代码判定，不走 LLM。"""
+
+    def _debate(self, direction="bull", divergence=40, bull_conf=70, bear_conf=30) -> DebateResult:
+        return DebateResult(
+            rounds=2,
+            bull=ds.side_from({"thesis": "多", "confidence": bull_conf}, "bull"),
+            bear=ds.side_from({"thesis": "空", "confidence": bear_conf}, "bear"),
+            divergence=divergence, direction=direction, key_disagreement="x",
+        )
+
+    def test_valid_plan_approved(self) -> None:
+        """交易员止损必须不松于技术位才算完全合规 —— 9.2 > 9.0 会被 demote，所以用 9.0。"""
+        plan = ds._parse_plan(
+            {"action": "buy", "entry_price": 10.0, "stop_price": 9.0,
+             "target_price": 12.0, "position_pct": 15}, price=10)
+        v = ds.review_plan(plan, self._debate(), signal={"stop_loss": 9.0})
+        assert v.decision == "approved"
+        assert v.final_position_pct == 15
+        assert v.final_stop_price == 9.0
+
+    def test_stop_above_entry_rejected(self) -> None:
+        """止损 >= 入场 = 亏损边界无效，硬否决。"""
+        plan = ds._parse_plan(
+            {"action": "buy", "entry_price": 10.0, "stop_price": 10.5, "position_pct": 10}, price=10)
+        v = ds.review_plan(plan, self._debate())
+        assert v.decision == "rejected"
+        assert v.final_position_pct == 0
+
+    def test_missing_stop_rejected(self) -> None:
+        plan = ds._parse_plan({"action": "buy", "entry_price": 10.0, "position_pct": 10}, price=10)
+        assert ds.review_plan(plan, self._debate()).decision == "rejected"
+
+    def test_position_over_cap_demoted(self) -> None:
+        """仓位超等级上限：压回而不是否决（方向没错，只是手太大）。"""
+        plan = ds._parse_plan(
+            {"action": "buy", "entry_price": 10.0, "stop_price": 9.0, "position_pct": 30}, price=10)
+        v = ds.review_plan(plan, self._debate(), risk_level="稳健")
+        assert v.decision == "demoted"
+        assert v.final_position_pct == 20
+
+    def test_loose_stop_tightened_to_tech_stop(self) -> None:
+        """止损只能收紧不能放大：松于技术位时上移到技术位（与 _select_stop_price 同铁律）。"""
+        plan = ds._parse_plan(
+            {"action": "buy", "entry_price": 10.0, "stop_price": 9.6, "position_pct": 10}, price=10)
+        v = ds.review_plan(plan, self._debate(), signal={"stop_loss": 9.4})
+        assert v.decision == "demoted"
+        assert v.final_stop_price == 9.4
+
+    def test_neutral_debate_with_buy_plan_rejected(self) -> None:
+        """辩论没有共识方向却提交看多计划 → 硬否决。"""
+        plan = ds._parse_plan(
+            {"action": "buy", "entry_price": 10.0, "stop_price": 9.0, "position_pct": 10}, price=10)
+        v = ds.review_plan(plan, self._debate(direction="neutral", bull_conf=45, bear_conf=42))
+        assert v.decision == "rejected"
+        assert "没有共识方向" in v.verdict_notes[0]
+
+    def test_high_divergence_halves_position(self) -> None:
+        plan = ds._parse_plan(
+            {"action": "buy", "entry_price": 10.0, "stop_price": 9.0, "position_pct": 16}, price=10)
+        v = ds.review_plan(plan, self._debate(divergence=70, bull_conf=75, bear_conf=70))
+        assert v.decision == "demoted"
+        assert v.final_position_pct == 8.0
+
+    def test_poor_rr_demoted(self) -> None:
+        """风险收益比 < 1.5 降级（止损贴近入场）。"""
+        plan = ds._parse_plan(
+            {"action": "buy", "entry_price": 10.0, "stop_price": 9.8,
+             "target_price": 10.2, "position_pct": 10}, price=10)
+        v = ds.review_plan(plan, self._debate())
+        assert v.decision == "demoted"
+        assert any("风险收益比" in n for n in v.verdict_notes)
+
+    def test_reduce_plan_skips_bullish_constraints(self) -> None:
+        """减仓/回避计划不吃看多约束 —— 防御方向永远放行。"""
+        plan = ds._parse_plan({"action": "reduce", "position_pct": 25}, price=10)
+        v = ds.review_plan(plan, self._debate(direction="neutral"))
+        assert v.decision == "approved"
+
+    def test_rejected_plan_zero_position(self) -> None:
+        """否决 = 仓位归零、止损失效 —— 不留任何可参考的执行参数。"""
+        plan = ds._parse_plan(
+            {"action": "buy", "entry_price": 10.0, "stop_price": 10.0, "position_pct": 20}, price=10)
+        v = ds.review_plan(plan, self._debate())
+        assert v.decision == "rejected"
+        assert v.final_position_pct == 0
+        assert v.final_stop_price is None
