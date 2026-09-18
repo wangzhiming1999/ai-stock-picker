@@ -107,17 +107,15 @@ TACTICS: list[dict] = [
         "warmup": 25,
         "desc": "跌破 10 日均线后连续 3 日无力收回，趋势走弱离场信号。",
     },
-    {
-        "key": "ma20_slope",
-        "name": "均线斜率主升",
-        "category": "均线与指标",
-        "direction": "buy",
-        "source": "daily",
-        "history_days": 160,
-        "warmup": 60,
-        "desc": "20 日均线温和上行（尺度无关口径）为主升布局区，过陡视为鱼尾。",
-    },
 ]
+
+# 已下线技巧（2026-09-17）：不在 TACTICS 里 = 扫描/回测/面板都不再出现。
+# ma20_slope 两轮回测（2026-09-13 / 09-16）收益与胜率超额均为负（−0.26/−0.35pt、−5.4/−5.0pt），
+# 「黄金区间」口径跑不赢基准 —— 按证据闸门口径属 unsupported，直接下线而不是挂着「观察」。
+# 历史结论保留在 tactic_evidence.EVIDENCE["ma20_slope"]（provenance 可追溯），
+# detect_ma20_slope 函数保留（若日后重新校准区间可直接复用回测链路）。
+RETIRED_TACTICS: list[str] = ["ma20_slope"]
+
 TACTIC_MAP: dict[str, dict] = {t["key"]: t for t in TACTICS}
 
 # 单市场（日线）技巧的兜底阈值，集中在此便于日后回测调参。
@@ -834,7 +832,21 @@ def detect_ma10_break(ctx: dict) -> dict:
     return _pack(tactic, conditions, matched=matched, action=action, metrics=metrics)
 
 
-# ---------------- 技巧 9：均线斜率主升 ----------------
+# ---------------- 技巧 9（已下线）：均线斜率主升 ----------------
+
+# 下线后 TACTIC_MAP 里没有这个 key，detect 函数保留供回测链路复用 ——
+# 回测器按 DETECTORS 逐个调用，这里给它一份独立的元数据（不进 TACTICS = 不进扫描/UI）。
+_RETIRED_MA20_SLOPE_META = {
+    "key": "ma20_slope",
+    "name": "均线斜率主升（已下线）",
+    "category": "均线与指标",
+    "direction": "buy",
+    "source": "daily",
+    "history_days": 160,
+    "warmup": 60,
+    "desc": "2026-09-17 下线：两轮回测收益/胜率超额均为负，黄金区间口径跑不赢基准。",
+}
+
 
 def detect_ma20_slope(ctx: dict) -> dict:
     """MA20 温和上行 = 主升布局区；过陡 = 鱼尾加速。
@@ -842,7 +854,7 @@ def detect_ma20_slope(ctx: dict) -> dict:
     口径说明：原文用 15°–35° 角度，但角度依赖图表纵横比，不是尺度不变的量。
     这里改用「MA20 的 20 日变化率（%）」，阈值 5%~20% 为初值，需回测校准。
     """
-    tactic = TACTIC_MAP["ma20_slope"]
+    tactic = _RETIRED_MA20_SLOPE_META
     daily = ctx.get("daily")
     c = (daily.closes if daily else None) or []
     need = _SLOPE_MA + _SLOPE_LOOKBACK + 1
