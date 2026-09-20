@@ -76,7 +76,31 @@ class RateLimiter:
         return True
 
 
+def _client_ip(request: Request) -> str:
+    """取真实客户端 IP（限流 key 用）。
+
+    Vercel 在代理层终结连接，`request.client.host` 在代理后语义不保证；
+    `x-forwarded-for` 的**首个地址**才是原始客户端（后续是各级代理）。
+    """
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        first = forwarded.split(",")[0].strip()
+        if first:
+            return first
+    real_ip = (request.headers.get("x-real-ip") or "").strip()
+    if real_ip:
+        return real_ip
+    return request.client.host if request.client else "unknown"
+
+
+# 轮询类只读端点用独立配额：前端盯盘按 20s 周期轮询（3 次/分钟），叠加「立即刷新」连点、
+# 多标签页、同 IP 多设备，很容易顶到通用 60/分钟 —— 实测第 90 次请求即触发 429，
+# 用户看到「请求过于频繁」但其实只是正常使用。写入类端点仍走通用配额。
+_POLL_PATHS = frozenset({"/api/market/monitor", "/api/market/spot-status", "/api/alerts/unread"})
+_POLL_MAX_REQUESTS = 120
+
 _rate_limiter = RateLimiter()
+_poll_rate_limiter = RateLimiter(max_requests=_POLL_MAX_REQUESTS)
 
 
 @asynccontextmanager
@@ -108,8 +132,9 @@ app.add_middleware(CORSMiddleware, **_cors_kwargs)
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
     if _rate_limit_enabled:
-        key = f"{request.client.host}:{request.url.path}"
-        if not _rate_limiter.allow(key):
+        limiter = _poll_rate_limiter if request.url.path in _POLL_PATHS else _rate_limiter
+        key = f"{_client_ip(request)}:{request.url.path}"
+        if not limiter.allow(key):
             return JSONResponse(status_code=429, content={"detail": "请求过于频繁，请稍后再试"})
     return await call_next(request)
 

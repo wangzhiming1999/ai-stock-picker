@@ -958,17 +958,27 @@ def needed_periods(keys: list[str] | None = None) -> tuple[str, ...]:
     return tuple(out)
 
 
-async def load_period_histories(codes: list[str], period: str) -> dict[str, object]:
+async def load_period_histories(codes: list[str], period: str, *, cache_only: bool = False) -> dict[str, object]:
     """批量拉取某周期的历史 K 线（走并发闸门），返回 {code: StockHistory}。
 
     与日线是同一个端点、同一台主机，只是 period 参数不同；
     周线/月线在 `data_service` 里用 6h / 24h 长缓存，因此额外请求不会
     随盯盘/扫描的轮询频率被放大。
+
+    `cache_only=True` 时**只读进程内缓存、不发请求**（供盯盘这类每 20s 一轮的高频路径）：
+    命中就参与形态判定，未命中就跳过该周期。调用方据此区分「未加载」与「未命中」——
+    两者含义完全不同，混起来会把「没拉到数据」读成「该形态不成立」。
     """
     codes = [c for c in codes if c]
     if not codes:
         return {}
     days = _EXTRA_PERIOD_DAYS.get(period, 120)
+    if cache_only:
+        return {
+            code: hist
+            for code in codes
+            if (hist := data_service.peek_history(code, days, period=period)) is not None
+        }
     hists = await concurrency.gather_limited(
         (asyncio.to_thread(data_service.get_history, c, days, period=period) for c in codes),
         return_exceptions=True,
@@ -981,10 +991,13 @@ async def load_period_histories(codes: list[str], period: str) -> dict[str, obje
     return out
 
 
-async def load_tactic_periods(codes: list[str], keys: list[str] | None = None) -> dict[str, dict]:
+async def load_tactic_periods(
+    codes: list[str], keys: list[str] | None = None, *, cache_only: bool = False
+) -> dict[str, dict]:
     """按选中技巧的需要，批量取周线/月线，返回 {code: {"week": hist, "month": hist}}。
 
     没有技巧需要额外周期时返回空 dict，调用方可以无脑 `**extra.get(code, {})` 合并进 ctx。
+    `cache_only=True` 透传给 `load_period_histories`，用于高频轮询路径（只读缓存不拉取）。
     """
     periods = needed_periods(keys)
     if not periods:
@@ -992,7 +1005,9 @@ async def load_tactic_periods(codes: list[str], keys: list[str] | None = None) -
     codes = [c for c in codes if c]
     if not codes:
         return {}
-    loaded = await asyncio.gather(*(load_period_histories(codes, p) for p in periods))
+    loaded = await asyncio.gather(
+        *(load_period_histories(codes, p, cache_only=cache_only) for p in periods)
+    )
     out: dict[str, dict] = {}
     for period, mapping in zip(periods, loaded):
         for code, hist in mapping.items():

@@ -44,32 +44,87 @@ def _code_to_symbol(code: str) -> str:
     return f"sz{code}"
 
 
-def _fetch_qq_spot(codes: list[str]) -> dict[str, list[str]]:
-    """从腾讯行情接口拉取个股快照（原始字段数组）。"""
+# 腾讯单次请求的 symbol 上限。超过后被服务端**静默截断**（不报错，只是返回的行数变少），
+# 表现为「请求了 80 只、回来 50 只」，上层看不出任何异常。
+_QQ_SPOT_BATCH = 50
+_QQ_SPOT_RETRY = 2  # 每批重试次数（含首次共 3 次尝试）
+_QQ_SPOT_BACKOFF = 0.4  # 退避基数（秒），第 n 次重试等 n * 基数
+
+
+def _fetch_qq_spot_batch(codes: list[str]) -> dict[str, list[str]] | None:
+    """单批拉取；重试耗尽返回 None（失败语义交给 `_fetch_qq_spot` 判定）。"""
     symbols = ",".join(_code_to_symbol(c) for c in codes)
     url = f"https://qt.gtimg.cn/q={symbols}"
-    try:
-        resp = requests.get(url, headers={"User-Agent": _UA, "Referer": "https://gu.qq.com/"}, timeout=10)
-        resp.encoding = "gbk"
-        result: dict[str, list[str]] = {}
-        for line in resp.text.strip().split(";"):
-            line = line.strip()
-            if "=" not in line:
-                continue
-            key, val = line.split("=", 1)
-            key = key.strip().strip("v_")
-            val = val.strip().strip('"')
-            result[key] = val.split("~")
-        return result
-    except Exception as e:
-        logger.warning("腾讯行情接口失败: %s", e)
+    for attempt in range(_QQ_SPOT_RETRY + 1):
+        try:
+            resp = requests.get(url, headers={"User-Agent": _UA, "Referer": "https://gu.qq.com/"}, timeout=10)
+            resp.encoding = "gbk"
+            result: dict[str, list[str]] = {}
+            for line in resp.text.strip().split(";"):
+                line = line.strip()
+                if "=" not in line:
+                    continue
+                key, val = line.split("=", 1)
+                key = key.strip().strip("v_")
+                val = val.strip().strip('"')
+                result[key] = val.split("~")
+            # 有内容即视为成功：代码不存在时腾讯也会回一行（字段不足，由上层跳过）。
+            # 只有整批空响应才算这次尝试失败。
+            if result:
+                return result
+            logger.warning("腾讯行情返回空响应（第 %d 次尝试，%d 只）", attempt + 1, len(codes))
+        except Exception as e:
+            logger.warning("腾讯行情接口失败（第 %d 次尝试，%d 只）: %s", attempt + 1, len(codes), e)
+        if attempt < _QQ_SPOT_RETRY:
+            time.sleep(_QQ_SPOT_BACKOFF * (attempt + 1))
+    return None
+
+
+def _fetch_qq_spot(codes: list[str]) -> dict[str, list[str]]:
+    """从腾讯行情接口拉取个股快照（原始字段数组），分批 + 重试。
+
+    此前是「一次请求 + 零重试 + 零兜底」：一次网络抖动就让整批行情返回 `{}`，
+    上层拿到空列表后按「这些票没有数据」处理，把**行情源故障伪装成没有数据**
+    （盯盘实测表现为 `HTTP 200 + count:0 + missed:[全部]`，前端只看到列表变短）。
+
+    全部批次失败时抛 `RuntimeError` —— 上层要么显式降级，要么把失败透给用户；
+    部分批次成功则返回成功的部分，不因个别批次的抖动丢掉其余行情。
+    """
+    if not codes:
         return {}
+    result: dict[str, list[str]] = {}
+    batches = 0
+    failures = 0
+    for start in range(0, len(codes), _QQ_SPOT_BATCH):
+        batch = codes[start : start + _QQ_SPOT_BATCH]
+        batches += 1
+        chunk = _fetch_qq_spot_batch(batch)
+        if chunk is None:
+            failures += 1
+            continue
+        result.update(chunk)
+    if batches and failures == batches:
+        raise RuntimeError(f"腾讯行情接口连续失败（{batches} 批 / {len(codes)} 只）")
+    if failures:
+        logger.warning("腾讯行情部分批次失败：%d/%d 批，已返回其余 %d 只", failures, batches, len(result))
+    return result
 
 
-def get_spot_quote(codes: list[str]) -> list[StockQuote]:
-    """获取多只股票的实时行情快照（腾讯接口，字段更全）。"""
+def get_spot_quote(codes: list[str], *, strict: bool = False) -> list[StockQuote]:
+    """获取多只股票的实时行情快照（腾讯接口，字段更全）。
+
+    strict=False（默认）：行情源整体故障时按空结果降级 —— 保持既有调用方的行为不变。
+    strict=True：把故障抛给调用方。**盯盘这类「少几只票会被误读成今天没信号」的路径
+    必须用 strict**，否则行情源故障和「池子本来就空」在界面上无法区分。
+    """
     quotes: list[StockQuote] = []
-    raw = _fetch_qq_spot(codes)
+    try:
+        raw = _fetch_qq_spot(codes)
+    except RuntimeError as e:
+        if strict:
+            raise
+        logger.warning("行情源不可用，按空结果降级: %s", e)
+        return []
     for code in codes:
         key = _code_to_symbol(code)
         fields = raw.get(key)
@@ -241,6 +296,26 @@ def get_history(code: str, days: int = 120, *, period: str = "day") -> StockHist
             _hist_cache.pop(k, None)
     _hist_cache[key] = (now, result)
     return result
+
+
+def peek_history(code: str, days: int = 120, *, period: str = "day") -> StockHistory | None:
+    """只读 K 线缓存，**不发任何请求**；未命中或已过期返回 None。
+
+    供轮询类路径（盯盘每 20s 一轮）使用：周线/月线这类「长度固定、变化极慢」的数据
+    在冷实例上每次都要重拉，而它们只服务于「多周期共振」一条技巧 —— 让常规轮询
+    按缓存命中与否决定是否参与形态判定，把请求量交还给调用方控制；
+    需要强刷时调用方改用 `get_history(force 语义)` 即可。
+    """
+    if period not in _QQ_HIST_PERIODS:
+        period = "day"
+    hit = _hist_cache.get((code, days, period))
+    if not hit:
+        return None
+    cached_at, cached_val = hit
+    ttl = _HIST_TTL_PERIOD.get(period, _HIST_TTL_OK) if cached_val is not None else _HIST_TTL_FAIL
+    if time.time() - cached_at >= ttl:
+        return None
+    return cached_val
 
 
 # ---------------- 分钟 K 线缓存 ----------------

@@ -17,9 +17,11 @@ from app.services import concurrency, data_service, intraday_service, pattern_se
 router = APIRouter(prefix="/api/market", tags=["monitor"])
 
 _KLINE_TTL = 30 * 60  # 30 分钟
-# 形态识别需要长历史（多周期共振的月线 MACD 约需 735 个交易日），故日 K 取 900 根。
-# 仍是一次请求即可覆盖；技术信号与量比只取尾部，行为不变。
-_KLINE_DAYS = 900
+# 日 K 取数根数 = 最长技巧需求（天量见天价 320 根，见 pattern_service.TACTIC_MAP.history_days）+ 缓冲。
+# 历史上这里取 900，是为了「从 640 根日线重采样出月线」的旧口径；V5.20 改为按周期直接取数后，
+# 900 根已无用处 —— 单只响应 60.5KB/0.21s vs 400 根约 27KB，而技术信号只需 60 日窗口。
+# ⚠️ 不要为了「多周期共振」把它调回去：周/月线由 load_tactic_periods 单独按周期取。
+_KLINE_DAYS = 400
 _CN_TZ = dt.timezone(dt.timedelta(hours=8))
 _kline_cache: dict[str, tuple[float, StockHistory | None]] = {}
 _KLINE_CACHE_MAX = 200
@@ -225,6 +227,33 @@ def _advice(price: float, sig: dict) -> dict:
 
 _ACTION_ORDER = {"stop": 0, "sell": 1, "buy": 2, "hold": 3}
 
+# 未出结果的原因文案。三者对用户的含义完全不同：行情缺失 = 行情源问题（可以重试）；
+# K 线失败 = 数据源抖动；历史不足 = 次新股/停牌这类客观原因（重试也没用）。
+_MISS_LABEL = {
+    "quote_missing": "未取到行情",
+    "history_missing": "历史 K 线取数失败",
+    "signal_missing": "历史数据不足无法定档",
+}
+
+
+def _miss_report(seen: list[str], miss_reason: dict[str, str]) -> dict:
+    """把未出结果的票按原因归类，并生成一句可读提示。
+
+    此前 missed 只是一个代码列表、且前端根本不读 —— 「少几只票」和「全部失败」
+    在界面上都只表现为列表变短，用户会把行情源故障读成「今天没什么可操作的」。
+    """
+    missed = [c for c in seen if c in miss_reason]
+    detail = {
+        key: [c for c in missed if miss_reason[c] == key] for key in _MISS_LABEL
+    }
+    parts = [f"{len(v)} 只{_MISS_LABEL[k]}" for k, v in detail.items() if v]
+    notice = (
+        f"共 {len(seen)} 只，其中 {len(missed)} 只未出结果（" + "、".join(parts) + "）"
+        if missed
+        else ""
+    )
+    return {"missed": missed, "partial": bool(missed), "notice": notice, "missed_detail": detail}
+
 
 def _sort_key(item: dict) -> tuple:
     """需要立刻操作的排最前：止损 > 卖出 > 买入 > 观望。"""
@@ -287,7 +316,9 @@ async def monitor(req: MonitorRequest):
         raise HTTPException(status_code=400, detail="代码格式不正确")
 
     try:
-        quotes = await asyncio.to_thread(data_service.get_spot_quote, seen)
+        # strict：行情源整体故障时抛错走 502，不返回「200 + count:0」——
+        # 后者会让用户把「行情源挂了」读成「这些票今天没信号」。
+        quotes = await asyncio.to_thread(data_service.get_spot_quote, seen, strict=True)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"获取实时行情失败: {e}")
 
@@ -310,15 +341,24 @@ async def monitor(req: MonitorRequest):
 
         intraday_map = dict(zip(seen, await asyncio.gather(*(_m(c) for c in seen))))
 
-    # 周线/月线：多周期共振需要（长缓存 6h/24h，轮询不会放大请求量）
-    period_map = await pattern_service.load_tactic_periods(seen)
+    # 周线/月线：只有「多周期共振」需要。常规轮询**只读缓存不拉取** —— 每只票多 2 次额外请求，
+    # 冷实例上会与日线抢同一个并发闸门（实测冷缓存一轮 13.9s vs 热缓存 1.5s）；
+    # 用户点「立即刷新」（force）时才真拉，既能拿到形态也不让轮询放大请求量。
+    period_map = await pattern_service.load_tactic_periods(seen, cache_only=not req.force)
 
     items = []
     degraded = False
+    # 未出结果的原因要能分清：行情缺失 / K 线失败 / 历史不足。三者对用户含义完全不同，
+    # 混成一个「missed 列表」时前端只能显示「列表变短」，等于失败不可见。
+    miss_reason: dict[str, str] = {}
     for code in seen:
         q = quote_map.get(code)
         history = history_map.get(code)
-        if not q or not history or not history.closes:
+        if not q:
+            miss_reason[code] = "quote_missing"
+            continue
+        if not history or not history.closes:
+            miss_reason[code] = "history_missing"
             continue
         historical_volumes = list(history.volumes or [])
         if history.dates and q.quote_time and history.dates[-1] == q.quote_time[:10]:
@@ -330,6 +370,7 @@ async def monitor(req: MonitorRequest):
             history.closes, q.price, highs=history.highs, lows=history.lows
         )
         if not sig:
+            miss_reason[code] = "signal_missing"
             continue
         sig["volume_ratio"] = volume_ratio
         # 日线锚点：无论用哪个周期决策，都给出战略位，避免日内被日线大方向反着做
@@ -405,8 +446,7 @@ async def monitor(req: MonitorRequest):
         )
 
     items.sort(key=_sort_key)
-    completed = {item["code"] for item in items}
-    missed = [c for c in seen if c not in completed]
+    report = _miss_report(seen, miss_reason)
     now = dt.datetime.now(dt.timezone.utc).astimezone(_CN_TZ)
     quote_times = []
     for q in quotes:
@@ -440,8 +480,18 @@ async def monitor(req: MonitorRequest):
         "market_open": market_open,
         "poll_interval_seconds": 20 if market_open else 300,
         "count": len(items),
-        "missed": missed,
+        "missed": report["missed"],
+        # 部分失败：前端必须提示，不能只显示变短的列表
+        "partial": report["partial"],
+        "notice": report["notice"],
+        "missed_detail": report["missed_detail"],
         "interval": interval,
+        # 周线/月线仅在「立即刷新」时拉取；loaded=false 表示「多周期形态未加载」，
+        # 而不是「该形态未命中」——两者对用户的含义完全不同。
+        "periods": {
+            "loaded": bool(period_map),
+            "cache_only": not req.force,
+        },
         # 分钟数据不可用时自动降级为日线决策，前端据此提示用户
         "degraded": degraded and interval != "1d",
         "summary": _summary(items),
