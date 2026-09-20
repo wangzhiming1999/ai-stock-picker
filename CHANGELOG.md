@@ -1,7 +1,7 @@
 # 迭代日志 Changelog
 
 > 格式参考 [Keep a Changelog](https://keepachangelog.com/)，版本号遵循产品里程碑（V1 ~ V5.x）。
-> 代码仓库版本见 `backend/app/main.py` 的 `version` 字段，**当前为 `0.2.0`，对应产品里程碑 V1–V5.20**。
+> 代码仓库版本见 `backend/app/main.py` 的 `version` 字段，**当前为 `0.2.0`，对应产品里程碑 V1–V5.22**。
 >
 > 说明：历史条目按 ROADMAP 的「已完成」章节整理；里程碑日期以 ROADMAP 末次更新（2026-09-02）为最新基准，早期里程碑未逐日记录，具体提交时间以 git 历史为准。
 
@@ -10,6 +10,87 @@
 ## [Unreleased]
 
 ### Added
+- **页面全量重构：视觉 v2 + 巨型组件拆分 + 信息架构重排**（2026-09-20）
+  > 上一轮的「功能地图」解决的是「能不能找到」，本轮解决的是「**找起来拐几个弯**」。
+  > 三处结构性原因：① 深度分析藏在「选机会」下、实战形态藏在「扫描」下，层级深且没有回头路；
+  > ② 七档灰的表面对比度只有 2~4%，人眼根本分不出层级；③ 二级子页不吸顶，滚两屏就换不了页。
+  > 三处一起改才有效，只改一处只是换了个地方藏。
+  - **视觉 v2**：新增 `surface-canvas/panel/inset/raised/line/line-soft/line-strong` 语义表面阶梯，
+    `tailwind.config.js` 把旧的 `slate-700/800/900/950` **重定向**到新阶梯 —— 存量 `slate-*`
+    标记不用改就落到新层级；`ink-*` 文字阶梯微调后每档都实测达标；新增 `--header-h` CSS 变量
+    供吸顶定位（移动端 57px / sm+ 101px）
+  - 新增 `frontend/tools/contrast.mjs`（`npm run contrast`）：从 `tailwind.config.js` 取真实色值
+    实测守卫，26 项断言全绿 —— 文字 × 四层表面 ≥4.5:1、相邻表面相对亮度差 ≥12%、
+    装饰线保持 <3:1（反向断言，避免线抢戏）、白字按钮 ≥4.5:1。
+    **顺手查出并修掉 `warn` 按钮白字仅 3.19:1 的旧缺陷**（改 `amber-700` → 5.02:1）
+  - 新增 `components/ui/` 布局原语：`Panel`（全站唯一主卡形状）、`PageHeader`（每页唯一 h1）、
+    `SubNav`（**吸顶**二级导航，滑动指示条）、`EmptyState`（空态 ≠ 失败态）；
+    `Button/Input/StatTile/ScoreBar/PanelSkeleton/CollapsiblePanel/ErrorBoundary` 一并迁入 `ui/`，
+    24 个文件的 import 同步
+  - **7 个巨型组件拆为 thin host + 模块目录**（行为零变化）：`MonitorPanel` 995→473、
+    `DailyBriefing` 783→171、`LimitUpBar` 647→211、`LimitDownBar` 476→196、
+    `ScanPanel` 636→288、`SimPanel` 538→130、`AnalysisDrawer` 934→386 行。
+    盯盘契约（notice 渲染、`setErr("")` 顺序）、证据闸门、confidence_source 全部保留
+  - **信息架构重排**：一级导航 3 → **4**（新增「研究」，把验证类从「选机会」下搬出来，深度少一层）；
+    二级导航单一来源 `lib/subnav.ts`（`SUB_NAV` + `SubKey` 联合类型），**12 个二级子页全部吸顶**；
+    全站**最多两级**导航，子页内只用区块
+  - `lib/featureMap.ts` / `featureMap.test.ts` 同步：登记的 `sub` 改为 `SubKey` 类型（拼错编译不过）；
+    守卫重心从「子页在 Panel 源码里存在」改为「**每个二级子页至少有一条功能登记** +
+    登记的 sub 必须属同域」；反向验证判别力通过（空子页、域/子页错配都正确失败）。
+    功能登记表现场清点为 **23 条**（`today` 2 / `opportunity` 9 / `holdings` 5 / `research` 4 / `global` 3）
+    —— 上方 V5.23 条目里的「25 个功能」是**当时**的口径，重排后以 `featureMap.ts` 现场数为准
+  - 前端测试 40 → **42**；typecheck（`tsconfig.app.json` + `tsconfig.node.json`）零错误、`vite build` 通过
+- **功能地图：一处看到并直达全站 25 个功能**（2026-09-20）
+  > 起因是真实反馈：「首页还是不够全，加的一堆功能找都找不到」。根因不是布局，是**结构**——
+  > 一级导航只有 3 项（今日作战 / 选机会 / 持仓），但真实功能 25 个：选机会下 3 个子页
+  > 各自还塞着 4~5 个区块，持仓下 4 个子页，另外还有两根常驻温度带和一个全局抽屉。
+  > 新功能做完就等于埋了，只有写过它的人知道在哪。**这不是再调一版首页能解决的。**
+  - 新增 `frontend/src/lib/featureMap.ts`：全站功能的**单一来源**（域 + 子页 + 一行说明 +
+    「新」标记 + 检索词），形状与 `lib/nav.ts` 一致 —— 只放数据不放 UI
+  - 新增 `components/FeatureDirectory.tsx`（分组网格 + 关键词即时过滤）、
+    `FeatureMapModal.tsx`（全局浮层）、`FeatureMapBar.tsx`（首页一行入口条）；
+    头部新增常驻「全部功能」按钮，任何页面都能打开
+  - 新增 `frontend/src/lib/bus.ts`：跨组件树事件原语（`ai:` 前缀，集中登记）。
+    涨停 / 跌停两根常驻条挂在 `<main>` **外面**，功能地图要展开它们必然跨子树 ——
+    事件比把状态提到 `App` 再透传五六层更轻，项目里也已有 `stock:require-auth` 的先例
+  - 打通跨页跳转：`App` 持有 `NavJump { tab, sub, id }`（`id` 自增，否则「手动切走后再点
+    同一项」不会有反应 —— 与 `AnalysisDrawer` 的 requestId 是同一个坑）；
+    三张页面容器接受跳转并切到对应子页
+  - 新增 `frontend/src/lib/featureMap.test.ts`（15 例）守卫，全部**双向**：
+    key / label 唯一；**声明的子页必须在对应 Panel 源文件里真实存在**（写错了只会
+    「点了没反应」且无人察觉，这是本项目最典型的失败模式）；每个一级导航都至少有一条功能
+    指向它；口语化检索词（炸板 / 买不进 / 练手 / 靠谱吗）必须能命中；描述里不得出现荐股话术。
+    判别力已反向验证：把 `op.ledger` 的子页改成不存在的名字，守卫正确失败
+  - 前端测试 25 → **40**
+- **补齐两张「从来没有过建表 SQL」的快照表 + schema 覆盖守卫**（2026-09-20）
+  > `quad_snapshots` 与 `daily_recommend_snapshots` 是 quad / 推荐链路的持久化底座，
+  > 当年在 Supabase 控制台手动建表，**仓库里从来没有对应的建表 SQL**。后果不是
+  > 「读不到缓存」这么轻，是**改不了** —— 想加列 / 加索引 / 调类型时，没有任何文件
+  > 能作为「线上到底是什么结构」的依据，只能猜或连生产库看。
+  - 新增 `supabase-schema-v11.sql`：按代码实际读写的列补这两张表（含 RLS 与项目约定的
+    幂等写法）；并给 `daily_recommendations.confidence` / `source` 补 `COMMENT`，
+    把「按 source 解释的分数槽」写进库注释
+  - 全量盘点发现缺口比记录的更大：**一共 10 张表没有建表 SQL**（本文件补了 2 张，剩余 8 张为
+    `backtest_results` / `daily_predictions` / `opportunity_cache` / `stock_analysis_cache` /
+    `trade_calendar` / `user_holdings` / `user_profiles` / `user_watchlist`）。
+    这 8 张**故意不手写列定义** ——
+    表已存在于线上，靠读代码反推等于编造结构记录（`CREATE TABLE IF NOT EXISTS` 遇到已存在的
+    表会静默跳过，写错也不报错），要补就从线上 dump `information_schema.columns`
+  - 新增 `tests/test_schema_coverage.py`（10 例）双向守卫：代码引用到的表必须有建表 SQL；
+    `KNOWN_MISSING` 清单里已补上的必须移出（否则清单从「欠债登记」退化成「假台账」）；
+    迁移文件必须幂等（`CREATE ... IF NOT EXISTS`、`CREATE POLICY` 必须配对
+    `DROP POLICY IF EXISTS`）；`supabase-schema-all.sql` 不得成为某张表的唯一出处
+  - ✅ **DDL 已执行**（2026-09-20，用户在 Supabase SQL Editor 手动跑 `v11`，返回
+    `Success. No rows returned`）。本机只有 service_role key、够不到 DDL，这类迁移始终需要
+    手动执行或带 `ADMIN_TOKEN` 调 `POST /api/admin/migrate`。
+    ⚠️ 注意两张表**早已存在于线上**（当年控制台手建），`CREATE TABLE IF NOT EXISTS` 会静默跳过 ——
+    本次真正生效的只有末尾两条 `COMMENT ON COLUMN`
+- **`limitup_daily_snapshot` 加 90 天保留窗口**（2026-09-20）
+  - 该表是全项目唯一「每交易日全池写入」的表，只写不删会撞 Supabase 免费额度；
+    而写失败路径是**静默降级**的（`save_daily_snapshot` 捕获异常后返回 0），
+    爆掉时不会报错 —— 只是回测窗口悄悄不再变长
+  - 新增 `limitup_service.purge_old_snapshots()`（默认保留 90 天，下限 30 天防误传清空全表），
+    挂进 `POST /api/cron/daily`；新增 7 例覆盖保留上限 / 下限保护 / 未配置 / 表未建 / 接线
 - **涨停次日溢价读数：把「唯一没被否掉的方向」做成产品读数**（2026-09-20）
   > 背景：项目所有验证里只有打板方向收益为正（两口径互证 n=758 / n=4953），
   > 但它此前只是 `LimitUpBar` 里的一根温度计。本轮把它做成可读的分档读数 ——
@@ -53,6 +134,22 @@
     并把 `periods.loaded` / `cache_only` 随返回体下发（区分「未加载」与「未命中」）
 
 ### Fixed
+- **`/api/admin/migrate/status` 的自检清单里有两张「从不存在的表」**（2026-09-20）
+  > 该接口的 `EXPECTED_TABLES` 里写着 `portfolio_holdings` / `watchlist`。全仓核对后确认：
+  > 两者**既没有任何建表 SQL，也没有任何代码引用**（真实表名是 `user_holdings` /
+  > `user_watchlist`）。后果不是「多检查两张」那么轻 —— 自检会**永远**把它们报成 missing、
+  > `all_ok` 永远是 false，而它又恰好没检查真正在用的持仓 / 自选表。
+  > 一个只会喊狼来了的自检，比没有自检更糟：没人会再点开看。
+  - 清单由 13 条修正为 **23 条**：去掉那 2 个历史表名，补齐 12 张漏检表
+    （`limitup_daily_snapshot` / `quad_snapshots` / `daily_recommend_snapshots` /
+    `opportunity_cache` / `stock_analysis_cache` / `backtest_results` / `daily_predictions` /
+    `prediction_records` / `agent_decisions` / `trade_calendar` / `user_holdings` /
+    `user_watchlist`），并按域重新分组
+  - 新增 `test_schema_coverage.py::AdminExpectedTablesTests`（3 例）双向守卫：清单里不得出现
+    代码从不引用的表（防历史表名复活），代码引用的表也不得漏检。其中 `market_source_state`
+    的表名经变量传入（`routes/market.py::_COOLDOWN_TABLE`），字面量扫描抓不到 ——
+    显式登记进 `VIA_VARIABLE`，而不是把清单改错去迁就扫描
+  - 后端用例 532 → **535**
 - **行情源：个股批量分批 + 重试 + 失败不再伪装成空数据**（2026-09-20）
   > 根因链：`_fetch_qq_spot` 原本「一次请求 + 零重试 + 异常吞成 `{}`」，
   > 一次抖动就让整批行情变空列表，上层表现是 `HTTP 200 + count:0 + missed:[全部]`——
@@ -78,10 +175,39 @@
     在 20s 后的下一次轮询里立刻抹掉，用户只看到一闪而过的红字
   - 新增测试 `test_spot_resilience.py`（17 例：分批 / 重试 / 空响应重试 /
     部分失败保留 / strict 语义 / peek 不触网 / cache_only 不触网 / miss 分类 / 限流键）；
-    `test_limitup_premium.py`（18 例：档位边界到秒 / 可成交性 / 三条纪律）；
-    后端用例 455 → **490**
-
-### Fixed
+    `test_limitup_premium.py`（16 例：档位边界到秒 / 可成交性 / 三条纪律。
+    ⚠️ 2026-09-20 更正：原文记「18 例」系误记，现场数为 16）；
+    后端用例 455 → **490**（该数字为**能被收集**的用例数；其中 20 条既有用例
+    当时因类命名问题并未真正执行，见下方 Fixed「用例静默失效」）
+- **用例静默失效：20 条既有测试从未被执行过**（2026-09-20）
+  > 根因：pytest 默认只收集 `Test*` 命名的类；`unittest.TestCase` 子类不受该限制、
+  > **普通类却受**。而本仓库的命名约定是 `*Tests` —— 于是同样写 `*Tests`，
+  > 继承 TestCase 的能跑、不继承的静默收集 0 条，没有任何提示。
+  - 失效清单：`test_limitup_snapshot_store.py` 7 条（涨停池落库 / 累积表回补 / 静默降级）、
+    `test_sim_relay_auto_buy.py` 13 条（含连板接力「一字板买不进」判据 `_relay_unfillable`
+    的 5 条边界用例 —— 这条判据正是模拟盘建仓时真正生效的规则）
+  - 修复：`pytest.ini` 显式声明 `python_classes = Test* *Tests`；全量用例 490 → **532**
+    （= 此前能收到的 490 + 被唤起执行的 20 条既有用例 + 本轮新增 22 条。
+    此前「490」是**能被收到**的数量，不是**存在**的数量）
+  - 新增 `tests/test_pytest_collection.py`（3 例）守住两件事：`python_classes` 不得被删回
+    默认值（否则 `*Tests` 普通类会再次静默失效）、新增用例文件不得出现「方法名像用例
+    却收不到」的类
+- **`confidence` 一名三义，且 `source` 靠推荐理由文案反推**（2026-09-20）
+  > `daily_recommendations.confidence` 同列三种语义：LLM 自评把握（0-10）、规则加权策略分
+  > （0-10，动量 0.7 + 趋势 0.3 封顶）、quad 四维综合分。前端一律显示「置信」，
+  > 用户无法知道这个数代表什么、能不能当依据。
+  - 推荐 payload 新增显式 `confidence_source`（`llm_self_report` / `rule_score`），
+    简报链路透传；前端新增 `lib/confidence.ts` 按来源出标签（「AI 自评」/「策略分」）
+    与 hint（两者都点明「不是胜率预估」），老快照缺字段时如实显示「来源未知」，不猜
+  - 修掉 `save_recommendations` 用 `"策略分" not in reason` 反推 source —— LLM 只要在
+    推荐理由里写了「策略分」三个字，整行就被错标成 `rule`，污染 winrate 的 by_source 分档
+    （llm / rule / watch / quad 本不可相加）；quad 侧同列语义也补了注释
+  - 新增 5 例（含「理由里出现策略分不得改变标签」的回归用例）
+- **两个同名不同表的 `DEFAULT_POOL`**（2026-09-20）
+  - `backtest_service.DEFAULT_POOL`（18 只，策略回测）与
+    `tactic_backtest_service.DEFAULT_POOL`（42 只，形态回测）内容不同却同名，
+    改参数时极易混用 → 重命名为 `STRATEGY_BACKTEST_POOL` / `TACTIC_BACKTEST_POOL`，
+    并把引用点、`/api/backtest/pool` 文案与证据快照里的来源串一并更新
 - **新浪市值单位修正（万元→元），修复 Sina 降级窗口四维榜池空**（2026-09-18）
   > 根因：新浪快照 `mktcap`/`nmc` 单位是「万元」，此前直接按「元」契约落
   > `market_spot_cache`，下游 `/1e8` 后 `market_cap_yi` 全体缩小 1e4 倍

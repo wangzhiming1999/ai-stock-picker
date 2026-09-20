@@ -116,7 +116,7 @@ npm run dev                 # http://localhost:5173
 改动后至少跑一遍下面四步（CI 也是这四步，见 `.github/workflows/ci.yml`）：
 
 ```bash
-# 后端（490 个用例）
+# 后端（535 个用例）
 cd backend
 pip install -r requirements-dev.txt   # 含 pytest / pytest-asyncio
 pytest -q
@@ -197,18 +197,20 @@ ai-stock-picker/
 │   │   ├── config.py             # pydantic-settings 配置
 │   │   ├── models.py             # 数据模型
 │   │   ├── store.py              # SQLite 本地分析历史
-│   │   ├── routes/               # 18 个路由模块（见下）
-│   │   └── services/            # 34 个服务模块（见下）
-│   ├── supabase-schema*.sql      # 建表脚本 v1–v10（幂等，可重复执行）
+│   │   ├── routes/               # 17 个路由模块（见下）
+│   │   └── services/            # 33 个服务模块（见下）
+│   ├── supabase-schema*.sql      # 建表脚本 v1–v11（幂等，可重复执行）
 │   ├── requirements.txt
 │   └── vercel.json
 ├── frontend/
 │   └── src/
-│       ├── App.tsx              # 3 入口主框架：今日作战 / 选机会 / 持仓（深度分析走全局抽屉）
+│       ├── App.tsx              # 4 入口主框架：今日作战 / 选机会 / 持仓 / 研究（一级 nav 下划线式，
+│       │                        #   二级走吸顶 SubNav；深度分析走全局抽屉）
 │       ├── api/                 # client / auth / supabase
 │       ├── auth/AuthContext.tsx # 登录态
-│       ├── components/          # 20+ 组件（简报/推荐/扫描/回测/持仓/模拟盘/预警…）
-│       └── lib/                 # dates / motion / usePersist / safe
+│       ├── components/          # 102 个文件：顶层 40 个组件 + ui/ 11 个原语
+│       │                        #   + 6 个模块目录（monitor / briefing / market / scan / sim / analysis）
+│       └── lib/                 # 17 个模块：nav / subnav / featureMap / bus / tone / ui / confidence / spotGuard / useSubPage…
 ├── docs/
 │   └── sim-trading-plan.md      # 模拟盘设计文档
 ├── Dockerfile · docker-compose.yml

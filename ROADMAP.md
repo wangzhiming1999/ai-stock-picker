@@ -2,8 +2,10 @@
 
 > 核心目标：从「单次分析工具」演进为**可验证胜率、可跟踪执行的个人量化投研助手**。
 >
-> 最后更新：2026-09-20（补记 V5.19 / V5.20 / V5.21 与 V6 预警中心落地情况；
-> 本轮起「当前重点」见第五节优先级表 —— 已从「堆功能」转为「把唯一收益为正的口径做实 + 收敛盘中链路体验」）
+> 最后更新：2026-09-20（补记 V5.19 / V5.20 / V5.21 / V5.22 / V5.23 / V5.24；V5.19–V5.22 是
+> 「把口径做实 + 清理静默失效」，V5.23 建功能地图解决「找不到」，V5.24 做页面全量重构解决
+> 「拐太多弯」—— 视觉 v2 + 7 个巨型组件拆分 + 信息架构重排为 4 个一级页 / 12 个吸顶二级子页。
+> 「当前重点」见第五节优先级表 —— 已从「堆功能」转为「把唯一收益为正的口径做实 + 收敛盘中链路体验」）
 
 ---
 
@@ -217,7 +219,86 @@
 - [x] **失败可见**：`_fetch_qq_spot` 分批 + 重试 + 全批失败抛错；`get_spot_quote(strict=)`；
       盯盘 `missed` 按原因分类 + `partial` + `notice`，前端提示条；修掉轮询抹掉错误提示的问题
 - [x] **限流器修正**：key 读 `x-forwarded-for`；轮询类只读端点独立配额 120/分钟
-- [x] 测试 455 → 490（新增 `test_spot_resilience.py` 17 例 / `test_limitup_premium.py` 18 例）
+- [x] 测试 455 → 490（新增 `test_spot_resilience.py` 17 例 / `test_limitup_premium.py` 16 例）
+      > ⚠️ 2026-09-20 更正：`test_limitup_premium.py` 原记「18 例」为误记，现场数 16；
+      > 且 490 是**能被收集**的数量 —— 其中 20 条既有用例当时并未真正执行，见 V5.22
+
+### V5.22 · 技术债清理：把「看起来有」和「实际有用」分开（2026-09-20）
+> 起因：ROADMAP 第六节攒了一批「登记了很久但没人碰」的债。清理时发现两处比登记更严重：
+> ① 缺建表 SQL 的表不是登记的 2 张而是 **10 张**（v11 补了 2 张，余 8 张）；
+> ② **20 条既有测试从未执行过**（不是失败，是没跑）。
+> 这轮的共同主题：**静默失效比报错危险** —— 三个问题都不会报错，只会让「有」变成「没有」。
+- [x] **测试静默失效修复**：`pytest.ini` 显式声明 `python_classes = Test* *Tests`。
+      pytest 默认只收 `Test*`，`unittest.TestCase` 子类不受限但**普通类受限**，
+      仓库命名约定却是 `*Tests` → 不继承 TestCase 的类静默收集 0 条。
+      失效 20 条（`test_limitup_snapshot_store.py` 7 + `test_sim_relay_auto_buy.py` 13，
+      后者含「一字板买不进」判据边界）。全量用例 490 → **532**
+      （= 490 能被收到的 + 20 条被唤起执行的 + 本轮新增 22 条）；技术债收尾再 +3 → **535**
+- [x] 新增 `tests/test_pytest_collection.py`：守卫 `python_classes` 不被删回默认、
+      守卫新增用例文件不出现「收集不到的类」
+- [x] **`DEFAULT_POOL` 同名冲突消除**：策略回测（18 只）与形态回测（42 只）内容不同却同名
+      → `STRATEGY_BACKTEST_POOL` / `TACTIC_BACKTEST_POOL`
+- [x] **`confidence` 一名三义拆开**：新增 `confidence_source`（`llm_self_report` / `rule_score`）
+      贯穿推荐 → 简报 → 前端标签；修掉用推荐理由文案反推 `source` 的脆弱逻辑
+      （LLM 写了「策略分」三字就会被错标成 rule，污染 winrate by_source 分档）
+- [x] **补 `supabase-schema-v11.sql`**：`quad_snapshots` / `daily_recommend_snapshots`
+      两张「从来没有建表 SQL」的表（当年控制台手动建）→ 结构有据可查；
+      并给 `daily_recommendations.confidence` / `source` 补库注释
+- [x] 新增 `tests/test_schema_coverage.py`（10 例）：覆盖 + 幂等 + 迁移链 + 自检清单一致性
+      双向守卫；把剩余 8 张缺 SQL 的表登记进 `KNOWN_MISSING`（补上后必须移出，否则清单变假台账）
+- [x] **修掉 `/api/admin/migrate/status` 的假警报**：`EXPECTED_TABLES` 里两张表
+      （`portfolio_holdings` / `watchlist`）**既无建表 SQL 也无任何代码引用**（真实表名是
+      `user_holdings` / `user_watchlist`）→ 自检**永远**报 missing、`all_ok` 永远 false，
+      且漏检 12 张真在用的表。清单 13 → **23 条**，并加双向守卫防复发
+- [x] **`limitup_daily_snapshot` 加 90 天保留**：`purge_old_snapshots()` 挂进每日 cron。
+      该表只写不删会撞免费额度，而写失败是静默降级 → 爆掉时不报错，只是回测窗口不再变长
+- [x] **v11 已在 Supabase SQL Editor 执行**（2026-09-20，返回 `Success. No rows returned`）。
+      本机只有 service_role key，够不到 DDL —— 这类操作始终需用户手动执行或带 `ADMIN_TOKEN`
+      调 `POST /api/admin/migrate`。⚠️ 两张表**早已存在于线上**，`CREATE TABLE IF NOT EXISTS`
+      会静默跳过，本次**真正生效的只有末尾两条 `COMMENT ON COLUMN`**
+- [ ] **待办（需线上结构）**：给剩余 8 张缺 SQL 的表补迁移文件 —— 先从线上 dump
+      `information_schema.columns` 拿真实结构，**不要靠读代码反推列定义**
+
+### V5.23 · 可发现性：一级导航只有 3 项，功能有 25 个（2026-09-20）
+> 起因是用户反馈：「首页还是不够全，加的一堆功能找都找不到」。
+> 根因不是首页排版，是**信息架构**：一级导航按「今天要做什么」切分（这个方向是对的，
+> V5.11–V5.18 重构好不容易才摆脱「按功能类型切 tab」），代价是**功能数量对用户不可见**——
+> 选机会下 3 个子页各塞 4~5 个区块、持仓下 4 个子页、外加两根常驻温度带和一个全局抽屉。
+> 于是每加一个功能，可发现性就下降一点，最近两轮加的溢价读数 / 证据台账直接等于埋了。
+> 结论：**导航按任务切分不变，另建一张可枚举、可搜索、可直达的索引。**
+- [x] 新增 `lib/featureMap.ts`：全站功能的单一来源（域 / 子页 / 一行说明 / 检索词 / 「新」标记）
+- [x] 新增 `FeatureDirectory` + `FeatureMapModal` + `FeatureMapBar`；头部常驻「全部功能」入口
+- [x] 新增 `lib/bus.ts` 跨树事件原语：两根温度带挂在 `<main>` 外，展开它们必须跨子树
+- [x] `App` 增加 `NavJump { tab, sub, id }`（id 自增），三张页面容器接受跳转
+- [x] 新增 `lib/featureMap.test.ts`（15 例）双向守卫 + 反向验证判别力；前端测试 25 → **40**
+- [ ] **待办**：功能地图目前是手写清单，新增功能靠守卫提醒。若要**自动**发现遗漏，
+      唯一可靠路径是从 `NAV` + 各 Panel 的 `SUB_TABS` 自动生成骨架，再补人工说明 ——
+      但 `SUB_TABS` 是组件内局部常量，需要先提到 `lib/` 才能被引用
+- [ ] **待办**：`AlertRulesPanel` / `BacktestPanel` / `QuadRankTable` 等**区块**级功能
+      目前归在所属子页的名下（如「预警规则」挂在「持仓总览」下）。若用户仍觉得粗，
+      下一档是给容器加 `#anchor` 支持区块级深链
+
+### V5.24 · 页面全量重构：视觉 v2 + 组件拆分 + 信息架构重排（2026-09-20）
+> V5.23 解决「找不到」，本轮解决「**拐太多弯**」。三处结构性原因：深度分析藏在「选机会」下、
+> 形态藏在「扫描」下（层级到 3 且无回头路）；七档灰的表面相对亮度差仅 2~4%（人眼分不出层级）；
+> 二级子页不吸顶（滚两屏就换不了页）。三处一起改才有效。
+- [x] 视觉 v2：`surface-*` 四层表面阶梯 + `ink-*` 文字阶梯；`slate-700/800/900/950` 重定向到新阶梯
+      （存量标记不改也落到新层级）；`--header-h` 变量供吸顶定位
+- [x] 新增 `frontend/tools/contrast.mjs`（`npm run contrast`）26 项实测断言；
+      顺带修掉 `warn` 按钮白字仅 3.19:1（→ `amber-700`，5.02:1）
+- [x] 新增布局原语 `Panel` / `PageHeader` / `SubNav`（吸顶）/ `EmptyState`；
+      其余通用原语迁入 `components/ui/`（24 处 import 同步）
+- [x] 7 个巨型组件拆为 thin host + 模块目录，行为零变化（最大 `MonitorPanel` 995 → 473 行）
+- [x] 一级导航 3 → 4（新增「研究」）；二级导航单一来源 `lib/subnav.ts`，**12 个子页全部吸顶**；
+      全站最多两级导航，子页内只用区块
+- [x] `featureMap` 的 `sub` 改为 `SubKey` 类型推导；守卫改为「每个子页至少一条登记 + sub 属同域」。
+      功能登记表现场清点 **23 条**（`today` 2 / `opportunity` 9 / `holdings` 5 / `research` 4 / `global` 3）
+      —— V5.23 条目里的「25 个功能」是当时口径，**以 `featureMap.ts` 现场数为准**
+- [x] 前端测试 40 → **42**；typecheck 双配置 + build 全绿
+- [ ] **待办**：`components/` 下现在有 6 个模块目录 + `ui/`，新增组件的落位规则（什么该进模块目录、
+      什么该进 `ui/`、单文件超过多少行必须拆）需要写进文档，否则下一轮又会长回巨型文件
+- [ ] **待办**：功能地图的 4 个域是手工维护的，与 `NAV` 是两份数据。若要自动同步，仍需先把
+      各 Panel 内局部的 `SUB_TABS` 提到 `lib/`（与 V5.23 的待办同源）
 
 ---
 
@@ -324,21 +405,43 @@
 - **akshare 数据源依赖外网接口**：已用缓存缓解，需保留降级路径。
 - **LLM 输出依赖 DeepSeek**：规则 fallback 已实现，新增 LLM 功能需同样兜底。
 - **Vercel Serverless 冷启动偶发 502**：已加兜底；冷启动时盯盘首轮仍慢（900→400 根已缓解一半）。
-- **Supabase 免费额度需监控**：`alert_events` / `limitup_daily_snapshot` 都是高频写入表，
-  后者还需考虑清理策略（如保留 90 天）。
+- **Supabase 免费额度需监控**：`alert_events` / `limitup_daily_snapshot` 都是高频写入表。
+  ✅ `limitup_daily_snapshot` 已于 2026-09-20 加 90 天保留窗口
+  （`limitup_service.purge_old_snapshots()`，挂每日 cron）；`alert_events` 仍无清理策略。
+- **可发现性是一条约束，不是一次性优化**：一级导航按「今天要做什么」切分、项数保持克制
+  （2026-09-20 由 3 项扩到 4 项 —— 新增「研究」，因为验证类挂在下级时深度到 3 层且无回头路；
+  **全站导航最多两级**：一级 nav + 吸顶二级 subnav，子页内只用区块）。所以**全站功能登记在
+  `frontend/src/lib/featureMap.ts`，新增功能必须在那里加一条** —— 加完不登记，用户就是
+  找不到，且 `featureMap.test.ts` 会因「某个二级子页没有任何功能指向它」「登记的 sub 不属于
+  同域」或「key 重名」而失败。跨组件树展开（两根常驻温度带、顶部搜索）一律走 `lib/bus.ts`
+  的 `ai:` 事件，**不要在组件里手写事件字符串**（拼错只是「点了没反应」）。
 - **K 线缓存仍是进程内的**（`_hist_cache` / `_kline_cache` / `_min_cache`）：
   Vercel 换实例即归零，「30 分钟缓存」在冷启动时经常等于没有。
   跨实例共享（落 Supabase）已列为待办，尚未做。
 - **个股行情是单源无兜底**：`_fetch_qq_spot` 现已分批 + 重试，但腾讯挂了没有第二数据源
   （全市场快照那条链路有东财 → 新浪兜底，个股这条没有）。
 - **失败可观测性缺埋点**：成功率只能靠临时脚本探测，没有落地指标。
-- **两个同名不同表的 `DEFAULT_POOL`**：`backtest_service`（18 只）与
-  `tactic_backtest_service`（42 只）名字相同、内容不同，改参数时极易混用。
-- **`confidence` 字段两种语义**：LLM 自报数字（`recommend_service.py`）与规则模式的
-  `strategy_score` 共用同一字段，前端无法区分来源。
-- **`quad_snapshots` / `daily_recommend_snapshots` 没有建表 SQL**：
-  两表在 09-03 quad 上线时被当作已存在（当时手动建的），改表结构前必须补迁移文件。
+- ~~**两个同名不同表的 `DEFAULT_POOL`**~~ ✅ 已于 2026-09-20 修复：重命名为
+  `STRATEGY_BACKTEST_POOL`（18 只，策略回测）/ `TACTIC_BACKTEST_POOL`（42 只，形态回测）。
+- ~~**`confidence` 字段两种语义**~~ ✅ 已于 2026-09-20 修复：实际是**三种**语义
+  （LLM 自评 / 规则策略分 / quad 综合分）。新增显式 `confidence_source` 字段贯穿
+  推荐 → 简报 → 前端标签，并修掉 `save_recommendations` 靠推荐理由文案反推 source 的逻辑。
+  列语义已写进 `supabase-schema-v11.sql` 的 `COMMENT`。
+- **另有 8 张表没有建表 SQL**（2026-09-20 扩查得出；此前只登记了 2 张）：
+  `backtest_results` / `daily_predictions` / `opportunity_cache` / `stock_analysis_cache` /
+  `trade_calendar` / `user_holdings` / `user_profiles` / `user_watchlist`。
+  已登记的 `quad_snapshots` / `daily_recommend_snapshots` 已补进 `supabase-schema-v11.sql`，
+  这 8 张登记在 `tests/test_schema_coverage.py::KNOWN_MISSING`（补上后必须从清单移出）。
+  **不要靠读代码反推列定义** —— 这些表已在线上，`CREATE TABLE IF NOT EXISTS` 会静默跳过，
+  写错了也不报错，必须从线上 dump `information_schema.columns`。
+- **测试可能「存在但一条都不跑」**（2026-09-20 发现并已加守卫）：pytest 默认只收 `Test*` 类名，
+  `unittest.TestCase` 子类不受限但**普通类受限**，而仓库约定是 `*Tests` → 不继承 TestCase
+  的类静默收集 0 条。曾失效 20 条。已在 `pytest.ini` 声明 `python_classes = Test* *Tests`，
+  并由 `tests/test_pytest_collection.py` 守卫。**新增用例文件时不要写成收集不到的类形状。**
 - **历史文档债（已于 2026-09-02 清理，2026-09-20 再次对齐）**：原 ROADMAP 中
   V6/V7/V8 段落与优先级表各重复一份且口径不一致，已合并为单一来源；
-  V5.9 / V5.10 为补记；V5.19–V5.21 于 2026-09-20 补记；
+  V5.9 / V5.10 为补记；V5.19–V5.24 于 2026-09-20 补记；
   **V6 预警中心此前一直标为未做，实际已上线** —— 文档与代码不一致时以代码为准。
+  ⚠️ 计数类描述（用例数、服务数、表数）一律**现场数**：本轮就查出
+  「`test_limitup_premium.py` 18 例」为误记（实为 16）、「490 个用例」是*能收到*的数量
+  而非*存在*的数量（20 条从未执行）。写数字前先跑一遍命令，别沿用上一版文档。
