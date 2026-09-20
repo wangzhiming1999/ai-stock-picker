@@ -452,6 +452,25 @@ export interface MonitorResult {
   poll_interval_seconds?: number;
   count: number;
   missed: string[];
+  /**
+   * 部分失败：true 时 `missed` 非空。界面**必须**提示「少了几只、为什么」——
+   * 否则「少 3 只」与「行情源全挂」在列表上都只表现为变短，用户会把故障读成
+   * 「今天没什么可操作的」（这正是 2026-09-18 那轮诊断的结论）。
+   */
+  partial?: boolean;
+  /** 后端生成的一句话说明（总数 + 各原因只数），前端原样展示，不要自己拼 */
+  notice?: string;
+  /** 未出结果的原因分类：行情源问题 / K 线取数失败 / 客观历史不足，三者含义不同 */
+  missed_detail?: {
+    quote_missing: string[];
+    history_missing: string[];
+    signal_missing: string[];
+  };
+  /**
+   * 周线/月线加载状态。`loaded=false` 表示「多周期形态未加载」（轮询只读缓存），
+   * 与「该形态未命中」完全不是一回事，不要混为一谈。
+   */
+  periods?: { loaded: boolean; cache_only: boolean };
   /** 本次决策实际使用的周期 */
   interval: MonitorInterval;
   /** 分钟数据不可用、已降级为日线决策 */
@@ -1206,6 +1225,50 @@ export interface TacticEvidenceSurvey {
   };
 }
 
+/** 证据台账（GET /api/market/evidence-ledger）—— 只读聚合，回答「哪些结论能动手」。 */
+export interface EvidenceLedger {
+  generated_at: string;
+  counts: Partial<Record<TacticEvidenceTier, number>>;
+  /** 各等级的含义，由后端给出（前端不要自己写一套说法） */
+  tier_meaning: Record<string, string>;
+  tier_order: TacticEvidenceTier[];
+  /** 达到可执行档（verified）的口径 key —— 当前为空数组，这是刻意的留白 */
+  actionable_keys: string[];
+  actionable_count: number;
+  items: EvidenceLedgerItem[];
+  pattern_survey: TacticEvidenceSurvey;
+  strategy_survey: {
+    total: number;
+    actionable: number;
+    by_tier: Partial<Record<TacticEvidenceTier, number>>;
+  };
+  /** 观察期自积累进度：涨停池累积表已攒够几个交易日 */
+  observation: {
+    limitup_accumulated: {
+      configured: boolean;
+      days: number;
+      rows: number;
+      first_date: string | null;
+      last_date: string | null;
+    };
+    note: string;
+  };
+  /** 一句话总结（含「0 条可执行」的诚实表述） */
+  headline: string;
+}
+
+export interface EvidenceLedgerItem {
+  key: string;
+  /** pattern=K 线形态 / strategy=结构化策略口径 */
+  namespace: "pattern" | "strategy";
+  tier: TacticEvidenceTier;
+  label: string;
+  badge: string;
+  actionable: boolean;
+  summary: string;
+  provenance: string;
+}
+
 /** 简报里的形态命中汇总 */
 export interface BriefingTactics {
   /** 早盘关注池命中（偏买点） */
@@ -1300,6 +1363,65 @@ export interface LimitUpPosition {
   reason: string;
 }
 
+/* ---------- 次日溢价读数（打板方向 · 口径 limitup_premium） ----------
+ *
+ * 这是项目里**唯一收益为正**的方向，但证据等级仍是 `preliminary` ——
+ * 可成交性是代理口径（池快照没有量比字段，用换手率替代），真实成交率未知。
+ * 因此前端纪律：
+ *   · 读数不含动作词，不得渲染成买点/加仓/关注；
+ *   · 必须**同时**展示期望与可成交性 —— 收益大头落在买不进的档
+ *     （换手 <5% 期望最高但挂不上单），只展示期望会诱导去追一字板；
+ *   · 数字一律用后端下发的，前端不自己算、不自己换口径。
+ */
+
+/** 单只涨停股的次日溢价读数。 */
+export interface LimitUpPremium {
+  /** 按换手率档给出的历史期望收益（%） */
+  expect_pct: number;
+  /** 换手率档：<5% / 5-15% / 15-30% / ≥30% */
+  bucket: string;
+  bucket_note: string;
+  /** 可成交性（换手 ≥5%）：缩量一字/秒板期望最高但多数挂不上单 */
+  tradable: boolean;
+  /** 按首封时间档的期望；封板时间缺失时为 null（缺失 ≠ 尾盘板） */
+  seal_expect_pct: number | null;
+  seal_note: string;
+  flags: LimitUpPremiumFlag[];
+  evidence: TacticEvidence;
+}
+
+export interface LimitUpPremiumFlag {
+  key: "late_seal" | "high_break" | string;
+  label: string;
+  tone: "warn" | "neutral";
+  note: string;
+}
+
+/** 当日涨停池的溢价读数汇总：可成交档与不可成交档**分开报**。 */
+export interface LimitUpPremiumSummary {
+  total: number;
+  /** 换手 ≥5% 的那部分；全为缩量一字板时为 null */
+  tradable: { count: number; expect_low: number; expect_high: number } | null;
+  /** 换手 <5% 的那部分：历史读数更高但多数挂不上单 */
+  unbuyable: { count: number; expect_low: number; expect_high: number } | null;
+  late_seal_count: number;
+  buckets: LimitUpPremiumBucket[];
+  /** 一句话结论（后端生成、自带免责句），前端原样展示 */
+  headline: string;
+  caliber: Caliber;
+  evidence: TacticEvidence;
+}
+
+export interface LimitUpPremiumBucket {
+  label: string;
+  expect_pct: number;
+  note: string;
+  tradable: boolean;
+  count: number;
+  codes: string[];
+  names: string[];
+}
+
 /** 涨停池个股（价格单位为元，市值/封单为亿元）。 */
 export interface LimitUpStock {
   code: string;
@@ -1330,6 +1452,8 @@ export interface LimitUpStock {
    * 不要因为一个字段让整个梯队渲染成空白（同 TacticHit 对 evidence 的处理）。
    */
   position?: LimitUpPosition;
+  /** 次日溢价读数（打板方向）；旧后端缺省 —— 缺失时整块隐藏，不要用默认值冒充 */
+  premium?: LimitUpPremium;
 }
 
 /** 连板梯队的一档（>6 板合并为「6板+」）。 */
@@ -1398,6 +1522,8 @@ export interface LimitUpSnapshot {
   relay_stocks?: LimitUpRelayStock[];
   /** 强弱分层一览：给「哪个强哪个弱」一个分组层面的直接回答；旧后端缺省 */
   relay_tier_summary?: LimitUpTierSummary;
+  /** 次日溢价读数汇总（可成交档 / 不可成交档分开报）；旧后端缺省 */
+  premium_summary?: LimitUpPremiumSummary;
   ladder: LimitUpLadderGroup[];
   sectors: LimitUpSector[];
   stocks: LimitUpStock[];

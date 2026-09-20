@@ -8,6 +8,7 @@ import type {
   Briefing,
   BacktestResult,
   DailyRecommendResult,
+  EvidenceLedger,
   Holding,
   HoldingsData,
   IndexHistory,
@@ -188,6 +189,18 @@ export async function listTactics(): Promise<TacticDef[]> {
 export async function tacticEvidence(): Promise<TacticEvidenceSurvey> {
   const res = await fetch(`${API}/market/tactic-evidence`);
   if (!res.ok) throw await errorFrom(res, "获取形态证据等级失败");
+  return res.json();
+}
+
+/**
+ * 证据台账：每条口径的证据等级 + 样本出处 + 观察期自积累进度。
+ *
+ * 只读聚合（无回测、无行情请求）。用它回答「现在哪些结论能动手」——
+ * 当前答案是 0 条，这是刻意的留白而不是缺数据。
+ */
+export async function fetchEvidenceLedger(): Promise<EvidenceLedger> {
+  const res = await fetch(`${API}/market/evidence-ledger`);
+  if (!res.ok) throw await errorFrom(res, "获取证据台账失败");
   return res.json();
 }
 

@@ -310,10 +310,12 @@ export default function MonitorPanel() {
       if (busyRef.current) return;
       busyRef.current = true;
       if (!silent) setLoading(true);
-      setErr("");
       try {
         const result = await fetchMonitor(codes, force, costsRef.current, intervalRef.current);
         setData(result);
+        // 成功才清错，而不是开头无条件清 —— 否则上一轮的失败提示会被下一轮轮询
+        // 立刻抹掉（20s 一轮），用户只看到一闪而过的红字，接着以为一切正常。
+        setErr("");
         checkAlerts(result.items);
       } catch (e) {
         const message = (e as Error).message;
@@ -724,6 +726,22 @@ export default function MonitorPanel() {
         <div className="mb-2 rounded-lg border border-amber-800/50 bg-amber-950/30 px-3 py-1.5 text-xs text-amber-300">
           日内模式：信号基于当日 VWAP 与 {interval} 均线，止损 1% 上下（最宽 1.5%），<b>仅当日有效</b>，收盘前需了结或改按日线持有。
           {data?.degraded && <span className="text-red-300"> 分钟数据暂不可用，已自动降级为日线决策。</span>}
+        </div>
+      )}
+
+      {/* 部分失败必须显式提示：只让列表变短，用户会把行情源故障读成「今天没什么可操作的」 */}
+      {data?.partial && data.notice && (
+        <div className="mb-2 rounded-lg border border-amber-800/50 bg-amber-950/30 px-3 py-1.5 text-xs text-amber-300">
+          {data.notice}
+          {data.missed?.length > 0 && (
+            <span className="text-amber-200/70">　未出结果：{data.missed.join(" ")}</span>
+          )}
+        </div>
+      )}
+      {/* 周/月线未加载 ≠ 形态未命中：不说清楚，多周期共振不显示会被读成「没命中」 */}
+      {data?.periods && !data.periods.loaded && (
+        <div className="mb-2 text-xs text-ink-faint">
+          多周期形态（周/月线）本轮未加载，点「立即刷新」可补上。
         </div>
       )}
 
