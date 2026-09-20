@@ -7,7 +7,7 @@ import akshare as ak
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from app.services import akshare_guard, concurrency, data_service, market_prediction, opportunity_service, pattern_service, recommend_service, spot_service, supabase_store, tactic_evidence, winrate_service
+from app.services import akshare_guard, concurrency, data_service, evidence_ledger, market_prediction, opportunity_service, pattern_service, recommend_service, spot_service, supabase_store, tactic_evidence, winrate_service
 
 router = APIRouter(prefix="/api/market", tags=["market"])
 
@@ -570,6 +570,16 @@ async def tactic_evidence_endpoint():
     这类不一致在本项目出现过多次，公开出来才查得动。
     """
     return tactic_evidence.survey()
+
+
+@router.get("/evidence-ledger")
+async def evidence_ledger_endpoint():
+    """证据台账：每条口径的证据等级 + 样本出处 + 观察期自积累进度。
+
+    回答的是「现在到底哪些结论能动手」—— 只做只读聚合，不产生新结论。
+    数字全部来自 `tactic_evidence` 登记表与各服务的跑批快照，因此可以与文档逐条对照。
+    """
+    return await evidence_ledger.build()
 
 
 @router.post("/tactic-scan")

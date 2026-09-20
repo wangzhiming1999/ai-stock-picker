@@ -148,6 +148,40 @@ async def save_daily_snapshot(trade_date: str | None = None, stocks: list[dict] 
         return 0
 
 
+# 累积表扫描上限：一个交易日 60~90 只涨停，5000 行够覆盖约 50 个交易日。
+# 观察期是按周计的，先取全量去重比逐日 count 便宜；超出后改用 range 分页。
+_ACCUMULATED_SCAN_LIMIT = 5000
+
+
+async def accumulated_stats() -> dict:
+    """累积表的观察期进度：已落库多少个交易日 / 多少行 / 起止日期。
+
+    涨停池接口只回溯约 15 个交易日，样本窗口永远 3 周且不会随时间变长 ——
+    每日落库（v10）就是为此把窗口自积累起来。这个读数让「观察到第几天了」
+    可被直接看到，而不是靠猜（此前 accumulated_days 一直是 0，很容易被误判成迁移没生效）。
+
+    Supabase 未配置 / 表未建 → 返回 configured=False + days=0（静默降级，不抛）。
+    """
+    empty = {"configured": False, "days": 0, "rows": 0, "first_date": None, "last_date": None}
+    if supabase_store is None or not supabase_store.is_configured():
+        return empty
+    try:
+        sb = await supabase_store.get_service_client()
+        res = await sb.table("limitup_daily_snapshot").select("trade_date").limit(_ACCUMULATED_SCAN_LIMIT).execute()
+        rows = res.data or []
+        dates = {r["trade_date"] for r in rows if r.get("trade_date")}
+        return {
+            "configured": True,
+            "days": len(dates),
+            "rows": len(rows),
+            "first_date": min(dates) if dates else None,
+            "last_date": max(dates) if dates else None,
+        }
+    except Exception as e:
+        print(f"[limitup] 累积表统计失败: {e}")
+        return {**empty, "configured": True}
+
+
 async def load_accumulated_snapshots(start_date: str, end_date: str) -> dict[str, list[dict]]:
     """读取 [start_date, end_date] 内已落库的涨停池（trade_date -> normalize 后的 stocks）。
 
@@ -660,6 +694,177 @@ def position_tag(item: dict) -> dict:
     return {"tag": "加速", "reason": f"{b} 连板，处于加速段"}
 
 
+# ---------- 次日溢价读数（打板方向） ----------
+# 口径 `limitup_premium`：买入 = D 日涨停价（= 收盘价），卖出 = D+1 集合竞价开盘。
+# D 买 D+1 卖满足 T+1，不涉及违规动作。
+#
+# 数据来源（2026-09-18 实测，两口径互证）：
+#   · 涨停池口径：东财池真实封板字段，14 个交易日 / n=758，期望 +2.00% / 中位 +1.27%
+#   · 日 K 口径：548 只 × 250 交易日 / n=4953，期望 +1.91% / 中位 +1.16% / 胜率 61.7%
+#   · 非涨停日对照 n=10694：期望 −0.06% —— 「涨停」这个条件本身贡献约 2 个百分点
+#   · 13/13 个月正期望；打平需胜率 35.3%，实际 51.4%（盈亏比结构健康）
+#
+# ⚠️ 核心事实：**收益大头落在买不进的档**。换手率越高期望越低（单调），
+#    而缩量一字/秒板恰恰挂不上单。所以读数必须同时给「期望」和「可成交性」——
+#    只报期望会诱导去追根本买不到的一字板。
+#
+# ⚠️ 证据等级 preliminary：可成交性是**代理指标**（池快照没有量比字段，用换手率替代），
+#    不是实测成交率。因此读数不含动作词，且 `executable` 恒 False（不进买卖点位置）。
+_TURNOVER_BUCKETS: tuple[tuple[str, float, float, str, bool], ...] = (
+    # (档位标签, 上界, 历史期望 %, 说明, 可成交性)
+    ("<5%", 5.0, 3.31, "缩量一字/秒板：历史期望最高，但多数挂不上单", False),
+    ("5-15%", 15.0, 1.62, "换手温和：可成交性较好，溢价居中", True),
+    ("15-30%", 30.0, 1.10, "换手偏高：可成交，溢价收窄", True),
+    ("≥30%", float("inf"), 0.40, "巨量换手：溢价最薄", True),
+)
+
+_SEAL_BUCKETS: tuple[tuple[str, float, str, bool], ...] = (
+    # (上界 HH:MM, 历史期望 %, 说明, 是否负期望档)
+    ("09:35", 3.67, "早盘封板（≤09:35）：期望最高的一档", False),
+    ("10:00", 1.56, "09:35–10:00 封板", False),
+    ("11:30", 1.67, "10:00–11:30 封板", False),
+    ("14:00", 1.17, "13:00–14:00 封板", False),
+    ("23:59", -0.48, "尾盘封板（≥14:00）：唯一负期望档（胜率 37.8%）", True),
+)
+
+
+def _turnover_readout(turnover: float) -> tuple[str, float, str, bool]:
+    for label, upper, expect, note, tradable in _TURNOVER_BUCKETS:
+        if turnover < upper:
+            return label, expect, note, tradable
+    last = _TURNOVER_BUCKETS[-1]  # 兜底不可达（最后一档上界为 inf），仅为类型完整
+    return last[0], last[2], last[3], last[4]
+
+
+def _seal_readout(seal_time: str | None) -> tuple[float | None, str, bool]:
+    """首封时间 → (期望 %, 说明, 是否负期望档)。seal_time 形如 `09:35:12`。
+
+    比较精确到秒（`09:35:00` 属早盘档、`09:35:01` 属下一档）：档位边界必须可复现，
+    否则同一只票在两次跑批里可能落到不同档。
+    """
+    if not seal_time or len(seal_time) < 5:
+        return None, "封板时间缺失，无法归档", False
+    hms = seal_time if len(seal_time) >= 8 else f"{seal_time[:5]}:00"
+    for upper, expect, note, negative in _SEAL_BUCKETS:
+        if hms <= f"{upper}:00":
+            return expect, note, negative
+    return None, "封板时间异常，无法归档", False
+
+
+def premium_readout(stock: dict) -> dict:
+    """单只涨停股的次日溢价读数（涨停价买入 → 次日集合竞价卖出）。
+
+    这是本项目所有验证中**唯一没被否掉的方向**（其余要么负期望、要么超额符号随基准翻转）。
+    但可成交性仍是代理口径，故按 preliminary 纪律输出：无动作词、不进买卖点位置。
+    """
+    turnover = float(stock.get("turnover") or 0.0)
+    bucket, expect, note, tradable = _turnover_readout(turnover)
+    seal_expect, seal_note, seal_negative = _seal_readout(stock.get("seal_time"))
+    breaks = int(stock.get("break_count") or 0)
+
+    flags: list[dict] = []
+    if seal_negative:
+        flags.append({"key": "late_seal", "label": "尾盘封板", "tone": "warn", "note": seal_note})
+    if breaks >= 3:
+        flags.append(
+            {
+                "key": "high_break",
+                "label": f"炸板 {breaks} 次",
+                "tone": "warn",
+                "note": "炸板 ≥3 次：期望降至 +0.68%（0–2 次为 +2.0~2.5%）",
+            }
+        )
+    return {
+        "expect_pct": expect,
+        "bucket": bucket,
+        "bucket_note": note,
+        "tradable": tradable,
+        "seal_expect_pct": seal_expect,
+        "seal_note": seal_note,
+        "flags": flags,
+        "evidence": tactic_evidence.describe("limitup_premium"),
+    }
+
+
+def premium_summary(stocks: list[dict]) -> dict:
+    """当日涨停池的次日溢价读数汇总 —— **可成交档与不可成交档分开报**。
+
+    回答两件事：① 今天这批涨停明天竞价卖出的历史读数是多少；② 其中挂得上单的那部分是多少。
+    刻意不合并成一个数字：缩量一字板期望最高（+3.31%）却买不进，合并会把「看得见吃不着」
+    的收益算进用户预期。
+    """
+    if not stocks:
+        return {
+            "total": 0,
+            "tradable": None,
+            "unbuyable": None,
+            "buckets": [],
+            "headline": "今日无涨停股，无溢价读数可言",
+            "caliber": calibers.describe("limitup_premium"),
+            "evidence": tactic_evidence.describe("limitup_premium"),
+        }
+
+    rows = []
+    for s in stocks:
+        r = premium_readout(s)
+        rows.append((s, r))
+
+    tradable_rows = [(s, r) for s, r in rows if r["tradable"]]
+    unbuyable_rows = [(s, r) for s, r in rows if not r["tradable"]]
+
+    buckets = []
+    for label, upper, expect, note, tradable in _TURNOVER_BUCKETS:
+        members = [(s, r) for s, r in rows if r["bucket"] == label]
+        buckets.append(
+            {
+                "label": label,
+                "expect_pct": expect,
+                "note": note,
+                "tradable": tradable,
+                "count": len(members),
+                "codes": [m[0]["code"] for m in members],
+                "names": [m[0]["name"] for m in members],
+            }
+        )
+
+    def _span(group: list[tuple[dict, dict]]) -> dict | None:
+        if not group:
+            return None
+        values = [r["expect_pct"] for _, r in group]
+        return {
+            "count": len(group),
+            "expect_low": round(min(values), 2),
+            "expect_high": round(max(values), 2),
+        }
+
+    tradable = _span(tradable_rows)
+    unbuyable = _span(unbuyable_rows)
+    late_seal = [s for s, r in rows if any(f["key"] == "late_seal" for f in r["flags"])]
+
+    if tradable:
+        headline = (
+            f"今日 {len(rows)} 只涨停，其中 {tradable['count']} 只换手 ≥5%（可成交性较好），"
+            f"同档历史次日溢价读数 {tradable['expect_low']:+.2f}% ~ {tradable['expect_high']:+.2f}%；"
+            f"另有 {len(unbuyable_rows)} 只换手 <5%（缩量一字/秒板），历史读数更高但多数挂不上单。"
+        )
+        if late_seal:
+            headline += f"尾盘封板 {len(late_seal)} 只属唯一负期望档。"
+        headline += "这是统计读数，不是买入指令。"
+    else:
+        headline = "今日涨停股全部为缩量一字/秒板，历史读数虽高但可成交性差，不具备可执行性。"
+
+    return {
+        "total": len(rows),
+        "tradable": tradable,
+        "unbuyable": unbuyable,
+        "late_seal_count": len(late_seal),
+        "buckets": buckets,
+        "headline": headline,
+        "caliber": calibers.describe("limitup_premium"),
+        "evidence": tactic_evidence.describe("limitup_premium"),
+    }
+
+
 # ---------- 当日全景 ----------
 
 
@@ -690,9 +895,11 @@ async def get_snapshot(force: bool = False) -> dict:
     broken = [normalize_broken(x) for x in zb_raw] if broken_ok else []
 
     sentiment = build_sentiment(limit_up, broken)
-    # 先统一挂上位置标注，再进各聚合层 —— 三处（ladder / sectors / stocks）必须看到同一份数据。
+    # 先统一挂上位置标注与溢价读数，再进各聚合层 —— 三处（ladder / sectors / stocks）必须看到同一份数据。
     # 反例：只给 stocks 挂 position 会让展开后的「连板梯队」缺字段，前端读到 undefined。
-    decorated = [{**t, "position": position_tag(t)} for t in limit_up]
+    decorated = [
+        {**t, "position": position_tag(t), "premium": premium_readout(t)} for t in limit_up
+    ]
     stocks = sorted(decorated, key=lambda x: (-x["boards"], x["seal_time"] or "99:99:99"))
     ladder = build_ladder(decorated)
     sectors = build_sectors(decorated)
@@ -707,6 +914,8 @@ async def get_snapshot(force: bool = False) -> dict:
         "sectors": sectors,
         "relay_stocks": relay_stocks,
         "relay_tier_summary": relay_tier_summary(relay_stocks),
+        # 次日溢价读数（可成交档与不可成交档分开报）
+        "premium_summary": premium_summary(limit_up),
         "stocks": stocks,
         "broken_ok": broken_ok,
         "evidence": tactic_evidence.describe("limitup_relay"),

@@ -26,6 +26,7 @@ EXPECTED_KEYS = {
     "strategy_backtest",
     "tactic_backtest",
     "limitup_relay",
+    "limitup_premium",
     "limitdown_repair",
     "agent_plan",
 }
@@ -113,10 +114,16 @@ class TestIncomparability:
             assert benchmark.strip(), key
             assert benchmark.startswith(("无", "沪深300", "同股票池")), f"{key}: {benchmark}"
 
-    def test_only_the_two_backtests_have_a_benchmark(self) -> None:
+    def test_only_backtest_calibers_carry_a_benchmark(self) -> None:
+        """只有真正做过基准对照的口径才允许写基准，其余一律显式写「无」。
+
+        `limitup_premium` 是第三个有资格的：它用「同股票池的非涨停日」做组间对照
+        （n=10694，期望 −0.06%），并换沪深300 / 中证1000 做符号翻转检验 ——
+        正因为做了这两件事，它才能说「涨停这个条件本身贡献约 2 个百分点」。
+        """
         with_benchmark = {k for k in EXPECTED_KEYS if not calibers.describe(k)["benchmark"].startswith("无")}
 
-        assert with_benchmark == {"strategy_backtest", "tactic_backtest"}
+        assert with_benchmark == {"strategy_backtest", "tactic_backtest", "limitup_premium"}
 
 
 class TestApiPayload:
