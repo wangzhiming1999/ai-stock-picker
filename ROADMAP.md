@@ -2,7 +2,8 @@
 
 > 核心目标：从「单次分析工具」演进为**可验证胜率、可跟踪执行的个人量化投研助手**。
 >
-> 最后更新：2026-09-13（补记 V5.16 实战形态规则引擎、V5.17 形态回测验证）
+> 最后更新：2026-09-20（补记 V5.19 / V5.20 / V5.21 与 V6 预警中心落地情况；
+> 本轮起「当前重点」见第五节优先级表 —— 已从「堆功能」转为「把唯一收益为正的口径做实 + 收敛盘中链路体验」）
 
 ---
 
@@ -92,7 +93,7 @@
 
 ---
 
-## 二、体验重构主线（当前重点）
+## 二、体验重构主线（V5.11–V5.18，已完成；遗留项见文内 `[ ]`）
 
 > 2026-09-02 用户明确：产品唯一目标是**盈利**，当前体验不够好——指标太多太散、打开不知道今天怎么操作。
 > 优先级高于预警中心。方向：把每个关键交易时点变成"打开就知道干什么"的指令卡。
@@ -179,59 +180,97 @@
 - [ ] 主力建仓警示值：原文未给出数值 / 算法，**无法编码**，需补充定义
 - [ ] W 底 / 头肩底颈线识别：可做但过拟合风险最高，放在最后
 
+### V5.19 · 行情源护栏 + 可运行的测试/CI（2026-09-16）
+> 起因：2026-09-15 全站 502。根因不是数据源坏了，而是「并发无上限 + 失败静默 + 缓存不共享」。
+- [x] 并发闸门 `services/concurrency.py`：所有逐只打行情源的批量拉取统一走 `gather_limited`（配额 8）
+- [x] 跨实例冷却：失败标记落 `market_source_state` 表（v8），A 实例被风控后 B 实例不再撞
+- [x] `GET /api/market/spot-status` + 前端 `lib/spotGuard.ts`（强制刷新二次确认 + 冷却倒计时）
+- [x] 修掉 3 处硬编码 `force: true`（策略选股 / 全市场扫描 / 形态扫描每次点击都跳过缓存）
+- [x] 前端错误详情统一 `errorFrom(res, fallback)`（26 处「只抛状态码」改为读后端 `detail`）
+- [x] 后端测试可运行（`pytest.ini` + `requirements-dev.txt`）· 前端单测跑起来（`node --test`）
+- [x] 新增 `npm run typecheck`（固定走 `tsconfig.app.json`）· 新增 CI `.github/workflows/ci.yml`
+
+### V5.20 · 产品可信度：多周期共振修复 + 形态证据闸门 + 胜率口径登记（2026-09-16）
+> 用户反馈「数据不准确」—— 这轮修的不是算错的数字，而是**可信度没有被区分**。
+- [x] **多周期共振此前在任何股票任何时点都不可能命中**（口径级 bug）：腾讯日线硬上限 640 根，
+      重采样月线最多 33 根 < MACD 所需 35 根 → 恒返回 `insufficient_data`，既不命中也不报错。
+      同一端点支持 `week`(300) / `month`(120)，改为**按周期直接取数**即可（已修）
+- [x] `services/tactic_evidence.py` 证据闸门：5 档分级，**只有 `verified` 允许进入买卖点位置**
+- [x] `_pack()` 统一挂 `evidence` / `executable` / `gate_note` → 扫描 / 深度分析 / 盯盘 / 持仓 / 简报结论必然一致
+- [x] `ESCALATE_SELL_KEYS` 改为由登记表推导（消除「表里写了已验证、代码里仍是空集」的静默不一致）
+- [x] `GET /api/market/tactic-evidence` + 前端共享组件 `TacticHit.tsx`（未验证命中不使用方向色）
+- [x] 回测口径修复：`_PREFIX_LOOKBACK = 390`、`_PeriodCursor`（周/月线按评估日切片回放，不偷看未来）
+- [x] **复跑结论：没有任何形态达到统计显著**，揉搓线的「唯一稳定正超额」未能复现
+- [x] `services/calibers.py` 胜率口径登记表 + `CaliberNote.tsx`（4 个都叫「胜率」的数字不可比）
+
+### V5.21 · 从「有数据」到「有判断」：溢价读数 / 证据台账 / 盘中链路收敛（2026-09-20）
+> 这一轮的起点是一次全项目盘点：功能很全（18 路由 / 34 服务），但**能兑现成动作的结论极少**
+> （verified 档 0 条）。于是重心从「加功能」转向「把唯一活着的方向做实 + 让失败看得见」。
+- [x] **涨停次日溢价读数产品化**（`limitup_service.premium_readout` / `premium_summary`）：
+      按换手率 / 首封时间 / 炸板次数分档给历史读数，**可成交档与不可成交档分开报**
+- [x] 证据登记：`calibers.limitup_premium` + `STRATEGY_EVIDENCE['limitup_premium']` = `preliminary`
+- [x] 前端 `LimitUpBar.PremiumSection`（分档行 + 占比条 + 口径行，无动作词）
+- [x] **证据台账** `GET /api/market/evidence-ledger` + `EvidenceLedgerPanel`（挂「验证」屏顶部）：
+      一处回答「哪些结论能动手」+ 观察期自积累进度
+- [x] **盯盘链路瘦身**：日 K 900 → 400 根；周/月线移出常规轮询（`peek_history` 只读缓存，
+      仅在「立即刷新」时真拉），`periods.loaded` 随返回体下发区分「未加载」与「未命中」
+- [x] **失败可见**：`_fetch_qq_spot` 分批 + 重试 + 全批失败抛错；`get_spot_quote(strict=)`；
+      盯盘 `missed` 按原因分类 + `partial` + `notice`，前端提示条；修掉轮询抹掉错误提示的问题
+- [x] **限流器修正**：key 读 `x-forwarded-for`；轮询类只读端点独立配额 120/分钟
+- [x] 测试 455 → 490（新增 `test_spot_resilience.py` 17 例 / `test_limitup_premium.py` 18 例）
+
 ---
 
-## 三、预警中心（站内提醒，后置到体验重构打通后）
+## 三、V6 · 预警中心（站内提醒）—— **已落地**（2026-09 上旬）
 
-> 原 V6。因体验重构优先而降级。范围仍为先做站内提醒，外部推送后置到 V6.5。
+> 原计划后置到体验重构之后，实际已随盘中链路一起上线。**本节保留为验收清单**，
+> 全部条目已完成 —— 与代码对照时以 `routes/alerts.py`（8 个端点）+ `AlertBell` /
+> `AlertRulesPanel` 为准，不要再按「未做」理解。
 
 ### 数据层
-- [ ] 建表 `alert_rules`：`id / user_id / code / name / rule_type / threshold / enabled / created_at`
-- [ ] 建表 `alert_events`：`id / user_id / rule_id / code / name / rule_type / message / trigger_price / trigger_at / trade_date / read`
-- [ ] 去重唯一键：`(user_id, rule_id, code, trade_date)` —— 同一规则同一天只触发一次
-- [ ] 迁移脚本落到 `backend/supabase-schema-v6.sql`
+- [x] 建表 `alert_rules`：`id / user_id / code / name / rule_type / threshold / enabled / created_at`
+- [x] 建表 `alert_events`：`id / user_id / rule_id / code / name / rule_type / message / trigger_price / trigger_at / trade_date / read`
+- [x] 去重唯一键：`(user_id, rule_id, code, trade_date)` —— 同一规则同一天只触发一次
 
 ### 规则引擎
-复用现有 `signal_service` 已算出的技术信号，规则类型首期五种：
-- [ ] `price_above` / `price_below`：自定义价格阈值
-- [ ] `stop_loss`：跌破持仓止损位
-- [ ] `buy_point`：触及系统算出的买入点
-- [ ] `support_break` / `resistance_break`：跌破支撑 / 突破压力
-- [ ] `volume_surge`：放量异动（量比阈值）
+- [x] `price_above` / `price_below`：自定义价格阈值
+- [x] `stop_loss`：跌破持仓止损位
+- [x] `buy_point` / `sell_point`：触及系统算出的买点 / 卖点
+- [x] `support_break` / `resistance_break`：跌破支撑 / 突破压力
+- [x] `volume_surge`：放量异动（量比阈值）
 
 ### 触发与调度
-- [ ] 扫描任务扫「所有用户的自选股 + 持仓」，生成 `alert_events`
-- [ ] 挂在现有 Vercel Cron（`/api/cron/daily`）之后串行执行，**不新增 cron**
-  （硬约束：Vercel Hobby 计划每天只允许一个 cron，见「技术债与约束」）
-- [ ] 幂等：重复执行不产生重复事件
-- [ ] 全量用户扫描需分批，避免 60s 超时
+- [x] 扫描任务扫「所有用户的自选股 + 持仓」，生成 `alert_events`
+- [x] 挂在现有 Vercel Cron（`/api/cron/daily`）之后串行执行，不新增 cron
+- [x] 幂等：重复执行不产生重复事件
+- [x] 盘中高频触发改由 GitHub Actions 外部调度（`intraday-monitor.yml`，交易时段每 5 分钟）
+      —— Vercel Hobby 每天仅 1 个 cron 名额的硬约束绕开方式
 
 ### 接口
-- [ ] `GET /api/alerts/rules` / `POST` / `DELETE`
-- [ ] `GET /api/alerts/events?unread_only=` — 事件列表
-- [ ] `POST /api/alerts/events/read` — 标记已读
-- [ ] `GET /api/alerts/unread-count` — 角标未读数
+- [x] `GET /api/alerts/rules` / `POST` / `DELETE`
+- [x] `GET /api/alerts/events?unread_only=` · `POST /api/alerts/read` · `POST /api/alerts/read/partial`
+- [x] `GET /api/alerts/unread`（角标未读数）· `POST /api/alerts/evaluate`（手动评估）
 
 ### 前端
-- [ ] 「我的」Tab 新增预警中心面板：事件列表 + 规则管理
-- [ ] 头部铃铛图标 + 未读角标
-- [ ] 自选股 / 持仓行内「设提醒」入口，直接建规则
-- [ ] 未登录时显示登录引导
+- [x] 预警面板：事件列表 + 规则管理（`AlertRulesPanel`）
+- [x] 头部铃铛图标 + 未读角标（`AlertBell`，挂 App header）
+- [x] 自选股 / 持仓行内「设提醒」入口，直接建规则
+- [x] 未登录时显示登录引导
 
-### 验收标准
-- [ ] 建一条 `price_above` 规则，能产生事件并在站内看到
-- [ ] 同一天重复执行扫描，事件不重复
-- [ ] 未读角标数字与列表一致，标记已读后归零
-- [ ] 用户 A 看不到用户 B 的规则和事件
+### 未做（转 V6.5）
+- [ ] 外部推送（Server酱 / 钉钉 / Email / Webhook）—— **技术前提已具备**：
+      盘中调度已由 GitHub Actions 打通（09-19 验证：正确 Bearer → 200、错误 → 401），
+      当初「Hobby 只有 1 个 cron」的阻断理由不再成立
 
 ---
 
 ## 四、后续规划
 
-### V6.5 · 外部推送（V6 验证后再做）
+### V6.5 · 外部推送（前提已具备，可启动）
 - [ ] Server酱（微信）/ 钉钉机器人 / Email / Webhook
 - [ ] 推送频控与用户订阅配置
-- [ ] 需要解决盘中调度：见「技术债与约束」的 cron 限制
+- [x] 盘中调度前提：已由 GitHub Actions 每 5 分钟触发解决（2026-09-19 验证通过），
+      不再受 Vercel Hobby 单 cron 限制
 
 ### V7 · 组合分析与风控
 - [ ] 持仓组合指标：行业分散度、相关性矩阵、Beta、波动率
@@ -263,22 +302,43 @@
 
 | 优先级 | 事项 | 理由 |
 |--------|------|------|
-| 🔴 最高 | 体验重构：指令化首屏 | 用户打开即知今天怎么干，对齐"盈利"唯一目标，当前最大痛点 |
-| 🟠 高 | 验证 V3 胜率闭环真实积累 | 胜率是整个产品叙事的地基，数据没跑起来看板就是装饰 |
-| 🟡 中 | 预警中心（站内提醒） | 体验重构打通、用户确认需要后再做信号触发 |
+| 🔴 最高 | **把「打板次日溢价」的可成交性从代理变实测** | 全项目唯一收益为正、且符号不随基准翻转的方向；卡在 preliminary 就差这一步 |
+| 🔴 最高 | **盘中链路体验收敛**（取数 / 缓存 / 失败可见 / 埋点） | 用户反复反馈的「不准 / 慢 / 请求频繁」的根因，本轮修了一半 |
+| 🟠 高 | **观察期样本积累与复盘**（agent 决策 / 连板累积 / 溢价分档） | 胜率是整个产品叙事的地基，没有 n 就没有结论 |
+| 🟡 中 | V6.5 外部推送 | 站内预警在盘中价值有限（没人一直盯网页）；调度前提已由 GitHub Actions 打通 |
 | 🟢 低 | 组合 / V8 / V9 / V10 | 等用户量与数据积累 |
+
+> **明确不做**：不再新增 K 线形态 / 技巧。当前 8 条形态全部未达统计显著，
+> 再加只会得到「更多没有 n 的说法」，与项目证据纪律直接冲突。
+> 跌停低吸方向已两次证伪（n=133 期望 −4.47%），不要用「换个入场点」重启。
 
 ---
 
 ## 六、技术债与约束
 
-- **Vercel Hobby Cron 每天只允许一个**（硬约束）：现有 `30 7 * * *`（UTC）= 北京时间 15:30。
-  盘中高频扫描要么升 Pro，要么改用 GitHub Actions 定时触发 / Supabase Edge Function + pg_cron。
-  这是 V6 砍掉外部推送、只做站内的直接原因。
+- **Vercel Hobby Cron 每天只允许一个**（硬约束）：现有 daily（`30 7 * * *` UTC）+ quad 已占满名额。
+  **盘中高频调度已用 GitHub Actions 绕过**（`intraday-monitor.yml`，交易时段每 5 分钟打
+  `POST /api/cron/monitor`，2026-09-19 验证通过：正确 Bearer → 200、错误/缺失 → 401）。
+  这条曾经是 V6 砍掉外部推送的直接原因，现已不再构成阻断。
 - **Serverless 60s 超时**：回测、全市场扫描、预警全量扫描都需控制批量与并发。
 - **akshare 数据源依赖外网接口**：已用缓存缓解，需保留降级路径。
 - **LLM 输出依赖 DeepSeek**：规则 fallback 已实现，新增 LLM 功能需同样兜底。
-- **Vercel Serverless 冷启动偶发 502**：已加兜底。
-- **Supabase 免费额度需监控**：新增 `alert_events` 是高频写入表，需考虑清理策略（如保留 90 天）。
-- **历史文档债（已于 2026-09-02 清理）**：原 ROADMAP 中 V6/V7/V8 段落与优先级表各重复一份且口径不一致，
-  已合并为单一来源；V5.9 / V5.10 为补记。
+- **Vercel Serverless 冷启动偶发 502**：已加兜底；冷启动时盯盘首轮仍慢（900→400 根已缓解一半）。
+- **Supabase 免费额度需监控**：`alert_events` / `limitup_daily_snapshot` 都是高频写入表，
+  后者还需考虑清理策略（如保留 90 天）。
+- **K 线缓存仍是进程内的**（`_hist_cache` / `_kline_cache` / `_min_cache`）：
+  Vercel 换实例即归零，「30 分钟缓存」在冷启动时经常等于没有。
+  跨实例共享（落 Supabase）已列为待办，尚未做。
+- **个股行情是单源无兜底**：`_fetch_qq_spot` 现已分批 + 重试，但腾讯挂了没有第二数据源
+  （全市场快照那条链路有东财 → 新浪兜底，个股这条没有）。
+- **失败可观测性缺埋点**：成功率只能靠临时脚本探测，没有落地指标。
+- **两个同名不同表的 `DEFAULT_POOL`**：`backtest_service`（18 只）与
+  `tactic_backtest_service`（42 只）名字相同、内容不同，改参数时极易混用。
+- **`confidence` 字段两种语义**：LLM 自报数字（`recommend_service.py`）与规则模式的
+  `strategy_score` 共用同一字段，前端无法区分来源。
+- **`quad_snapshots` / `daily_recommend_snapshots` 没有建表 SQL**：
+  两表在 09-03 quad 上线时被当作已存在（当时手动建的），改表结构前必须补迁移文件。
+- **历史文档债（已于 2026-09-02 清理，2026-09-20 再次对齐）**：原 ROADMAP 中
+  V6/V7/V8 段落与优先级表各重复一份且口径不一致，已合并为单一来源；
+  V5.9 / V5.10 为补记；V5.19–V5.21 于 2026-09-20 补记；
+  **V6 预警中心此前一直标为未做，实际已上线** —— 文档与代码不一致时以代码为准。

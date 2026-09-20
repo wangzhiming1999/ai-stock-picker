@@ -116,7 +116,7 @@ npm run dev                 # http://localhost:5173
 改动后至少跑一遍下面四步（CI 也是这四步，见 `.github/workflows/ci.yml`）：
 
 ```bash
-# 后端（455 个用例）
+# 后端（490 个用例）
 cd backend
 pip install -r requirements-dev.txt   # 含 pytest / pytest-asyncio
 pytest -q
@@ -198,7 +198,7 @@ ai-stock-picker/
 │   │   ├── models.py             # 数据模型
 │   │   ├── store.py              # SQLite 本地分析历史
 │   │   ├── routes/               # 18 个路由模块（见下）
-│   │   └── services/            # 33 个服务模块（见下）
+│   │   └── services/            # 34 个服务模块（见下）
 │   ├── supabase-schema*.sql      # 建表脚本 v1–v10（幂等，可重复执行）
 │   ├── requirements.txt
 │   └── vercel.json
@@ -219,7 +219,7 @@ ai-stock-picker/
 `stock`（行情 / K 线 / 新闻）· `analysis`（选股分析 SSE）· `market`（板块 / 扫描 / 推荐 / 大盘推衍 / 机会）· `history`（历史批次）· `auth`（登录注册）· `cron`（每日结算 / 扫描）· `alerts`（预警中心）· `backtest`（回测）· `portfolio`（持仓）· `sim`（模拟盘）· `watchlist`（自选股）· `briefing`（今日简报）· `quad`（榜单）· `monitor`（监控）· `limitup`（连板梯队 / 涨停情绪）· `limitdown`（跌停池 / 次日修复收益）
 
 **后端服务**（`app/services`）：
-`data_service`（akshare 行情 / 新闻）· `llm_service`（DeepSeek + 规则兜底）· `signal_service`（技术信号）· `market_prediction`（大盘推衍）· `recommend_service`（每日推荐）· `backtest_service` · `portfolio_service` · `sim_service`（交易引擎）· `watchlist_service` · `alert_service` · `winrate_service`（胜率）· `trade_calendar_service`（交易日历）· `opportunity_service`（盘前 / 尾盘机会）· `pattern_service`（实战形态）· `quad_service` · `briefing_service` · `import_service`（持仓截图 / 文本导入）· `supabase_store`（Supabase 持久化）· `agent_decision_service`（agent 决策闭环）· `debate_service`（多空研究员对辩）· `limitup_service`（涨停池 / 连板梯队 / 晋级率）· `limitdown_service`（跌停池 / 连跌梯队 / 次日修复收益回测）· `tactic_evidence`（证据等级闸门）· `calibers`（统计口径登记表）
+`data_service`（akshare 行情 / 新闻）· `llm_service`（DeepSeek + 规则兜底）· `signal_service`（技术信号）· `market_prediction`（大盘推衍）· `recommend_service`（每日推荐）· `backtest_service` · `portfolio_service` · `sim_service`（交易引擎）· `watchlist_service` · `alert_service` · `winrate_service`（胜率）· `trade_calendar_service`（交易日历）· `opportunity_service`（盘前 / 尾盘机会）· `pattern_service`（实战形态）· `quad_service` · `briefing_service` · `import_service`（持仓截图 / 文本导入）· `supabase_store`（Supabase 持久化）· `agent_decision_service`（agent 决策闭环）· `debate_service`（多空研究员对辩）· `limitup_service`（涨停池 / 连板梯队 / 晋级率）· `limitdown_service`（跌停池 / 连跌梯队 / 次日修复收益回测）· `tactic_evidence`（证据等级闸门）· `calibers`（统计口径登记表）· `evidence_ledger`（证据台账只读聚合）
 
 ---
 
@@ -289,7 +289,7 @@ cd frontend && vercel --prod    # vercel.json 将 /api/* 代理到后端
 
 ## 🗺️ 路线图
 
-详见 [ROADMAP.md](./ROADMAP.md)。当前重点：V6 预警中心（站内提醒）落地中；后续规划 V6.5 外部推送、V7 组合分析与风控、V8 复盘社交化、V9 AI 增强、V10 实时行情。
+详见 [ROADMAP.md](./ROADMAP.md)。**V6 预警中心（站内提醒）已落地**（规则引擎 / 事件去重 / 未读角标 / 盘中外部调度），当前重点是把「唯一收益为正的口径」做实与盘中链路体验收敛；后续规划 V6.5 外部推送、V7 组合分析与风控、V8 复盘社交化、V9 AI 增强、V10 实时行情。
 
 历史变更见 [CHANGELOG.md](./CHANGELOG.md)。
 
