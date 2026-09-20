@@ -100,7 +100,7 @@ class Evidence:
 # 证据快照。改这张表时必须同步改这里 —— 它是「这套结论是什么时候、用什么口径跑出来的」。
 SNAPSHOT = {
     "run_at": "2026-09-16",
-    "pool": "42 只行业分散大中盘（tactic_backtest_service.DEFAULT_POOL）",
+    "pool": "42 只行业分散大中盘（tactic_backtest_service.TACTIC_BACKTEST_POOL）",
     "eval_bars": 250,
     "horizons": [5, 10, 20],
     "prefix_lookback": 390,
@@ -290,7 +290,7 @@ STRATEGY_EVIDENCE: dict[str, Evidence] = {
         summary=(
             "**四条策略分里两条的超额符号随基准翻转，按本项目回测铁律②视为零。** "
             "2025-01-02 ~ 2026-09-18，走查 walk-forward，取样宇宙 "
-            "`backtest_service.DEFAULT_POOL`（18 只），持仓 5 只 / 5 日调仓："
+            "`backtest_service.STRATEGY_BACKTEST_POOL`（18 只），持仓 5 只 / 5 日调仓："
             "momentum +24.74%（vs 沪深300 **+7.99pp**、vs 同宇宙等权 +35.41pp，两基准同号）；"
             "trend +7.78%（vs 沪深300 **−8.97pp**、vs 同宇宙 +18.45pp，**符号翻转**）；"
             "volume +4.78%（vs 沪深300 **−11.97pp**、vs 同宇宙 +15.45pp，**符号翻转**）；"

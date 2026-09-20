@@ -740,6 +740,9 @@ async def _save_quad_to_recommendations(data_day: str, result: dict) -> int:
                 "recommend_price": item.get("price"),
                 # reason 放四维得分摘要，便于结算后回看「当时为什么上榜」
                 "reason": f"四维榜 rank{item.get('rank')} 综合分 {item.get('overall_score')}",
+                # confidence 是「按 source 解释的分数槽」：source='quad' 时它是四维综合分
+                # （overall_score），并非 LLM 自评、也不是规则策略分。同列三义，
+                # 一律靠同行的 source 界定 —— 见 recommend_service._CONFIDENCE_SOURCE_TO_DB。
                 "confidence": item.get("overall_score"),
                 "source": "quad",
             }

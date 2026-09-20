@@ -31,10 +31,12 @@ import statistics
 from app.models import StockHistory
 from app.services import calibers, concurrency, data_service, pattern_service
 
-# 默认回测股票池：覆盖大/中盘与主要行业，避免结论只来自少数几只票。
+# 形态回测默认股票池（42 只）：覆盖大/中盘与主要行业，避免结论只来自少数几只票。
 # 注意这是「今天的存活者」，天然有幸存者偏差，且大票波动小、形态信号偏弱，
 # 因此回测结果只能当作下限参考。
-DEFAULT_POOL = [
+# ⚠️ 与 backtest_service.STRATEGY_BACKTEST_POOL（18 只，策略回测用）不是同一个池，
+#    两者历史上都叫 DEFAULT_POOL，改参数时极易混用 —— 重命名即为此。
+TACTIC_BACKTEST_POOL = [
     # 消费 / 白酒 / 食品
     "600519", "000858", "600809", "603288", "000333", "600887", "002714",
     # 医药
@@ -404,7 +406,7 @@ async def evaluate(
 
     horizon = _clamp(int(horizon), 1, 30)
     eval_bars = _clamp(int(eval_bars), _MIN_EVAL_BARS, _MAX_EVAL_BARS)
-    pool = [c.strip() for c in (codes or DEFAULT_POOL) if c and c.strip()][:_MAX_POOL]
+    pool = [c.strip() for c in (codes or TACTIC_BACKTEST_POOL) if c and c.strip()][:_MAX_POOL]
     if not pool:
         return {"error": "股票池为空"}
 

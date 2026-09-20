@@ -148,6 +148,44 @@ async def save_daily_snapshot(trade_date: str | None = None, stocks: list[dict] 
         return 0
 
 
+# 累积表保留窗口：一个交易日 60~90 只涨停 ≈ 90 行，90 天 ≈ 8000 行 —— 对免费额度是可控量级。
+# 更长的历史没有增量价值：涨停池接口本身只回溯 ~15 个交易日，落库的意义是把窗口拉到季度级，
+# 不是做长周期历史研究。
+_SNAPSHOT_RETENTION_DAYS = 90
+# 保留窗口下限：防止误传 0 / 负数把整表清空（那是不可逆的数据丢失）。
+_SNAPSHOT_MIN_RETENTION_DAYS = 30
+
+
+async def purge_old_snapshots(keep_days: int = _SNAPSHOT_RETENTION_DAYS) -> int:
+    """删除保留窗口之外的涨停池快照，返回删除行数。
+
+    为什么必须清理：`limitup_daily_snapshot` 是全项目唯一「每交易日全池写入」的表，
+    只写不删 = 行数随交易日单调上涨，最终以「写入开始失败」的形式撞上额度上限。
+    而那条失败路径是**静默降级**的（`save_daily_snapshot` 捕获异常后返回 0），
+    所以爆掉时不会报错 —— 只是回测窗口悄悄不再变长。清理是让这个静默失败不发生的前提。
+
+    保留窗口按自然日切（不做交易日换算）：SQL 侧只比日期大小，简单且与 trade_date 类型一致。
+    `keep_days` 有下限保护，传 0 也不会清空全表。
+    表未建 / 未配置 → 返回 0（与 save_daily_snapshot 同策略，不影响 cron 其它步骤）。
+    """
+    if supabase_store is None or not supabase_store.is_configured():
+        return 0
+    try:
+        days = max(_SNAPSHOT_MIN_RETENTION_DAYS, int(keep_days))
+    except (TypeError, ValueError):
+        days = _SNAPSHOT_RETENTION_DAYS
+    cutoff = (trade_calendar_service.now_cn().date() - dt.timedelta(days=days)).isoformat()
+    try:
+        sb = await supabase_store.get_service_client()
+        res = await (
+            sb.table("limitup_daily_snapshot").delete().lt("trade_date", cutoff).execute()
+        )
+        return len(res.data or [])
+    except Exception as e:
+        print(f"[limitup] 快照清理失败(cutoff={cutoff}): {e}")
+        return 0
+
+
 # 累积表扫描上限：一个交易日 60~90 只涨停，5000 行够覆盖约 50 个交易日。
 # 观察期是按周计的，先取全量去重比逐日 count 便宜；超出后改用 range 分页。
 _ACCUMULATED_SCAN_LIMIT = 5000

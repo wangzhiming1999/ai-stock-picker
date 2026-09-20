@@ -5,7 +5,7 @@ import datetime as dt
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from app.services.backtest_service import BacktestParams, DEFAULT_POOL, run_backtest
+from app.services.backtest_service import BacktestParams, STRATEGY_BACKTEST_POOL, run_backtest
 from app.services import pattern_service, supabase_store, tactic_backtest_service
 
 router = APIRouter(prefix="/api/backtest", tags=["backtest"])
@@ -106,8 +106,12 @@ async def _save_backtest(cache_key: str, params: dict, result: dict) -> None:
 
 @router.get("/pool")
 async def backtest_pool():
-    """默认股票池。"""
-    return {"codes": DEFAULT_POOL, "count": len(DEFAULT_POOL)}
+    """策略回测默认股票池（18 只）。
+
+    形态回测用的是另一个池（`tactic_backtest_service.TACTIC_BACKTEST_POOL`，42 只），
+    两者不通用 —— 历史上同名 DEFAULT_POOL，别再把这里当成通用池。
+    """
+    return {"codes": STRATEGY_BACKTEST_POOL, "count": len(STRATEGY_BACKTEST_POOL)}
 
 
 class TacticBacktestRequest(BaseModel):

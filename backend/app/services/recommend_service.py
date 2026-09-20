@@ -483,6 +483,9 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
                                     "change_pct": info["change_pct"],
                                     "reason": str(p.get("reason", "")),
                                     "confidence": max(0, min(10, float(p.get("confidence", 5)))),
+                                    # 同为 0-10，但语义完全不同：这里是 LLM 自评把握，
+                                    # 规则分支那支是加权策略分。前端靠本字段决定怎么称呼这个数。
+                                    "confidence_source": "llm_self_report",
                                     "tags": info.get("tags", []),
                                     **_build_action_plan(info, target_day),
                                 }
@@ -513,6 +516,8 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
                         f"T+1 仅在量价继续确认时关注，跌破关键均线或转弱则放弃。"
                     ),
                     "confidence": c["strategy_score"],
+                    # 规则分支的 confidence 是加权策略分，不是 LLM 自评 —— 见 confidence_source
+                    "confidence_source": "rule_score",
                     "tags": c.get("tags", []),
                     **_build_action_plan(c, target_day),
                 }
@@ -591,6 +596,28 @@ async def _save_db_recommendation(rec_date: str, result: dict) -> None:
         await sb.table("daily_recommend_snapshots").insert(payload).execute()
 
 
+# confidence 这个 0-10 的数字在链路上承载两种语义，落库前必须显式区分：
+#   llm_self_report → LLM 自评把握       → daily_recommendations.source = 'llm'
+#   rule_score      → 规则加权策略分     → daily_recommendations.source = 'rule'
+# 观察层（save_watchlist）走 source='watch'，其 confidence 同样是 strategy_score。
+_CONFIDENCE_SOURCE_TO_DB = {"llm_self_report": "llm", "rule_score": "rule"}
+
+# 兜底值：构造点一定显式给了 confidence_source，这里只防「漏标」这种编程错误。
+# 选 'rule' 是因为规则分可复算、可追溯，比把规则行错标成 llm 更容易被发现。
+_DB_SOURCE_FALLBACK = "rule"
+
+
+def db_source(rec: dict) -> str:
+    """推荐 payload → ``daily_recommendations.source``。
+
+    修复背景：此前是 ``"策略分" not in reason`` 反推 source —— LLM 只要在推荐理由里
+    写了「策略分」三个字，整行就被错标成 rule，污染 winrate 的 by_source 分档
+    （llm / rule / watch / quad 不可相加，错标等于往分档里掺假）。
+    现在由构造点显式给出 ``confidence_source``，不再从文案猜。
+    """
+    return _CONFIDENCE_SOURCE_TO_DB.get(str(rec.get("confidence_source") or ""), _DB_SOURCE_FALLBACK)
+
+
 async def save_recommendations(rec_date: str, recs: list[dict]) -> dict[str, str]:
     """将当日推荐写入 Supabase daily_recommendations 表（幂等），返回 {code: id} 映射。
 
@@ -616,7 +643,7 @@ async def save_recommendations(rec_date: str, recs: list[dict]) -> dict[str, str
             "recommend_price": r["price"],
             "reason": r.get("reason", ""),
             "confidence": r.get("confidence"),
-            "source": "llm" if r.get("reason") and "策略分" not in r.get("reason", "") else "rule",
+            "source": db_source(r),
         }
         for r in recs
     ]
@@ -651,6 +678,8 @@ async def save_watchlist(rec_date: str, watchlist: list[dict]) -> int:
                 "recommend_price": w.get("price"),
                 # 存拦截原因/解锁条件（观察层语义），结算后可回看「当时差在哪」
                 "reason": w.get("status") or "",
+                # 观察层的 score 就是 strategy_score；落进 confidence 列只是列名沿用，
+                # 语义由同行的 source='watch' 界定（见本文件 _CONFIDENCE_SOURCE_TO_DB 注释）。
                 "confidence": w.get("score"),
                 "source": "watch",
             }

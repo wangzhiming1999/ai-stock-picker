@@ -14,8 +14,10 @@ import pandas as pd
 from app.services import akshare_guard, calibers
 from app.services.cache_utils import put_bounded
 
-# 默认股票池（各行业代表性标的，控制数量以适配 Serverless 超时）
-DEFAULT_POOL = [
+# 策略回测默认股票池（18 只，各行业代表性标的，控制数量以适配 Serverless 超时）。
+# ⚠️ 与 tactic_backtest_service.TACTIC_BACKTEST_POOL（42 只，形态回测用）不是同一个池，
+#    两者历史上都叫 DEFAULT_POOL，改参数时极易混用 —— 重命名即为此。
+STRATEGY_BACKTEST_POOL = [
     "600519", "000858", "300750", "601318", "600036", "000333",
     "601012", "002594", "600030", "000725", "601888", "600887",
     "300059", "603288", "600809", "002475", "601088", "600585",
@@ -42,7 +44,7 @@ class BacktestParams:
         initial_capital: float = 100000,
     ):
         self.strategy = strategy
-        self.codes = codes or DEFAULT_POOL
+        self.codes = codes or STRATEGY_BACKTEST_POOL
         self.start_date = start_date
         self.end_date = end_date or dt.date.today().isoformat()
         self.top_n = max(1, min(top_n, len(self.codes)))

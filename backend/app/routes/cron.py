@@ -73,6 +73,9 @@ async def daily_cron(request: Request):
             from app.services import limitup_service
 
             result["limitup_snapshot_rows"] = await limitup_service.save_daily_snapshot()
+            # 保留窗口清理：只写不删会撞 Supabase 免费额度，而写路径失败是静默的
+            # （save_daily_snapshot 捕获异常后返回 0）—— 清理是让它不静默爆掉的前提。
+            result["limitup_snapshot_purged"] = await limitup_service.purge_old_snapshots()
         except Exception as le:
             print(f"[cron] limitup snapshot save failed: {le}")
             result["limitup_snapshot_rows"] = None

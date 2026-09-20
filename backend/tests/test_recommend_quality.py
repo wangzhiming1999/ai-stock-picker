@@ -9,6 +9,7 @@ from app.services.recommend_service import (
     _rr_unlock_price,
     _should_use_cached_recommendation,
     _watch_unlock,
+    db_source,
 )
 
 
@@ -163,6 +164,47 @@ class RecommendQualityTests(unittest.TestCase):
 
     def test_watch_unlock_falls_back_without_signal(self) -> None:
         self.assertEqual(_watch_unlock({"signal": None}, []), "等待技术信号进一步确认后再评估")
+
+
+class ConfidenceSourceTests(unittest.TestCase):
+    """confidence 双语义拆分（2026-09-20 技术债）。
+
+    `daily_recommendations.confidence` 是「按同行 source 解释的分数槽」：
+    同为 0-10，却分别是 LLM 自评把握、规则加权策略分、quad 四维综合分。
+    此前 source 靠「reason 里有没有『策略分』三个字」反推 —— 猜文案，不是判事实。
+    """
+
+    def test_llm_reason_mentioning_strategy_score_is_not_mislabelled(self) -> None:
+        # 回归用例：LLM 在理由里写了「策略分」，旧逻辑会把整行错标成 rule，
+        # 污染 winrate 的 by_source 分档（llm / rule / watch / quad 不可相加）。
+        rec = {
+            "confidence": 7,
+            "confidence_source": "llm_self_report",
+            "reason": "量价配合良好，策略分位置不高，趋势确认后仍有空间",
+        }
+        self.assertEqual(db_source(rec), "llm")
+
+    def test_rule_recommendation_maps_to_rule(self) -> None:
+        self.assertEqual(db_source({"confidence": 8.2, "confidence_source": "rule_score"}), "rule")
+
+    def test_missing_source_no_longer_guesses_from_reason_text(self) -> None:
+        # 老快照没有该字段。此时两个 reason 完全不同的推荐必须落同一边 ——
+        # 只要结果还随 reason 变化，就说明文本推断没被真正移除。
+        with_wording = {"confidence": 4, "reason": "策略分 6，依据：放量"}
+        without_wording = {"confidence": 4, "reason": "四维共振，量能温和放大"}
+        self.assertEqual(db_source(with_wording), db_source(without_wording))
+
+    def test_unknown_source_value_degrades_instead_of_raising(self) -> None:
+        # 未知取值不能抛异常（结算链路写入不能被一条脏数据打断），
+        # 落到与缺字段一致的兜底值。
+        self.assertEqual(db_source({"confidence_source": "watch"}), db_source({}))
+
+    def test_every_declared_source_is_registered(self) -> None:
+        # 新增 confidence_source 取值时必须同步登记映射，否则会静默落到兜底档
+        from app.services.recommend_service import _CONFIDENCE_SOURCE_TO_DB
+
+        self.assertEqual(set(_CONFIDENCE_SOURCE_TO_DB), {"llm_self_report", "rule_score"})
+        self.assertEqual(set(_CONFIDENCE_SOURCE_TO_DB.values()), {"llm", "rule"})
 
 
 if __name__ == "__main__":

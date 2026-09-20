@@ -22,21 +22,47 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 # backend/ 目录（admin.py 位于 backend/app/routes/）
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 
-# 预期应存在的表（用于 status 自检）
+# 预期应存在的表（用于 status 自检）。
+#
+# ⚠️ 这份清单必须与「代码真正 `.table(...)` 引用的表」一致，由
+#    tests/test_schema_coverage.py::AdminExpectedTablesTests 双向守卫。
+#    偏一侧都会让它失效：清单里有、代码却不用的表（历史表名）会让 /migrate/status
+#    **永远**报「缺失」、`all_ok` 永远 false —— 一个只会喊狼来了的自检等于没有自检；
+#    反过来，代码在用而清单没写的表则根本没被检查。
+#
+# 2026-09-20 修正：移除 `portfolio_holdings` / `watchlist` —— 两者既无建表 SQL、
+# 也无任何代码引用（真实表名是 `user_holdings` / `user_watchlist`），并补齐 12 张漏检表。
 EXPECTED_TABLES = [
+    # 用户 / 持仓 / 自选
     "user_profiles",
-    "portfolio_holdings",
-    "watchlist",
+    "user_holdings",
+    "user_watchlist",
+    # 个股分析与缓存
     "analysis_batches",
     "analysis_results",
+    "stock_analysis_cache",
+    # 推荐 / 预测 / 机会（含各自的快照表）
     "daily_recommendations",
+    "daily_recommend_snapshots",
+    "daily_predictions",
+    "prediction_records",
+    "opportunity_cache",
+    "quad_snapshots",
+    # 行情源与交易日历
+    "market_spot_cache",
+    "market_source_state",
+    "trade_calendar",
+    "limitup_daily_snapshot",
+    # 回测
+    "backtest_results",
+    # 结算与预警
     "winrate_snapshot",
     "alert_rules",
     "alert_events",
+    # 模拟盘与组合
     "sim_trades",
+    "agent_decisions",
     "portfolio_snapshots",
-    "market_spot_cache",
-    "market_source_state",
 ]
 
 
