@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { addAlertRule, deleteAlertRule, fetchAlertRules } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import type { AlertRule, AlertType } from "../types";
-import Input from "./Input";
+import Input from "./ui/Input";
 import { INPUT_BASE } from "../lib/ui";
 
 const TYPE_LABEL: Record<AlertType, string> = {

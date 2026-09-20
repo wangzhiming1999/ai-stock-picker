@@ -3,7 +3,7 @@ import { Search } from "lucide-react";
 import { searchStocks } from "../api/client";
 import type { StockSearchResult } from "../types";
 import { pnlTone } from "../lib/tone";
-import Input from "./Input";
+import Input from "./ui/Input";
 
 interface Props {
   value: string;

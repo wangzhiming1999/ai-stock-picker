@@ -15,9 +15,9 @@ import type { HoldingsData, PortfolioAdvice, UserProfile } from "../types";
 import { useAuth } from "../auth/AuthContext";
 import { fmtPct, safeNumber } from "../lib/safe";
 import { actionTone, pnlTone, scoreChip } from "../lib/tone";
-import Input from "./Input";
-import Button from "./Button";
-import StatTile from "./StatTile";
+import Input from "./ui/Input";
+import Button from "./ui/Button";
+import StatTile from "./ui/StatTile";
 
 const RISK_LEVELS = [
   { name: "保守", desc: "低波动优先，严格控制仓位" },

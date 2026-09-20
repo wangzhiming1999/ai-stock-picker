@@ -1,16 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import type {
-  AgentDecisionsData,
   SimAccount,
   SimPerformance,
-  SimPosition,
   SimPositionsData,
   SimTradesData,
 } from "../types";
 import { useAuth } from "../auth/AuthContext";
-import { fmtPct, safeNumber } from "../lib/safe";
-import { pnlTone } from "../lib/tone";
+import { safeNumber } from "../lib/safe";
 import {
   MOCK_SIM_ACCOUNT,
   MOCK_SIM_PERFORMANCE,
@@ -18,308 +15,31 @@ import {
   MOCK_SIM_TRADES,
 } from "../data/simMock";
 import {
-  fetchAgentDecisions,
   fetchSimAccount,
   fetchSimPerformance,
   fetchSimPositions,
   fetchSimTrades,
   initSimAccount,
   resetSimAccount,
-  simTrade,
 } from "../api/client";
-import Input from "./Input";
-import Button from "./Button";
-import StatTile from "./StatTile";
-
-/** 收益折线（echarts，P1） */
-function PerfChart({ data }: { data: SimPerformance }) {
-  if (!data.snapshots.length) return null;
-  const el = document.createElement("div");
-  el.style.width = "100%";
-  el.style.height = "200px";
-  const ref = useCallback((node: HTMLDivElement | null) => {
-    if (!node) return;
-    node.innerHTML = "";
-    node.appendChild(el);
-    void (async () => {
-      const echarts = await import("echarts");
-      const chart = echarts.init(el, undefined, { renderer: "canvas" });
-      chart.setOption({
-        grid: { left: 48, right: 12, top: 24, bottom: 24 },
-        tooltip: { trigger: "axis" },
-        xAxis: { type: "category", data: data.snapshots.map((s) => s.date), axisLabel: { color: "#94a3b8", fontSize: 10 } },
-        yAxis: {
-          type: "value",
-          scale: true,
-          axisLabel: { color: "#94a3b8", fontSize: 10, formatter: (v: number) => `${(v / 10000).toFixed(1)}万` },
-          splitLine: { lineStyle: { color: "#1e293b" } },
-        },
-        series: [
-          {
-            name: "总资产",
-            type: "line",
-            data: data.snapshots.map((s) => s.total_value),
-            smooth: true,
-            showSymbol: false,
-            lineStyle: { color: "#2563eb", width: 2 },
-            areaStyle: { color: "rgba(37,99,235,0.15)" },
-          },
-        ],
-      });
-      const onResize = () => chart.resize();
-      window.addEventListener("resize", onResize);
-      return () => {
-        window.removeEventListener("resize", onResize);
-        chart.dispose();
-      };
-    })();
-  }, [data]);
-  return <div ref={ref} className="mt-4 rounded-xl border border-slate-800 bg-slate-900 p-2" />;
-}
-
-/** 买卖弹窗 */
-function TradeModal({
-  side,
-  initialCode,
-  initialPrice,
-  onClose,
-  onDone,
-}: {
-  side: "buy" | "sell";
-  initialCode: string;
-  initialPrice?: number;
-  onClose: () => void;
-  onDone: () => void;
-}) {
-  const [code, setCode] = useState(initialCode);
-  const [shares, setShares] = useState("");
-  const [price, setPrice] = useState(initialPrice ? initialPrice.toString() : "");
-  const [priceAuto, setPriceAuto] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const isBuy = side === "buy";
-  const sharesNum = parseInt(shares) || 0;
-  const priceNum = parseFloat(price) || null;
-
-  const submit = async () => {
-    if (!code || code.length !== 6 || !sharesNum) {
-      toast.error("请填写代码与数量");
-      return;
-    }
-    setBusy(true);
-    try {
-      await simTrade({ code, side, shares: sharesNum, price: priceAuto ? undefined : (priceNum ?? undefined) });
-      toast.success(isBuy ? "模拟买入成功" : "模拟卖出成功", {
-        description: `${code} ${sharesNum}股${priceAuto ? " @实时价" : `@${priceNum}`}`,
-      });
-      onDone();
-      onClose();
-    } catch (err) {
-      const msg = (err as Error).message || "";
-      if (/500|NetworkError|Failed to fetch|timeout/i.test(msg)) {
-        toast.error("模拟盘后端暂不可用，请稍后重试");
-      } else {
-        toast.error(msg);
-      }
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <div className="w-full max-w-sm rounded-xl border border-slate-700 bg-slate-900 p-5" onClick={(e) => e.stopPropagation()}>
-        <div className="mb-4 flex items-center justify-between">
-          <span className={`text-sm font-bold ${isBuy ? "text-red-400" : "text-green-400"}`}>
-            {isBuy ? "模拟买入" : "模拟卖出"}
-          </span>
-          <button onClick={onClose} className="text-xs text-ink-faint hover:text-ink-soft">关闭</button>
-        </div>
-        <div className="space-y-3">
-          <label className="block">
-            <span className="mb-1 block text-xs text-ink-faint">股票代码</span>
-            <Input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="6 位代码" disabled={!!initialCode} className="w-full rounded-lg bg-slate-800/70 px-3 py-1.5 text-sm" />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs text-ink-faint">数量（股，100 的整数倍）</span>
-            <Input value={shares} onChange={(e) => setShares(e.target.value.replace(/\D/g, ""))} type="number" placeholder="如 100" className="w-full rounded-lg bg-slate-800/70 px-3 py-1.5 text-sm" />
-          </label>
-          <label className="block">
-            <span className="mb-1 flex items-center justify-between text-xs text-ink-faint">
-              成交价
-              <label className="flex items-center gap-1 text-ink-faint">
-                <input type="checkbox" checked={priceAuto} onChange={(e) => setPriceAuto(e.target.checked)} className="h-3 w-3 accent-brand" />
-                用实时价
-              </label>
-            </span>
-            <Input value={price} onChange={(e) => setPrice(e.target.value)} type="number" step="0.01" disabled={priceAuto} placeholder={priceAuto ? "自动取当前价" : "如 12.50"} className="w-full rounded-lg bg-slate-800/70 px-3 py-1.5 text-sm" />
-          </label>
-          <div className="flex gap-2 pt-1">
-            <button onClick={submit} disabled={busy} className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium text-white ${isBuy ? "bg-red-600 hover:bg-red-500" : "bg-green-600 hover:bg-green-500"}`}>
-              {busy ? "提交中..." : isBuy ? "买入" : "卖出"}
-            </button>
-            <button onClick={onClose} className="rounded-lg border border-slate-600 px-4 py-2 text-sm text-ink-muted hover:text-ink">取消</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/** Agent 决策闭环区块：track record 列表 + 采纳/未采纳对照读数（口径 agent_plan 随数据下发）。
- *
- * 措辞纪律（§8）：命中率是质量信息 —— 读数用 scoreTone 语义（达标蓝/一般琥珀），不占红绿；
- * pnl 列是收益方向，走 pnlTone。状态徽章：adopted=蓝、ignored=中性、rejected=中性。
- * 样本 <5 时后端不下发命中率，前端只显示样本数 —— 不自己算（自己算就是绕过口径纪律）。
- */
-function AgentDecisionsSection() {
-  const [data, setData] = useState<AgentDecisionsData | null>(null);
-  const [err, setErr] = useState("");
-  const [loading, setLoading] = useState(true);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setErr("");
-    try {
-      setData(await fetchAgentDecisions(30));
-    } catch (e) {
-      // 表未启用（v9 未迁移）等情况：显示一行说明而不是报错红屏
-      setErr((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  if (loading) return null;
-  if (err && !data) {
-    return (
-      <div className="mt-4 border-t border-slate-800 pt-3 text-xs text-ink-faint">
-        Agent 决策记录暂不可用：{err}
-      </div>
-    );
-  }
-  if (!data || data.decisions.length === 0) {
-    return (
-      <div className="mt-4 border-t border-slate-800 pt-3">
-        <div className="mb-1.5 text-xs font-semibold text-ink-muted">Agent 决策记录</div>
-        <p className="text-xs leading-relaxed text-ink-faint">
-          还没有记录。在「深度分析」勾选多空对辩并跑出终审计划后，这里会出现 agent 的每条计划与实际结算结果 ——
-          这就是 agent 自己的战绩单。
-        </p>
-      </div>
-    );
-  }
-
-  const { decisions, stats } = data;
-  const pending = decisions.filter((d) => d.settled_at == null);
-
-  return (
-    <div className="mt-4 border-t border-slate-800 pt-3">
-      <div className="mb-2 flex flex-wrap items-baseline gap-2">
-        <span className="text-xs font-semibold text-ink-muted">Agent 决策记录</span>
-        <span className="text-xs text-ink-faint">交易员计划 → 终审 → 实际结算 · agent 的战绩单</span>
-      </div>
-
-      {stats && (
-        <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <StatTile
-            value={stats.adopted.hit_rate != null ? `${stats.adopted.hit_rate}%` : "—"}
-            label="已采纳命中率"
-          />
-          <StatTile
-            value={
-              stats.adopted.avg_pnl_pct != null
-                ? `${stats.adopted.avg_pnl_pct >= 0 ? "+" : ""}${stats.adopted.avg_pnl_pct}%`
-                : "—"
-            }
-            label="已采纳平均收益"
-          />
-          <StatTile
-            value={stats.ignored_control.hit_rate != null ? `${stats.ignored_control.hit_rate}%` : "—"}
-            label="未采纳对照命中率"
-          />
-          <StatTile value={`${stats.adopted.settled + stats.ignored_control.settled}`} label="已结算样本" />
-        </div>
-      )}
-      {stats && (
-        <p className="mb-3 text-xs leading-relaxed text-ink-faint">
-          口径：{stats.caliber.name} · {stats.caliber.window} · {stats.caliber.rule}
-          {stats.caliber.pitfall ? `。注意：${stats.caliber.pitfall}` : ""}
-        </p>
-      )}
-
-      <div className="max-h-64 space-y-1.5 overflow-y-auto">
-        {decisions.map((d) => {
-          const settledRow = d.settled_at != null;
-          return (
-            <div key={d.id} className="rounded bg-slate-800/40 px-3 py-2 text-xs">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-medium text-ink">{d.name || d.code}</span>
-                <span className="text-ink-faint">{d.code}</span>
-                <span className="text-ink-faint">· {d.data_date}</span>
-                <span
-                  className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                    d.status === "adopted"
-                      ? "bg-blue-900/40 text-blue-300"
-                      : d.status === "rejected"
-                        ? "bg-slate-700/50 text-ink-faint"
-                        : "bg-slate-700/40 text-ink-soft"
-                  }`}
-                  title={
-                    d.status === "adopted"
-                      ? "已按计划建仓模拟盘"
-                      : d.status === "rejected"
-                        ? "终审否决（对照样本）"
-                        : "未采纳（到期后作为对照组结算）"
-                  }
-                >
-                  {d.status === "adopted" ? "已采纳" : d.status === "rejected" ? "已否决" : "未采纳"}
-                </span>
-                <span className="text-ink-faint">
-                  {d.action} · 终审 {d.verdict} · 仓位 {d.position_pct}%
-                </span>
-                <span className="ml-auto">
-                  {settledRow ? (
-                    d.pnl_pct != null ? (
-                      <span className={pnlTone(d.pnl_pct)}>
-                        {d.pnl_pct >= 0 ? "+" : ""}
-                        {d.pnl_pct.toFixed(1)}%{d.hit ? " · 命中" : " · 未命中"}
-                      </span>
-                    ) : (
-                      <span className="text-ink-faint">已结算（无方向基准）</span>
-                    )
-                  ) : (
-                    <span className="text-ink-faint">待结算（{d.horizon_days} 个交易日后）</span>
-                  )}
-                </span>
-              </div>
-              {d.reflection && (
-                <p className="mt-1 leading-relaxed text-ink-faint">{d.reflection}</p>
-              )}
-            </div>
-          );
-        })}
-      </div>
-      {pending.length > 0 && (
-        <p className="mt-1.5 text-xs text-ink-faint">
-          {pending.length} 条待结算 —— 每日收盘 cron 自动按到期日收盘价回写。
-        </p>
-      )}
-    </div>
-  );
-}
+import Button from "./ui/Button";
+import AccountOverview from "./sim/AccountOverview";
+import PositionsTable from "./sim/PositionsTable";
+import TradesList from "./sim/TradesList";
+import PerfChart from "./sim/PerfChart";
+import TradeModal from "./sim/TradeModal";
+import AgentDecisionsSection from "./sim/AgentDecisionsSection";
+import type { ModalState } from "./sim/shared";
 
 export default function SimPanel() {
-  const { user } = useAuth();  const [account, setAccount] = useState<SimAccount | null>(null);
+  const { user } = useAuth();
+  const [account, setAccount] = useState<SimAccount | null>(null);
   const [positions, setPositions] = useState<SimPositionsData | null>(null);
   const [trades, setTrades] = useState<SimTradesData | null>(null);
   const [perf, setPerf] = useState<SimPerformance | null>(null);
   const [usingMock, setUsingMock] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [modal, setModal] = useState<{ side: "buy" | "sell"; code: string; price?: number } | null>(null);
+  const [modal, setModal] = useState<ModalState | null>(null);
 
   /** 真实优先：并行拉取 4 个接口；任一 500/网络失败则整体降级到固定 mock 数据。 */
   const load = useCallback(async () => {
@@ -443,82 +163,13 @@ export default function SimPanel() {
 
       {account && account.initialized && (
         <>
-          <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <StatTile value={safeNumber(account.total_value).toLocaleString()} label="总资产" />
-            <StatTile value={safeNumber(account.cash).toLocaleString()} label="可用现金" />
-            <StatTile
-              value={account.total_pnl != null ? `${account.total_pnl >= 0 ? "+" : ""}${safeNumber(account.total_pnl).toLocaleString()}` : "-"}
-              label="总盈亏"
-              valueClass={pnlTone(account.total_pnl)}
-            />
-            <StatTile value={fmtPct(account.total_pnl_pct)} label="盈亏率" valueClass={pnlTone(account.total_pnl_pct)} />
-          </div>
-          <div className="mb-3 flex gap-4 text-xs text-ink-faint">
-            <span>已实现盈亏 <span className={pnlTone(account.realized_pnl)}>{account.realized_pnl >= 0 ? "+" : ""}{safeNumber(account.realized_pnl)}</span></span>
-            <span>未实现盈亏 <span className={pnlTone(account.unrealized_pnl)}>{account.unrealized_pnl >= 0 ? "+" : ""}{safeNumber(account.unrealized_pnl)}</span></span>
-            <span>持仓市值 <span className="text-ink-soft">{safeNumber(summary ?? account.market_value).toLocaleString()}</span></span>
-          </div>
-
-          {positions && positions.positions.length > 0 && (
-            <div className="mb-4 overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="text-left text-xs text-ink-muted">
-                  <tr>
-                    <th scope="col" className="px-3 py-2">股票</th>
-                    <th scope="col" className="px-3 py-2 text-right">现价</th>
-                    <th scope="col" className="px-3 py-2 text-right">成本</th>
-                    <th scope="col" className="px-3 py-2 text-right">数量</th>
-                    <th scope="col" className="px-3 py-2 text-right">浮盈</th>
-                    <th scope="col" className="px-3 py-2 text-right"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {positions.positions.map((p: SimPosition) => (
-                    <tr key={p.code} className="border-t border-slate-800/60">
-                      <td className="px-3 py-2">
-                        <div className="font-medium text-ink">{p.name || p.code}</div>
-                        <div className="text-xs text-ink-faint">{p.code}</div>
-                      </td>
-                      <td className="px-3 py-2 text-right text-ink-soft">{p.current_price?.toFixed(2) ?? "-"}</td>
-                      <td className="px-3 py-2 text-right text-ink-muted">{p.avg_cost?.toFixed(2)}</td>
-                      <td className="px-3 py-2 text-right text-ink-muted">{p.shares}</td>
-                      <td className={`px-2 py-2 text-right ${pnlTone(p.pnl_pct)}`}>
-                        {p.pnl_pct != null ? `${p.pnl_pct >= 0 ? "+" : ""}${p.pnl_pct.toFixed(2)}%` : "-"}
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        <button onClick={() => setModal({ side: "sell", code: p.code, price: p.current_price ?? undefined })} className="rounded border border-slate-600 px-2 py-1 text-xs text-ink-soft hover:border-green-400 hover:text-green-300">
-                          卖出
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
+          <AccountOverview account={account} marketValue={safeNumber(summary ?? account.market_value)} />
+          <PositionsTable
+            positions={positions}
+            onSell={(code, price) => setModal({ side: "sell", code, price })}
+          />
           {perf && perf.snapshots.length > 1 && <PerfChart data={perf} />}
-
-          {trades && trades.trades.length > 0 && (
-            <div className="mt-4 border-t border-slate-800 pt-3">
-              <div className="mb-2 text-xs font-semibold text-ink-muted">最近成交（{trades.total}）</div>
-              <div className="max-h-48 space-y-1 overflow-y-auto">
-                {trades.trades.map((t) => (
-                  <div key={t.id} className="flex items-center justify-between rounded bg-slate-800/40 px-3 py-1.5 text-xs">
-                    <span className="flex items-center gap-2">
-                      <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${t.side === "buy" ? "bg-red-900/40 text-red-300" : "bg-green-900/40 text-green-300"}`}>
-                        {t.side === "buy" ? "买" : "卖"}
-                      </span>
-                      <span className="text-ink">{t.name || t.code}</span>
-                      <span className="text-ink-faint">{t.shares}股 @ {t.price}</span>
-                    </span>
-                    <span className="text-ink-faint">{(t.executed_at || "").slice(0, 16).replace("T", " ")}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
+          <TradesList trades={trades} />
           {/* Agent 决策闭环：track record + 采纳/未采纳对照（表未启用时内部自降级为一行说明） */}
           <AgentDecisionsSection />
         </>

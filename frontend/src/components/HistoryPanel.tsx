@@ -3,7 +3,7 @@ import { fetchBatchDetail, fetchBatches } from "../api/client";
 import { safeArray } from "../lib/safe";
 import type { AnalysisBatch, AnalysisBatchDetail, StockAnalysis } from "../types";
 import StockCard from "./StockCard";
-import Button from "./Button";
+import Button from "./ui/Button";
 
 interface Props {
   refreshKey: number;

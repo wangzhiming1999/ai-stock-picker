@@ -2,7 +2,7 @@ import { Fragment, useState } from "react";
 import { FlaskConical } from "lucide-react";
 import { tacticBacktest } from "../api/client";
 import { fmtNum } from "../lib/safe";
-import CollapsiblePanel from "./CollapsiblePanel";
+import CollapsiblePanel from "./ui/CollapsiblePanel";
 import { CaliberLine } from "./CaliberNote";
 import type { TacticBacktestItem, TacticBacktestResult } from "../types";
 
@@ -237,7 +237,7 @@ export default function TacticBacktestPanel() {
       </p>
 
       {/* 口径随数据下发，避免和「次日胜率 / 调仓期胜率」被当成同一把尺子。
-          不可比声明统一在 VerifyPanel 顶部展示一次，这里只给本面板自己的口径。 */}
+          不可比声明统一在「研究 · 证据台账」子页顶部展示一次，这里只给本面板自己的口径。 */}
       <div className="mt-2">
         <CaliberLine caliber={result?.caliber} />
       </div>

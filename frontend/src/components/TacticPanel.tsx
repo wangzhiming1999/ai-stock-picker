@@ -3,10 +3,10 @@ import { listTactics, tacticScan } from "../api/client";
 import { fmtNum } from "../lib/safe";
 import { confirmForceRefresh, useSpotCooldown } from "../lib/spotGuard";
 import { pnlTone } from "../lib/tone";
-import CollapsiblePanel from "./CollapsiblePanel";
+import CollapsiblePanel from "./ui/CollapsiblePanel";
 import { TacticChip, TacticEvidenceLegend, tacticEvidence } from "./TacticHit";
 import type { TacticDef, TacticResult, TacticScanResult } from "../types";
-import Button from "./Button";
+import Button from "./ui/Button";
 
 interface Props {
   onPick: (codes: string[]) => void;

@@ -1,5 +1,5 @@
 import type { InputHTMLAttributes } from "react";
-import { INPUT_BASE, INPUT_TONE, type InputTone } from "../lib/ui";
+import { INPUT_BASE, INPUT_TONE, type InputTone } from "../../lib/ui";
 
 interface Props extends InputHTMLAttributes<HTMLInputElement> {
   /** 校验状态。默认 default（正常），校验失败传 danger。 */

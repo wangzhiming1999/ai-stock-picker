@@ -4,7 +4,7 @@ import { CheckCircle2, ShieldAlert, XCircle, MinusCircle } from "lucide-react";
 import { actionBadge } from "../lib/tone";
 import { SUB_QUIET, TEXT } from "../lib/ui";
 import { simAdoptPlan } from "../api/client";
-import Button from "./Button";
+import Button from "./ui/Button";
 import type { FundManagerVerdict, TradePlan } from "../types";
 
 /**

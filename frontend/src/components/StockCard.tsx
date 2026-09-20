@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import KLineChart from "./KLineChart";
 import DebateBlock from "./DebateBlock";
 import TradePlanBlock from "./TradePlanBlock";
-import ScoreBar from "./ScoreBar";
+import ScoreBar from "./ui/ScoreBar";
 import { fmtNum, safeArray } from "../lib/safe";
 import { CHIP, pnlTone, rrTone, scoreTone } from "../lib/tone";
 import { SUB } from "../lib/ui";

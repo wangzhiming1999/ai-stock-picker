@@ -2,11 +2,27 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── 基础层 ──────────────────────────────────────────────────────────
+ * 页面底色用 `surface-canvas`（最深层），文字用 ink 阶梯 —— 不要在这里写
+ * text-slate-* 当文字色（见 tailwind.config.js 的分层约定）。
+ */
 @layer base {
+  html {
+    /* 吸顶二级导航 + 锚点滚动时给标题留出高度，否则会贴边被顶栏盖住 */
+    scroll-padding-top: 5.5rem;
+  }
+
   body {
-    @apply bg-slate-950 text-slate-100 antialiased;
+    @apply bg-surface-canvas text-ink antialiased;
     /* 数字等宽：行情/持仓数字实时刷新时不抖动，表格里的涨跌幅能上下对齐 */
     font-variant-numeric: tabular-nums;
+  }
+
+  /* 标题默认继承字重阶梯，避免各处手写 font-bold 造成层级不一致 */
+  h1,
+  h2,
+  h3 {
+    @apply text-ink-strong;
   }
 }
 
@@ -15,15 +31,32 @@
  * `outline-none` 把浏览器默认焦点环删掉却不给替代 —— 结果键盘用户
  * Tab 一遍完全看不见光标在哪，等于不可用（WCAG 2.4.7 失败）。
  *
- * 这里做全局兜底：所有可聚焦元素一律给 2px 焦点环。
- * 颜色用 brand-light #60a5fa —— 实测在 slate-950 / 900 / 800 三种
- * 底色上为 7.93 / 7.02 / 5.75，均 >= 3:1（WCAG 1.4.11 对焦点指示器的要求）。
- * 注意：主色 #2563eb 在 slate-800 上只有 2.83:1，**不能**用作焦点环。
+ * 全局兜底：所有可聚焦元素一律给 2px 焦点环。
+ * 颜色 --focus-ring 对应 `brand-light` #60a5fa —— 实测在 canvas / panel /
+ * inset / raised 四层上为 7.92 / 7.23 / 6.62 / 5.75，均 >= 3:1
+ * （WCAG 1.4.11 对焦点指示器的要求）。
+ * ⚠️ 主色 #2563eb 在 raised 上只有 2.76:1，**不能**当焦点环。
  *
  * 组件里不要再写 `focus:outline-none`；确需自定义请覆盖 --focus-ring。
  */
 :root {
   --focus-ring: #60a5fa;
+
+  /* ── 顶栏高度（订阅给吸顶的二级导航用）─────────────────────────────
+   * 二级导航必须正好贴在顶栏下沿，否则会出现一条缝或盖住顶栏。
+   * 与其在组件里猜一个 top-[52px]，不如把高度作为**唯一事实**放在这里：
+   * 顶栏的两行都写成固定高度（h-14 / h-11），改高度时只改这两个数和这里。
+   *   移动端：只有第一行（logo + 搜索 + 账户），因为一级导航在底部
+   *   sm 及以上：两行（+ 一级导航条）
+   * 各 +1px 是顶栏自己的下边框。
+   */
+  --header-h: 57px;
+}
+
+@media (min-width: 640px) {
+  :root {
+    --header-h: 101px;
+  }
 }
 
 :focus-visible {
@@ -33,7 +66,7 @@
 
 /* ── 禁用态统一 ──────────────────────────────────────────────────────
  * 此前用 5 种 opacity（30/40/50/60/70）描述同一个概念，且 30/40 档实测
- * 只有 2.58 / 3.58:1。统一到 0.5（白字实测 4.88:1，即便按 AA 也达标）。
+ * 只有 2.58 / 3.58:1。统一到 0.5（白字实测 4.88:1，按 AA 也达标）。
  * 组件里不要再写 `disabled:opacity-*`。
  */
 button:disabled,
@@ -45,19 +78,25 @@ textarea:disabled {
 }
 
 /* ── 按压反馈 ────────────────────────────────────────────────────────
- * 此前全站 94 个 <button> 里只有 1 个写了 active 态 —— 点下去毫无反馈。
+ * 此前 94 个 <button> 里只有 1 个写了 active 态 —— 点下去毫无反馈。
  * 对挂单/买入这类操作，按下没有确认感是不能接受的。
- * 放在全局而非 token 里：这样连纯图标按钮也一并覆盖，不需要逐个改。
+ * 放全局而非 token：这样连纯图标按钮也一并覆盖，不必逐个改。
  * 用 1px 位移而不是缩放/变色，避免影响布局与文字清晰度。
  */
 button:not(:disabled):active {
   transform: translateY(0.5px);
 }
 
+/* ── 数字对齐 ────────────────────────────────────────────────────────
+ * 涨跌幅、价格、手数这类列必须上下对齐，否则扫描表格时会跳行。
+ */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
 /* ── 动效减弱偏好 ────────────────────────────────────────────────────
- * 此前全站 0 处处理：27 处 transition + 12 处 animate-*（pulse/spin/ping）
- * 无论用户系统偏好如何都强行播放。行情界面元素多、刷新频繁，对前庭敏感
- * 用户尤其不友好。这里统一压掉时长，保留状态变化的最终效果。
+ * 此前全站 0 处处理：27 处 transition + 12 处 animate-* 无论系统偏好如何
+ * 都强行播放。行情界面元素多、刷新频繁，对前庭敏感用户尤其不友好。
  */
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -70,17 +109,25 @@ button:not(:disabled):active {
   }
 }
 
-/* 自定义滚动条 */
+/* ── 滚动条 ──────────────────────────────────────────────────────────
+ * 细滚动条 + 与表面阶梯同源的色值，避免出现体系外的灰。
+ */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  @apply bg-slate-700 rounded-full;
+  @apply rounded-full bg-surface-line;
 }
 ::-webkit-scrollbar-thumb:hover {
-  @apply bg-slate-600;
+  @apply bg-surface-line-strong;
+}
+
+/* 表格内横向滚动时隐藏滚动条高度占用（仍可滚动） */
+.scroll-x {
+  overflow-x: auto;
+  scrollbar-width: thin;
 }

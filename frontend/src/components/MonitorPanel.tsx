@@ -1,119 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bell, BellPlus, BellRing, Download, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { addAlertRule, fetchHoldings, fetchLimitUpSnapshot, fetchMonitor, fetchWatchlist } from "../api/client";
-import CollapsiblePanel from "./CollapsiblePanel";
+import CollapsiblePanel from "./ui/CollapsiblePanel";
 import { useAuth } from "../auth/AuthContext";
-import type { LimitUpRelayStock, MonitorAdvice, MonitorInterval, MonitorResult, MonitorStock } from "../types";
+import type { LimitUpRelayStock, MonitorInterval, MonitorResult, MonitorStock } from "../types";
 import { ensureNotCooling } from "../lib/spotGuard";
-import { pnlTone } from "../lib/tone";
-import { TacticChips } from "./TacticHit";
-import Input from "./Input";
-import Button from "./Button";
-
-const LS_KEY = "ai:monitorCodes";
-const LS_NOTIFY = "ai:monitorNotify";
-const LS_INTERVAL = "ai:monitorInterval";
-const DEFAULT_POLL_MS = 5 * 60 * 1000;
-const MAX_CODES = 20;
-
-/**
- * 提醒 toast 的停留时长。sonner 默认只有 4 秒 —— 盯盘提醒是「现在该买/该卖/该止损」，
- * 属于全站最不能错过的信息，4 秒根本读不完就没了，所以显式延长。
- */
-const ALERT_TOAST_MS = 30_000;
-/** 同票同指令的去重窗口：窗口内重复触发只响一次 */
-const ALERT_DEDUPE_MS = 3 * 60 * 1000;
-/** 页内提醒记录上限：超出丢弃最旧的，避免长时间盯盘时无限累积 */
-const MAX_ALERTS = 30;
-
-/** 一条盯盘提醒记录（页内留痕，toast 消失后仍可回看） */
-interface MonitorAlertItem {
-  id: string;
-  code: string;
-  name: string;
-  label: string;
-  body: string;
-  tone: MonitorAdvice["tone"];
-  at: string;
-}
-
-/** 周期档位：日线定方向，分钟线定这一笔 */
-const INTERVALS: { value: MonitorInterval; label: string; hint: string }[] = [
-  { value: "1d", label: "日线", hint: "波段：日 K 支撑压力，止损较宽（3% 左右），持仓数天到数周" },
-  { value: "15m", label: "15 分", hint: "日内：VWAP + 15 分钟均线，止损 0.5%~1.1%，当日了结" },
-  { value: "5m", label: "5 分", hint: "日内：最灵敏，止损 0.3%~0.8%，噪音也最多，适合盯盘时做 T" },
-];
-
-function loadInterval(): MonitorInterval {
-  try {
-    const v = localStorage.getItem(LS_INTERVAL);
-    if (v === "1d" || v === "5m" || v === "15m" || v === "30m" || v === "60m") return v;
-  } catch {
-    /* ignore */
-  }
-  return "1d";
-}
-
-/** 触发类指令：动作从其他状态切换进来时提醒 */
-const TRIGGER_ACTIONS = new Set(["buy", "sell", "stop"]);
-
-function loadSaved(): string[] {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return [];
-    const arr = JSON.parse(raw);
-    return Array.isArray(arr)
-      ? arr.filter((x) => typeof x === "string" && /^\d{6}$/.test(x)).slice(0, MAX_CODES)
-      : [];
-  } catch {
-    return [];
-  }
-}
-
-function loadNotify(): boolean {
-  try {
-    const v = localStorage.getItem(LS_NOTIFY);
-    if (v === "0") return false;
-    if (v === "1") return true;
-  } catch {
-    /* ignore */
-  }
-  // 没设置过：浏览器已授权桌面通知就默认开启。
-  // 默认关闭会让「切到别的窗口盯盘」这件事完全收不到提醒，而提醒开关正是为它存在的。
-  try {
-    return "Notification" in window && window.Notification.permission === "granted";
-  } catch {
-    return false;
-  }
-}
-
-/** 指令色调 */
-const toneClass: Record<string, string> = {
-  danger: "border-red-800/70 bg-red-950/50 text-red-300",
-  warn: "border-amber-800/60 bg-amber-950/40 text-amber-300",
-  good: "border-green-800/60 bg-green-950/40 text-green-300",
-  neutral: "border-slate-700 bg-slate-800/70 text-ink-soft",
-  info: "border-sky-800/60 bg-sky-950/40 text-sky-300",
-};
-
-const toneDot: Record<string, string> = {
-  danger: "bg-red-400",
-  warn: "bg-amber-400",
-  good: "bg-green-400",
-  neutral: "bg-slate-500",
-  info: "bg-sky-400",
-};
-
-function fmtTime(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "-";
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
-}
-
-function num(v: number | undefined | null, digits = 2): string {
-  return v == null || Number.isNaN(v) ? "-" : v.toFixed(digits);
-}
+import {
+  DEFAULT_POLL_MS,
+  LS_KEY,
+  LS_NOTIFY,
+  MAX_CODES,
+  fmtTime,
+  loadInterval,
+  loadNotify,
+  loadSaved,
+  num,
+} from "./monitor/constants";
+import { useMonitorAlerts } from "./monitor/useMonitorAlerts";
+import MonitorRow from "./monitor/MonitorRow";
+import MonitorSummary from "./monitor/MonitorSummary";
+import MonitorToolbar from "./monitor/MonitorToolbar";
+import MonitorHeaderActions from "./monitor/MonitorHeaderActions";
+import AlertLog from "./monitor/AlertLog";
+import RelayHits from "./monitor/RelayHits";
 
 export default function MonitorPanel() {
   const { user } = useAuth();
@@ -127,19 +36,11 @@ export default function MonitorPanel() {
   const [alertBusy, setAlertBusy] = useState<string | null>(null);
   const [costs, setCosts] = useState<Record<string, number>>({});
   const [interval, setInterval] = useState<MonitorInterval>(loadInterval);
-  /** 页内提醒留痕：toast 会消失，这份列表不会 */
-  const [alerts, setAlerts] = useState<MonitorAlertItem[]>([]);
   const busyRef = useRef(false);
-  const prevActionRef = useRef<Record<string, string>>({});
-  const notifyRef = useRef<boolean>(notifyOn);
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  /**
-   * `code:action` → 上次提醒时间戳。
-   * 必须是 map：早先只存「最后一条」，A→B→A 交替触发时去重直接失效，会重复响铃。
-   */
-  const lastHintRef = useRef<Record<string, number>>({});
   const costsRef = useRef<Record<string, number>>({});
   const intervalRef = useRef<MonitorInterval>(interval);
+
+  const { alerts, checkAlerts, primeAudio, clearAlerts } = useMonitorAlerts(notifyOn);
 
   costsRef.current = costs;
   intervalRef.current = interval;
@@ -205,104 +106,6 @@ export default function MonitorPanel() {
     };
   }, [codes.join(",")]);
 
-  /** 提示音：双声"叮" */
-  const beep = useCallback(() => {
-    try {
-      const Ctor =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-      if (!Ctor) return;
-      if (!audioCtxRef.current) audioCtxRef.current = new Ctor();
-      const ctx = audioCtxRef.current;
-      if (ctx.state === "suspended") void ctx.resume();
-      const t0 = ctx.currentTime;
-      [880, 1174].forEach((freq, i) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = "sine";
-        osc.frequency.value = freq;
-        const start = t0 + i * 0.18;
-        gain.gain.setValueAtTime(0.0001, start);
-        gain.gain.exponentialRampToValueAtTime(0.2, start + 0.03);
-        gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.25);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(start);
-        osc.stop(start + 0.28);
-      });
-    } catch {
-      /* 无 AudioContext 时静默 */
-    }
-  }, []);
-
-  const fireAlert = useCallback(
-    (it: MonitorStock) => {
-      const key = `${it.code}:${it.advice.action}`;
-      // 同票同指令窗口内不重复提醒（防止行情在阈值附近抖动时反复响铃）
-      const now = Date.now();
-      if (now - (lastHintRef.current[key] ?? 0) < ALERT_DEDUPE_MS) return;
-      // 顺手回收过期项，避免长期盯盘时 key 无界累积
-      for (const k of Object.keys(lastHintRef.current)) {
-        if (now - lastHintRef.current[k] >= ALERT_DEDUPE_MS) delete lastHintRef.current[k];
-      }
-      lastHintRef.current[key] = now;
-
-      beep();
-      const title = `${it.name} · ${it.advice.label}`;
-      const body = it.advice.do ? `${it.advice.do}（${it.code}）` : `${it.advice.hint}（${it.code}）`;
-
-      // 页内留痕：toast 是限时消失的，这份记录才是能回头查的那一份
-      const at = new Date(now).toISOString();
-      setAlerts((prev) =>
-        [
-          { id: `${now}-${it.code}`, code: it.code, name: it.name, label: it.advice.label, body, tone: it.advice.tone, at },
-          ...prev,
-        ].slice(0, MAX_ALERTS)
-      );
-
-      const inBackground = typeof document !== "undefined" && document.hidden;
-      const canNotify =
-        notifyRef.current &&
-        "Notification" in window &&
-        window.Notification.permission === "granted";
-      if (canNotify && inBackground) {
-        try {
-          new window.Notification(title, { body });
-          return;
-        } catch {
-          /* fallthrough to toast */
-        }
-      }
-      toast.warning(title, {
-        description: body,
-        // 后台时用户根本看不到，常驻到切回来为止；前台给足 30 秒读完指令与价位
-        duration: inBackground ? Infinity : ALERT_TOAST_MS,
-        closeButton: true,
-      });
-    },
-    [beep]
-  );
-
-  /** 对比上一轮指令，触发类变化才提醒 */
-  const checkAlerts = useCallback(
-    (items: MonitorStock[]) => {
-      const nowMap: Record<string, string> = {};
-      for (const it of items) {
-        nowMap[it.code] = it.advice.action;
-        const prev = prevActionRef.current[it.code];
-        if (prev && prev !== it.advice.action && TRIGGER_ACTIONS.has(it.advice.action)) {
-          fireAlert(it);
-        }
-      }
-      // 清理已不在名单中的记录，避免累积
-      for (const c of Object.keys(prevActionRef.current)) {
-        if (!nowMap[c]) delete prevActionRef.current[c];
-      }
-      prevActionRef.current = nowMap;
-    },
-    [fireAlert]
-  );
-
   const refresh = useCallback(
     /** silent: 静默（轮询）不显示 loading；force: 忽略后端 K 线缓存重新拉取 */
     async (silent = false, force = false) => {
@@ -346,7 +149,6 @@ export default function MonitorPanel() {
       return;
     }
     if (notifyOn) {
-      notifyRef.current = false;
       setNotifyOn(false);
       try {
         localStorage.setItem(LS_NOTIFY, "0");
@@ -357,7 +159,6 @@ export default function MonitorPanel() {
     }
     const perm = await window.Notification.requestPermission();
     const on = perm === "granted";
-    notifyRef.current = on;
     setNotifyOn(on);
     try {
       localStorage.setItem(LS_NOTIFY, on ? "1" : "0");
@@ -366,12 +167,7 @@ export default function MonitorPanel() {
     }
     if (on) {
       // 用户手势内预热音频上下文，保证后续轮询提示音可播放
-      try {
-        if (!audioCtxRef.current) audioCtxRef.current = new AudioContext();
-        void audioCtxRef.current.resume();
-      } catch {
-        /* ignore */
-      }
+      primeAudio();
       toast.success("桌面提醒已开启：指令变化时响铃+通知");
     } else {
       toast.warning("未获得通知权限，仍会保留页面内提示音提醒");
@@ -387,11 +183,9 @@ export default function MonitorPanel() {
   useEffect(() => {
     if (codes.length === 0) {
       setData(null);
-      prevActionRef.current = {};
       return;
     }
     // 换周期会让所有指令重算，先清掉基线，避免把周期切换误报成「指令变化」
-    prevActionRef.current = {};
     void refresh(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [codesKey, costsKey, interval]);
@@ -538,189 +332,40 @@ export default function MonitorPanel() {
       subtitle="日线 / 15 分 / 5 分多周期 · 每行给出挂单价 · 交易时段约 20 秒刷新（名单保存在本机）"
       defaultOpen
       action={
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => void toggleNotify()}
-            title="指令变化时（买入/减仓/止损）响铃提醒，页面后台时弹系统通知"
-            className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1 text-xs transition-colors ${
-              notifyOn
-                ? "border-amber-700/60 bg-amber-950/40 text-amber-300 hover:bg-amber-950/60"
-                : "border-slate-700 text-ink-muted hover:text-ink"
-            }`}
-          >
-            {notifyOn ? <BellRing className="h-3.5 w-3.5" aria-hidden /> : <Bell className="h-3.5 w-3.5" aria-hidden />}
-            {notifyOn ? "提醒已开" : "开启提醒"}
-          </button>
-          <Button variant="outlineQuiet" size="sm"
-            onClick={() => void forceRefresh()}
-            disabled={loading || codes.length === 0}
-            >
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden />
-            {loading ? "刷新中..." : "立即刷新"}
-          </Button>
-        </div>
+        <MonitorHeaderActions
+          notifyOn={notifyOn}
+          onToggleNotify={() => void toggleNotify()}
+          onForceRefresh={() => void forceRefresh()}
+          loading={loading}
+          disabled={codes.length === 0}
+        />
       }
     >
       {/* 今日决策条：一眼知道现在要不要动 */}
       {summary && summary.total > 0 && (
-        <div
-          role="status"
-          aria-live="polite"
-          className="mb-3 rounded-xl border border-slate-800 bg-gradient-to-br from-slate-900 to-slate-950 p-3"
-        >
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-semibold text-ink">现在要不要动</span>
-            {summary.act_now === 0 ? (
-              <span className="text-xs text-ink-muted">全部观望，暂无需要立刻操作的标的</span>
-            ) : (
-              <>
-                <span className="text-xs text-ink-soft">
-                  共 <b className="text-base text-white">{summary.act_now}</b> 只要操作
-                </span>
-                {summary.stop > 0 && (
-                  <span className="rounded-md border border-red-800/70 bg-red-950/50 px-2 py-0.5 text-xs text-red-300">
-                    止损 {summary.stop}
-                  </span>
-                )}
-                {summary.sell > 0 && (
-                  <span className="rounded-md border border-amber-800/60 bg-amber-950/40 px-2 py-0.5 text-xs text-amber-300">
-                    卖出/减仓 {summary.sell}
-                  </span>
-                )}
-                {summary.buy > 0 && (
-                  <span className="rounded-md border border-green-800/60 bg-green-950/40 px-2 py-0.5 text-xs text-green-300">
-                    买入 {summary.buy}
-                  </span>
-                )}
-                {(summary.tactic_hits ?? 0) > 0 && (
-                  <span
-                    title="命中实战形态（K 线量价条件全部成立）的只数。条件成立不等于形态被回测验证，未验证的命中只作观察"
-                    className="rounded-md border border-sky-800/60 bg-sky-950/40 px-2 py-0.5 text-xs text-sky-300"
-                  >
-                    形态命中 {summary.tactic_hits}（观察）
-                  </span>
-                )}
-              </>
-            )}
-            <button
-              onClick={() => setOnlyAction((v) => !v)}
-              className={`ml-auto rounded-lg border px-2.5 py-1 text-xs transition-colors ${
-                onlyAction
-                  ? "border-brand bg-brand/10 text-brand-light"
-                  : "border-slate-700 text-ink-muted hover:text-ink"
-              }`}
-            >
-              {onlyAction ? "显示全部" : "只看要操作的"}
-            </button>
-          </div>
-          {summary.top.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {summary.top.map((t) => (
-                <span
-                  key={t.code}
-                  title={t.do}
-                  className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs ${toneClass[t.tone] ?? toneClass.neutral}`}
-                >
-                  <span className={`h-1.5 w-1.5 rounded-full ${toneDot[t.tone] ?? toneDot.neutral}`} />
-                  <b>{t.name}</b>
-                  <span className="opacity-80">{t.do || t.label}</span>
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
+        <MonitorSummary
+          summary={summary}
+          onlyAction={onlyAction}
+          onToggleOnlyAction={() => setOnlyAction((v) => !v)}
+        />
       )}
 
       {/* 持仓连板提示：封板质量差的排最前，走弱时减仓优先级最高。
           措辞只讲资金面强弱与观察点，不下卖单指令（与后端证据闸门口径一致）。 */}
-      {relayHits.length > 0 && (
-        <div className="mb-3 rounded-xl border border-orange-900/50 bg-orange-950/20 p-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-semibold text-orange-300">持仓连板对照</span>
-            <span className="text-xs text-ink-faint">
-              {relayHits.length} 只在当日连板池 · 按封板质量从弱到强
-            </span>
-          </div>
-          <div className="mt-2 space-y-1">
-            {relayHits.map((r) => (
-              <div key={r.code} className="flex flex-wrap items-center gap-2 text-xs">
-                <span className="font-medium text-ink-strong">{r.name}</span>
-                <span className="text-ink-faint">{r.code}</span>
-                <span className="text-ink-soft">
-                  {r.boards}板 · {r.tier_label ?? `${r.score}/${r.max_score} 分`}
-                </span>
-                <span className="text-ink-faint">历史同档晋级读数 {r.rate}%（n={r.rate_n}）</span>
-              </div>
-            ))}
-          </div>
-          <p className="mt-1.5 text-xs text-ink-faint">
-            分层是相对强弱读数，不是买卖指令；晋级了也常一字板买不进。开盘走弱时，封板质量最弱的优先留意。
-          </p>
-        </div>
-      )}
+      {relayHits.length > 0 && <RelayHits hits={relayHits} />}
 
       {/* 盯盘提醒留痕：顶部的浮层提示会限时消失，这里不会 */}
-      {alerts.length > 0 && (
-        <div className="mb-3 rounded-xl border border-amber-900/50 bg-slate-900/60 p-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <BellRing className="h-3.5 w-3.5 text-amber-300" aria-hidden />
-            <span className="text-xs font-semibold text-ink">盯盘提醒</span>
-            <span className="text-xs text-ink-faint">
-              本次 <b className="text-ink-soft">{alerts.length}</b> 条 · 最近的在最前
-            </span>
-            <button
-              onClick={() => setAlerts([])}
-              className="ml-auto rounded-lg border border-slate-700 px-2.5 py-1 text-xs text-ink-muted transition-colors hover:text-ink"
-            >
-              清空
-            </button>
-          </div>
-          <ul className="mt-2 space-y-1">
-            {alerts.map((a) => (
-              <li key={a.id} className="flex flex-wrap items-center gap-2 text-xs">
-                <span className="tabular-nums text-ink-faint">{fmtTime(a.at)}</span>
-                <span
-                  className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 ${
-                    toneClass[a.tone] ?? toneClass.neutral
-                  }`}
-                >
-                  <b>{a.name}</b>
-                  <span className="opacity-80">{a.label}</span>
-                </span>
-                <span className="text-ink-soft">{a.body}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      <AlertLog alerts={alerts} onClear={clearAlerts} />
 
-      {/* 周期切换：日线定方向，分钟线定这一笔 */}
-      <div className="mb-2 flex flex-wrap items-center gap-2">
-        <div className="inline-flex rounded-lg border border-slate-700 p-0.5">
-          {INTERVALS.map((it) => (
-            <button
-              key={it.value}
-              onClick={() => {
-                setInterval(it.value);
-                try {
-                  localStorage.setItem(LS_INTERVAL, it.value);
-                } catch {
-                  /* ignore */
-                }
-              }}
-              title={it.hint}
-              className={`rounded-md px-3 py-1 text-xs transition-colors ${
-                interval === it.value ? "bg-brand/15 text-brand-light" : "text-ink-muted hover:text-ink"
-              }`}
-            >
-              {it.label}
-            </button>
-          ))}
-        </div>
-        <span className="text-xs text-ink-faint">
-          {INTERVALS.find((i) => i.value === interval)?.hint}
-        </span>
-      </div>
+      <MonitorToolbar
+        input={input}
+        setInput={setInput}
+        onAdd={addCodes}
+        onImportWatchlist={() => void importWatchlist()}
+        onImportHoldings={() => void importHoldings()}
+        interval={interval}
+        setInterval={setInterval}
+      />
 
       {interval !== "1d" && (
         <div className="mb-2 rounded-lg border border-amber-800/50 bg-amber-950/30 px-3 py-1.5 text-xs text-amber-300">
@@ -744,45 +389,6 @@ export default function MonitorPanel() {
           多周期形态（周/月线）本轮未加载，点「立即刷新」可补上。
         </div>
       )}
-
-      {/* 添加栏 */}
-      <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center">
-        <div className="flex flex-1 gap-2">
-          <Input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                addCodes();
-              }
-            }}
-            placeholder="输入股票代码，空格/逗号分隔，如 600519 000858"
-            className="flex-1 rounded-lg bg-slate-900 px-3 py-2 text-sm" />
-          <button
-            onClick={addCodes}
-            className="inline-flex items-center gap-1 rounded-lg bg-slate-800 px-3 py-2 text-sm text-ink hover:bg-slate-700"
-          >
-            <Plus className="h-4 w-4" aria-hidden /> 添加
-          </button>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => void importWatchlist()}
-            title="把自选股一次性加入监控名单"
-            className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-ink-muted hover:text-ink"
-          >
-            <Download className="h-3.5 w-3.5" aria-hidden /> 导入自选
-          </button>
-          <button
-            onClick={() => void importHoldings()}
-            title="把持仓加入监控，并带上成本价（指令会显示浮盈浮亏）"
-            className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-ink-muted hover:text-ink"
-          >
-            <Download className="h-3.5 w-3.5" aria-hidden /> 导入持仓
-          </button>
-        </div>
-      </div>
 
       <div className="mb-3 text-xs text-ink-faint">
         {data && (
@@ -830,146 +436,18 @@ export default function MonitorPanel() {
               </tr>
             </thead>
             <tbody>
-              {visibleCodes.map((code, idx) => {
-                const it = byCode.get(code);
-                if (!it) {
-                  return (
-                    <tr key={code} className="border-t border-slate-800/60">
-                      <td className="px-3 py-2 text-xs text-ink-faint">{idx + 1}</td>
-                      <td className="px-3 py-2">
-                        <span className="text-ink-muted">{code}</span>
-                      </td>
-                      <td colSpan={4} className="px-3 py-2 text-xs text-ink-faint">
-                        {data ? "暂无行情（可能停牌或代码有误）" : "加载中..."}
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        <button
-                          onClick={() => remove(code)}
-                          className="rounded p-1 text-ink-faint hover:bg-red-950/40 hover:text-red-400"
-                          title="移除"
-                        >
-                          <Trash2 className="h-4 w-4" aria-hidden />
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                }
-                const { signal: s, advice: a } = it;
-                const up = it.change_pct >= 0;
-                const plan = a?.plan;
-                const pnl = a?.pnl_pct;
-                const intraday = a?.scope === "intraday";
-                const trendMark = s?.trend === "up" ? "↑" : s?.trend === "down" ? "↓" : "→";
-                return (
-                  <tr key={code} className="border-t border-slate-800/60 hover:bg-slate-800/30">
-                    <td className="px-3 py-2 text-xs text-ink-faint">{idx + 1}</td>
-                    <td className="px-3 py-2">
-                      <div className="font-medium text-ink-strong">{it.name}</div>
-                      <div className="text-xs text-ink-faint">{code}</div>
-                      {it.tactics && it.tactics.length > 0 && (
-                        <div className="mt-1">
-                          <TacticChips tactics={it.tactics} />
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      <div className="text-ink">{num(it.price)}</div>
-                      <div className={`text-xs ${pnlTone(it.change_pct)}`}>
-                        {up ? "+" : ""}
-                        {num(it.change_pct, 2)}%
-                      </div>
-                      {pnl != null && (
-                        <div className={`text-xs ${pnlTone(pnl)}`}>
-                          浮盈 {pnl >= 0 ? "+" : ""}
-                          {num(pnl, 1)}%
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      {intraday ? (
-                        <>
-                          <div className="text-ink">
-                            <span className="text-xs text-ink-faint">VWAP </span>
-                            {num(s?.vwap)}
-                          </div>
-                          <div className="text-xs">
-                            <span className="text-ink-muted/80">高 {num(s?.day_high)}</span>
-                            <span className="text-ink-faint"> / </span>
-                            <span className="text-ink-muted/80">低 {num(s?.day_low)}</span>
-                          </div>
-                          <div className="text-xs text-ink-faint">
-                            {trendMark} 强度 {num(s?.strength, 1)}
-                            {s?.volume_ratio != null ? ` · 量比 ${num(s.volume_ratio, 2)}x` : ""}
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <div className="text-ink-soft">{num(s?.support)}</div>
-                          <div className="text-xs text-ink-faint">{num(s?.resistance)}</div>
-                          <div className="text-xs text-ink-faint">
-                            强度 {num(s?.strength, 1)}
-                            {s?.volume_ratio != null ? ` · 量比 ${num(s.volume_ratio, 2)}x` : ""}
-                          </div>
-                        </>
-                      )}
-                    </td>
-                    <td className="px-3 py-2">
-                      <span
-                        title={a?.hint}
-                        className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium ${toneClass[a?.tone ?? "neutral"]}`}
-                      >
-                        <span className={`h-1.5 w-1.5 rounded-full ${toneDot[a?.tone ?? "neutral"]}`} />
-                        {a?.label ?? "等待信号"}
-                      </span>
-                      <div className="mt-0.5 max-w-[240px] truncate text-xs text-ink-faint" title={a?.hint}>
-                        {a?.hint ?? " "}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2">
-                      <div className="text-xs font-medium text-ink-strong">{a?.do ?? "—"}</div>
-                      <div className="mt-0.5 flex flex-wrap gap-x-2 text-xs text-ink-faint">
-                        <span>
-                          买 <b className="text-red-400/90">{num(plan?.buy)}</b>
-                        </span>
-                        <span>
-                          卖 <b className="text-amber-400/90">{num(plan?.sell)}</b>
-                        </span>
-                        <span>
-                          止损 <b className="text-amber-400/90">{num(plan?.stop)}</b>
-                        </span>
-                        {plan?.position_pct ? <span>仓位 {plan.position_pct}%</span> : null}
-                      </div>
-                      {intraday && it.daily && (
-                        <div className="mt-0.5 text-xs text-ink-faint">
-                          日线 支撑 {num(it.daily.support)} · 压力 {num(it.daily.resistance)}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <button
-                          onClick={() => void quickAlert(it)}
-                          disabled={alertBusy === code}
-                          className="rounded p-1 text-ink-faint hover:bg-slate-700/50 hover:text-amber-300"title="按建议价建到价提醒（到价后报警中心提醒）"
-                        >
-                          {alertBusy === code ? (
-                            <Bell className="h-4 w-4 animate-pulse" aria-hidden />
-                          ) : (
-                            <BellPlus className="h-4 w-4" aria-hidden />
-                          )}
-                        </button>
-                        <button
-                          onClick={() => remove(code)}
-                          className="rounded p-1 text-ink-faint hover:bg-red-950/40 hover:text-red-400"
-                          title="移除监控"
-                        >
-                          <Trash2 className="h-4 w-4" aria-hidden />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
+              {visibleCodes.map((code, idx) => (
+                <MonitorRow
+                  key={code}
+                  code={code}
+                  idx={idx}
+                  it={byCode.get(code)}
+                  hasData={!!data}
+                  alertBusy={alertBusy}
+                  onQuickAlert={quickAlert}
+                  onRemove={remove}
+                />
+              ))}
             </tbody>
           </table>
         </div>

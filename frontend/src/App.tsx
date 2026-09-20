@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { LogIn } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Compass, LogIn } from "lucide-react";
 import { motion } from "framer-motion";
 import { Toaster } from "sonner";
 import { useAuth } from "./auth/AuthContext";
@@ -7,14 +7,19 @@ import AlertBell from "./components/AlertBell";
 import AnalysisDrawer from "./components/AnalysisDrawer";
 import AuthModal from "./components/AuthModal";
 import BrandLogo from "./components/BrandLogo";
-import ErrorBoundary from "./components/ErrorBoundary";
+import ErrorBoundary from "./components/ui/ErrorBoundary";
+import FeatureMapModal from "./components/FeatureMapModal";
 import HoldingsPanel from "./components/HoldingsPanel";
 import LimitDownBar from "./components/LimitDownBar";
 import LimitUpBar from "./components/LimitUpBar";
 import OpportunityPanel from "./components/OpportunityPanel";
+import ResearchPanel from "./components/ResearchPanel";
 import StockSearchInput from "./components/StockSearchInput";
 import TodayPanel from "./components/TodayPanel";
+import { emitBus, useBus } from "./lib/bus";
+import { DOMAIN_TAB, type Domain, type FeatureEntry, type NavJump } from "./lib/featureMap";
 import { DEFAULT_TAB, NAV, isTab, type Tab } from "./lib/nav";
+import { PAGE_WRAP } from "./lib/ui";
 
 const TAB_STORAGE_KEY = "ai:activeTab";
 
@@ -32,8 +37,25 @@ function readInitialTab(): Tab {
  * App · 外壳
  *
  * 只负责四件事：一级导航、全局搜索、登录态、分析抽屉。
- * 页面的编排在 TodayPanel / OpportunityPanel / HoldingsPanel 里，
- * 分析的状态机在 AnalysisDrawer 里——外壳不再持有业务状态。
+ * 页面的编排在四个 Panel 里，分析的状态机在 AnalysisDrawer 里 —— 外壳不持有业务状态。
+ *
+ * ## 层级（重构后的最终形态）
+ *   ┌ 顶栏（sticky，高度写在 index.css 的 --header-h）
+ *   │   第一行：品牌 · 全局搜索 · 全部功能 · 预警 · 账户
+ *   │   第二行：一级导航（sm 及以上；移动端在底部）
+ *   ├ 市场温度带（涨停 / 跌停）—— 常驻，读市场情绪
+ *   ├ main
+ *   │   PageHeader（这一页是什么）
+ *   │   SubNav（吸顶，这一页有哪些子页）
+ *   │   子页内容
+ *   └ 移动端底部导航
+ *
+ * **为什么把一级导航放进吸顶顶栏**：重构前它跟着内容一起滚走，于是用户往下滚两屏
+ * 之后既不知道自己在哪一页、也没法换页。现在「我在哪一页」和「这一页有哪些子页」
+ * 在任何滚动位置都同时可见 —— 这是"找不到"的结构性解法，不是再加一个索引导航。
+ *
+ * ⚠️ 不要往这里塞业务逻辑。需要新页面 = 在 nav.ts 加一条 + 写一个 Panel
+ *    （`featureMap.test.ts` 会检查新页面是否真的有子页与功能登记）。
  */
 export default function App() {
   const { user, signOut } = useAuth();
@@ -49,6 +71,37 @@ export default function App() {
   const [analysisReq, setAnalysisReq] = useState<{ codes: string[]; id: number } | null>(null);
   const [historyRefresh, setHistoryRefresh] = useState(0);
 
+  // 功能地图：任何页面都能打开；focusDomain 决定打开后滚到哪一组
+  const [mapOpen, setMapOpen] = useState(false);
+  const [mapFocus, setMapFocus] = useState<Domain | null>(null);
+  // 跨子页跳转（见 lib/featureMap.ts:NavJump）
+  const [jump, setJump] = useState<NavJump | null>(null);
+
+  const openMap = useCallback((domain: Domain | null) => {
+    setMapFocus(domain);
+    setMapOpen(true);
+  }, []);
+
+  const gotoFeature = useCallback((f: FeatureEntry) => {
+    setMapOpen(false);
+    if (f.domain === "global") {
+      // 常驻条 / 顶部搜索在每一页都在，不必切 tab，只把目标展开或聚焦
+      if (f.anchor) emitBus(f.anchor);
+      return;
+    }
+    const target = DOMAIN_TAB[f.domain];
+    setTab(target);
+    setJump((prev) => ({ tab: target, sub: f.sub, id: (prev?.id ?? 0) + 1 }));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+
+  // 顶部搜索框的聚焦请求（功能地图里的「全局搜索 · 深度分析」）
+  const searchWrapRef = useRef<HTMLDivElement>(null);
+  useBus("search", () => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    searchWrapRef.current?.querySelector("input")?.focus();
+  });
+
   useEffect(() => {
     try {
       localStorage.setItem(TAB_STORAGE_KEY, tab);
@@ -62,6 +115,12 @@ export default function App() {
       return next;
     });
   }, [tab]);
+
+  // 换一级页时回到顶部：否则从长页切到短页会停在半空，看起来像"这页是空的"
+  const changeTab = useCallback((t: Tab) => {
+    setTab(t);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
 
   // 组件（如加自选）触发登录请求
   useEffect(() => {
@@ -85,45 +144,55 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-ink-strong">
+    <div className="min-h-screen bg-surface-canvas text-ink">
       <Toaster
         theme="dark"
         position="top-center"
         richColors
-        toastOptions={{ style: { background: "#0f172a", border: "1px solid #334155" } }}
+        toastOptions={{ style: { background: "#0d1424", border: "1px solid #2b3a5a" } }}
       />
 
-      {/* 顶部 */}
-      <header className="sticky top-0 z-40 border-b border-slate-800/80 bg-slate-900/80 backdrop-blur">
-        <div className="mx-auto max-w-6xl px-4 py-3 sm:px-6">
-          <div className="flex items-center justify-between gap-3">
-            <BrandLogo onClick={() => setTab(DEFAULT_TAB)} />
+      {/* ── 顶栏 ────────────────────────────────────────────────
+          sticky 且含一级导航：任一滚动位置都能看到"我在哪一页、能去哪一页"。
+          两行高度固定（h-14 / h-11），与 index.css 的 --header-h 对应。 */}
+      <header className="sticky top-0 z-40 border-b border-surface-line bg-surface-panel/90 backdrop-blur">
+        <div className={PAGE_WRAP}>
+          <div className="flex h-14 items-center justify-between gap-3">
+            <BrandLogo onClick={() => changeTab(DEFAULT_TAB)} />
 
             {/* 全局快捷搜索 */}
-            <div className="relative hidden max-w-md flex-1 sm:block">
+            <div className="relative hidden max-w-md flex-1 sm:block" ref={searchWrapRef}>
               <StockSearchInput value={quickText} onChange={setQuickText} onPickCode={handleQuickPick} />
             </div>
 
             <div className="flex shrink-0 items-center gap-2">
+              {/* 功能地图：一级导航只有 4 项，但功能有 20+ 个，所以索引常驻在头部 */}
+              <button
+                type="button"
+                onClick={() => openMap(null)}
+                title="全部功能 · 一眼看到这个工具有什么"
+                className="flex items-center gap-1.5 rounded-lg border border-surface-line-strong px-2.5 py-1.5 text-xs text-ink-soft transition-colors hover:border-slate-400 hover:text-ink-strong"
+              >
+                <Compass className="h-3.5 w-3.5" aria-hidden />
+                <span className="hidden sm:inline">全部功能</span>
+              </button>
               {user && <AlertBell />}
               {user ? (
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  className="flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-1.5"
-                >
+                <div className="flex items-center gap-2 rounded-lg border border-surface-line px-3 py-1.5">
                   <span className="hidden max-w-[140px] truncate text-xs text-ink-soft md:inline">{user.email}</span>
-                  <button onClick={signOut} className="flex items-center gap-1 text-xs text-ink-faint hover:text-ink">
+                  <button
+                    onClick={signOut}
+                    className="flex items-center gap-1 text-xs text-ink-faint transition-colors hover:text-ink"
+                  >
                     <LogIn className="h-3.5 w-3.5" aria-hidden />
                     退出
                   </button>
-                </motion.div>
+                </div>
               ) : (
                 <motion.button
                   onClick={() => setAuthOpen(true)}
-                  whileHover={{ scale: 1.04 }}
-                  whileTap={{ scale: 0.95 }}
-                  className="flex items-center gap-1.5 rounded-lg bg-brand px-4 py-1.5 text-xs font-medium text-white shadow-[0_2px_8px_rgba(37,99,235,0.35)] hover:bg-brand-dark"
+                  whileTap={{ scale: 0.96 }}
+                  className="flex items-center gap-1.5 rounded-lg bg-brand px-4 py-1.5 text-xs font-medium text-white hover:bg-brand-dark"
                 >
                   <LogIn className="h-3.5 w-3.5" aria-hidden />
                   登录
@@ -132,6 +201,38 @@ export default function App() {
             </div>
           </div>
         </div>
+
+        {/* 一级导航：下划线式。与二级导航的实心胶囊**刻意区分** ——
+            两条长得一样的带子叠在一起时，用户分不清哪条是"换页"、哪条是"换区块"。 */}
+        <nav aria-label="主要功能" className="hidden border-t border-surface-line-soft sm:block">
+          <div className={`${PAGE_WRAP} flex h-11 items-stretch gap-0.5`}>
+            {NAV.map((t) => {
+              const Icon = t.icon;
+              const active = tab === t.key;
+              return (
+                <button
+                  key={t.key}
+                  onClick={() => changeTab(t.key)}
+                  aria-current={active ? "page" : undefined}
+                  className={`relative flex items-center gap-1.5 px-3 text-sm font-medium transition-colors ${
+                    active ? "text-ink-strong" : "text-ink-muted hover:text-ink"
+                  }`}
+                >
+                  <Icon className="h-4 w-4" strokeWidth={2.2} aria-hidden />
+                  {t.label}
+                  <span className="hidden text-xs font-normal text-ink-faint lg:inline">{t.desc}</span>
+                  {active && (
+                    <motion.span
+                      layoutId="top-tab-underline"
+                      className="absolute inset-x-2 bottom-0 h-[2px] rounded-full bg-brand-light"
+                      transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                    />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </nav>
       </header>
 
       {/* 涨跌停两条常驻温度带：全局可见的市场情绪读数，展开看梯队 / 板块 / 回测。
@@ -141,53 +242,26 @@ export default function App() {
       <LimitDownBar />
 
       <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} />
+      <FeatureMapModal
+        open={mapOpen}
+        onClose={() => setMapOpen(false)}
+        onGo={gotoFeature}
+        focusDomain={mapFocus}
+      />
 
-      <main className="mx-auto max-w-6xl px-4 pb-20 pt-4 sm:px-6 sm:pt-6">
-        {/* 一级导航（桌面三栏 / 移动横向等分） */}
-        <nav aria-label="主要功能" className="mb-5 hidden grid-cols-3 gap-1 rounded-2xl border border-slate-800 bg-slate-900 p-1 sm:grid">
-          {NAV.map((t) => {
-            const Icon = t.icon;
-            const active = tab === t.key;
-            return (
-              <button
-                key={t.key}
-                onClick={() => setTab(t.key)}
-                aria-current={active ? "page" : undefined}
-                className={`relative flex min-w-0 flex-col items-center gap-1 rounded-lg px-2 py-2.5 text-sm font-medium transition-colors ${
-                  active ? "text-white" : "text-ink-muted hover:bg-slate-800/70 hover:text-ink"
-                }`}
-              >
-                {active && (
-                  <motion.span
-                    layoutId="tab-pill"
-                    className="absolute inset-0 rounded-lg bg-brand shadow-[0_0_12px_rgba(37,99,235,0.4)]"
-                    transition={{ type: "spring", stiffness: 400, damping: 32 }}
-                  />
-                )}
-                <span className="relative flex items-center gap-1.5">
-                  <Icon className={`h-4 w-4 ${active ? "text-white" : ""}`} strokeWidth={2.2} />
-                  {t.label}
-                </span>
-                <span className={`relative hidden text-xs font-normal sm:block ${active ? "text-white/70" : "text-ink-faint"}`}>
-                  {t.desc}
-                </span>
-              </button>
-            );
-          })}
-        </nav>
-
+      <main className={`${PAGE_WRAP} pb-24 pt-5 sm:pb-20`}>
         <ErrorBoundary>
-          {/* 今日作战：默认首屏，主视图按时段自动切换 */}
+          {/* 今日作战：默认首屏，默认子页按时段自动切换 */}
           {mountedTabs.has("today") && (
             <div className={isTabVisible("today")}>
-              <TodayPanel onPick={openAnalysis} />
+              <TodayPanel onPick={openAnalysis} onOpenMap={openMap} jump={jump?.tab === "today" ? jump : null} />
             </div>
           )}
 
-          {/* 选机会：推荐 / 扫描 / 验证 */}
+          {/* 选机会：推荐 / 扫描 / 形态 */}
           {mountedTabs.has("opportunity") && (
             <div className={isTabVisible("opportunity")}>
-              <OpportunityPanel onPick={openAnalysis} />
+              <OpportunityPanel onPick={openAnalysis} jump={jump?.tab === "opportunity" ? jump : null} />
             </div>
           )}
 
@@ -199,7 +273,15 @@ export default function App() {
                 onAnalyze={handleQuickPick}
                 onRequestAuth={() => setAuthOpen(true)}
                 historyRefresh={historyRefresh}
+                jump={jump?.tab === "holdings" ? jump : null}
               />
+            </div>
+          )}
+
+          {/* 研究：证据台账 / 胜率 / 回测 —— 与「选机会」分开，回答的是另一个问题 */}
+          {mountedTabs.has("research") && (
+            <div className={isTabVisible("research")}>
+              <ResearchPanel jump={jump?.tab === "research" ? jump : null} />
             </div>
           )}
 
@@ -217,16 +299,16 @@ export default function App() {
       {/* 移动端底部导航 */}
       <nav
         aria-label="主要功能"
-        className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-800 bg-slate-900/95 backdrop-blur sm:hidden"
+        className="fixed inset-x-0 bottom-0 z-40 border-t border-surface-line bg-surface-panel/95 backdrop-blur sm:hidden"
       >
-        <div className="grid grid-cols-3">
+        <div className="grid grid-cols-4">
           {NAV.map((t) => {
             const Icon = t.icon;
             const active = tab === t.key;
             return (
               <motion.button
                 key={t.key}
-                onClick={() => setTab(t.key)}
+                onClick={() => changeTab(t.key)}
                 aria-current={active ? "page" : undefined}
                 whileTap={{ scale: 0.92 }}
                 className={`flex flex-col items-center gap-0.5 py-2.5 text-xs font-medium transition-colors ${
@@ -241,7 +323,7 @@ export default function App() {
         </div>
       </nav>
 
-      <footer className="mx-auto hidden max-w-6xl px-6 pb-8 text-center text-xs text-ink-faint sm:block">
+      <footer className="mx-auto hidden max-w-[1360px] px-6 pb-8 text-center text-xs text-ink-faint sm:block">
         数据来源：akshare（腾讯/新浪）· 分析模型：DeepSeek · 仅供研究学习，不构成投资建议
       </footer>
     </div>

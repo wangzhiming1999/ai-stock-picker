@@ -1,12 +1,12 @@
 import { Suspense, useCallback, useState } from "react";;
 import { Radar } from "lucide-react";
 import { fetchIndustries } from "../api/client";
-import CollapsiblePanel from "./CollapsiblePanel";
+import CollapsiblePanel from "./ui/CollapsiblePanel";
 import DailyRecommendCard from "./DailyRecommendCard";
-import PanelSkeleton from "./PanelSkeleton";
+import PanelSkeleton from "./ui/PanelSkeleton";
 import type { Industry } from "../types";
 import { pnlTone } from "../lib/tone";
-import Button from "./Button";
+import Button from "./ui/Button";
 import { lazyRetry } from "../lib/lazyRetry";
 
 const PredictionCard = lazyRetry(() => import("./PredictionCard"));

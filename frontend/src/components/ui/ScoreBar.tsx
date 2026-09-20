@@ -1,4 +1,4 @@
-import { scoreBg } from "../lib/tone";
+import { scoreBg } from "../../lib/tone";
 
 interface Props {
   label: string;

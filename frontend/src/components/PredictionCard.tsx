@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { fetchIndexHistory, fetchPrediction, fetchPredictionHistory, fetchPredictionStats } from "../api/client";
-import CollapsiblePanel from "./CollapsiblePanel";
+import CollapsiblePanel from "./ui/CollapsiblePanel";
 import KLineChart from "./KLineChart";
 import { safeArray, safeObj } from "../lib/safe";
 import { FORCE_ANALYSIS_HINT, confirmForceRefresh } from "../lib/spotGuard";
 import type { IndexHistory, MarketPrediction, PredictionRecord, PredictionStats, StockHistory } from "../types";
 import { dirTone, pctTone, pnlTone } from "../lib/tone";
-import StatTile from "./StatTile";
-import Button from "./Button";
+import StatTile from "./ui/StatTile";
+import Button from "./ui/Button";
 
 function fmtDate(iso: string): string {
   const d = new Date(iso);

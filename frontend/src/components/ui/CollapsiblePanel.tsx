@@ -1,7 +1,7 @@
 import { useEffect, type ReactNode } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ChevronDown } from "lucide-react";
-import { useCollapse } from "../lib/usePersist";
+import { useCollapse } from "../../lib/usePersist";
 
 interface Props {
   id: string;

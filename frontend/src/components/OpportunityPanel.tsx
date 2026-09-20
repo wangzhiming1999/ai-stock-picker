@@ -1,96 +1,76 @@
-import { Suspense, useState } from "react";;
-import { Lightbulb, ScanSearch, ShieldCheck } from "lucide-react";
-import PanelSkeleton from "./PanelSkeleton";
-import RecommendPanel from "./RecommendPanel";
+import { Suspense } from "react";
+import { Lightbulb, ScanSearch, Shapes } from "lucide-react";
+import { subNavFor } from "../lib/subnav";
+import { useSubPage } from "../lib/useSubPage";
+import type { NavJump } from "../lib/featureMap";
 import { lazyRetry } from "../lib/lazyRetry";
+import { STACK } from "../lib/ui";
+import PanelSkeleton from "./ui/PanelSkeleton";
+import RecommendPanel from "./RecommendPanel";
+import SubNav from "./ui/SubNav";
+import PageHeader from "./ui/PageHeader";
 
 const ScanPanel = lazyRetry(() => import("./ScanPanel"));
-const VerifyPanel = lazyRetry(() => import("./VerifyPanel"));
+const TacticView = lazyRetry(() => import("./TacticView"));
 
-type SubTab = "recommend" | "scan" | "verify";
-
-const SUB_TABS: { key: SubTab; label: string; desc: string; icon: typeof Lightbulb }[] = [
-  { key: "recommend", label: "推荐", desc: "AI 每日推荐 · 大盘推衍 · 四维排名", icon: Lightbulb },
-  { key: "scan", label: "扫描", desc: "策略扫描 · 早盘尾盘异动 · 实战形态", icon: ScanSearch },
-  { key: "verify", label: "验证", desc: "胜率 · 策略回测 · 形态回测", icon: ShieldCheck },
-];
+const SUB_ICON = { recommend: Lightbulb, scan: ScanSearch, tactic: Shapes } as const;
+const SUB_KEYS = { recommend: "recommend", scan: "scan", tactic: "tactic" } as const;
 
 interface Props {
   onPick: (codes: string[]) => void;
+  /** 从功能地图跳进来的落点 */
+  jump?: NavJump | null;
 }
 
 /**
- * 选机会 · 二级导航容器
+ * 选机会 · 「今天买什么」
  *
- * 三个子 tab 按「票从哪来 / 怎么筛 / 方法靠不靠谱」排，恰好是一个闭环：
- * 推荐（模型给）→ 扫描（规则筛）→ 验证（回头看方法行不行）。
+ * 三个子页是三条互不相同的**票源**：
+ *   推荐（模型打分）→ 扫描（策略 / 异动 / 自定义条件）→ 形态（K 线量价条件命中）
  *
- * 子 tab 一旦访问就常驻 DOM（隐藏而非卸载），避免来回切换重复拉数据。
+ * ## 重构改了两处
+ * 1. **「验证」搬走了**（去了「研究」）。它回答的是另一个问题：
+ *    这三个子页都在给「今天的票」，验证在给「这套方法可不可信」。
+ * 2. **「实战形态」从扫描页里提了出来**。它原本是扫描页的第四个视图 ——
+ *    要点进「选机会」→ 再点「扫描」→ 再点「看实战形态」，深度 3 且没有回头路。
+ *
+ * ⚠️ 本页所有产出都是**候选**，不是指令。子页内的免责说明不要为了排版干净删掉。
  */
-export default function OpportunityPanel({ onPick }: Props) {
-  const [sub, setSub] = useState<SubTab>("recommend");
-  const [mounted, setMounted] = useState<Set<SubTab>>(() => new Set(["recommend"]));
-
-  const changeSub = (k: SubTab) => {
-    setSub(k);
-    setMounted((prev) => {
-      if (prev.has(k)) return prev;
-      const next = new Set(prev);
-      next.add(k);
-      return next;
-    });
-  };
-
-  const visible = (k: SubTab) => (sub === k ? "" : "hidden");
+export default function OpportunityPanel({ onPick, jump }: Props) {
+  const { sub, changeSub, isVisible, isMounted } = useSubPage("opportunity", jump, SUB_KEYS.recommend);
+  const items = subNavFor("opportunity").map((s) => ({
+    ...s,
+    icon: SUB_ICON[s.key as keyof typeof SUB_ICON],
+  }));
 
   return (
-    <div className="space-y-4">
-      <nav
-        aria-label="选机会子导航"
-        className="grid grid-cols-3 gap-1 rounded-xl border border-slate-800 bg-slate-900 p-1"
-      >
-        {SUB_TABS.map((t) => {
-          const Icon = t.icon;
-          const active = sub === t.key;
-          return (
-            <button
-              key={t.key}
-              onClick={() => changeSub(t.key)}
-              aria-current={active ? "page" : undefined}
-              className={`flex min-w-0 flex-col items-center gap-0.5 rounded-lg px-2 py-2 text-center transition-colors ${
-                active ? "bg-brand text-white" : "text-ink-muted hover:bg-slate-800/70 hover:text-ink"
-              }`}
-            >
-              <span className="flex items-center gap-1.5 text-sm font-medium">
-                <Icon className="h-4 w-4" strokeWidth={2.2} />
-                {t.label}
-              </span>
-              <span className={`hidden text-xs font-normal sm:block ${active ? "text-white/70" : "text-ink-faint"}`}>
-                {t.desc}
-              </span>
-            </button>
-          );
-        })}
-      </nav>
+    <div className={STACK}>
+      <PageHeader
+        icon={Lightbulb}
+        title="选机会"
+        desc="今天买什么：模型推荐、规则扫描、形态命中 —— 三条票源，产出都是候选不是指令"
+      />
 
-      {mounted.has("recommend") && (
-        <div className={visible("recommend")}>
+      <SubNav id="opportunity" items={items} value={sub} onChange={changeSub} />
+
+      {isMounted(SUB_KEYS.recommend) && (
+        <div className={isVisible(SUB_KEYS.recommend)}>
           <RecommendPanel onPick={onPick} />
         </div>
       )}
 
-      {mounted.has("scan") && (
-        <div className={visible("scan")}>
+      {isMounted(SUB_KEYS.scan) && (
+        <div className={isVisible(SUB_KEYS.scan)}>
           <Suspense fallback={<PanelSkeleton label="正在加载扫描区" />}>
             <ScanPanel onPick={onPick} />
           </Suspense>
         </div>
       )}
 
-      {mounted.has("verify") && (
-        <div className={visible("verify")}>
-          <Suspense fallback={<PanelSkeleton label="正在加载验证区" />}>
-            <VerifyPanel />
+      {isMounted(SUB_KEYS.tactic) && (
+        <div className={isVisible(SUB_KEYS.tactic)}>
+          <Suspense fallback={<PanelSkeleton label="正在加载形态命中" />}>
+            <TacticView onPick={onPick} />
           </Suspense>
         </div>
       )}

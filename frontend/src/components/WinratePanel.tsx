@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { fetchWinrate } from "../api/client";
-import CollapsiblePanel from "./CollapsiblePanel";
+import CollapsiblePanel from "./ui/CollapsiblePanel";
 import { safeObj } from "../lib/safe";
 import { pctTone } from "../lib/tone";
 import type { WinrateStats } from "../types";
 import { CaliberIncomparabilityNote, CaliberLine } from "./CaliberNote";
-import StatTile from "./StatTile";
-import Button from "./Button";
+import StatTile from "./ui/StatTile";
+import Button from "./ui/Button";
 
 export default function WinratePanel() {
   const [data, setData] = useState<WinrateStats | null>(null);

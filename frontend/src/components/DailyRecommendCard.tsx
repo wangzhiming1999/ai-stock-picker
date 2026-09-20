@@ -3,11 +3,12 @@ import { CalendarDays, Eye, ShieldCheck, Unlock } from "lucide-react";
 import { fetchDailyRecommend } from "../api/client";
 import { fmtDate, fmtDayLabel, isTodayCN } from "../lib/dates";
 import { confirmForceRefresh, useSpotCooldown } from "../lib/spotGuard";
-import CollapsiblePanel from "./CollapsiblePanel";
+import CollapsiblePanel from "./ui/CollapsiblePanel";
 import WatchStar from "./WatchStar";
 import type { DailyRecommendResult } from "../types";
 import { downTone, pnlTone, upTone } from "../lib/tone";
-import Button from "./Button";
+import { confidenceHint, confidenceLabel } from "../lib/confidence";
+import Button from "./ui/Button";
 
 /** 拦截原因 -> 白话。逐条映射，不能整串替换（否则多条原因会串味）。 */
 const BLOCKER_LABELS: Record<string, string> = {
@@ -161,8 +162,11 @@ export default function DailyRecommendCard({ onPick, collapsed = false }: Props)
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-ink-faint">{r.price.toFixed(2)}</span>
-                  <span className="rounded bg-amber-900/40 px-1.5 py-0.5 text-xs font-semibold text-amber-300">
-                    置信 {r.confidence.toFixed(1)}
+                  <span
+                    title={confidenceHint(r.confidence_source)}
+                    className="rounded bg-amber-900/40 px-1.5 py-0.5 text-xs font-semibold text-amber-300"
+                  >
+                    {confidenceLabel(r.confidence_source)} {r.confidence.toFixed(1)}
                   </span>
                   {picked.has(r.code) && <span className="text-xs text-brand-light">✓</span>}
                   <WatchStar code={r.code} />

@@ -6,8 +6,8 @@ import { importHoldingsBatch, parseHoldingImport } from "../api/client";
 import { compressImage } from "../lib/image";
 import { INPUT_BASE } from "../lib/ui";
 import type { ParsedHolding } from "../types";
-import Input from "./Input";
-import Button from "./Button";
+import Input from "./ui/Input";
+import Button from "./ui/Button";
 
 interface Props {
   open: boolean;

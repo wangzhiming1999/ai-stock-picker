@@ -2,7 +2,7 @@ import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { LogIn, Mail, ShieldCheck, UserPlus, X } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
-import Input from "./Input";
+import Input from "./ui/Input";
 
 interface Props {
   open: boolean;

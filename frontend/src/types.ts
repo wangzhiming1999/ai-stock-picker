@@ -253,6 +253,12 @@ export interface DailyRecommendation {
   change_pct: number;
   reason: string;
   confidence: number;
+  /**
+   * confidence 的语义来源（后端 `confidence_source`）：
+   * `llm_self_report` = LLM 自评把握，`rule_score` = 规则加权策略分。
+   * 缺省代表历史数据未记录口径 —— 显示时必须区分，见 lib/confidence.ts。
+   */
+  confidence_source?: "llm_self_report" | "rule_score";
   /** 关联 daily_recommendations.id，模拟盘买卖可回写 related_reco_id */
   id?: string | null;
   tags?: string[];
@@ -951,6 +957,8 @@ export interface BriefingStock {
   change_pct?: number;
   reason: string;
   confidence?: number;
+  /** 同 DailyRecommendation.confidence_source：不区分就等于把自评当成分数 */
+  confidence_source?: "llm_self_report" | "rule_score";
   /** 关联 daily_recommendations.id，模拟盘一键买入时回写 related_reco_id 闭合胜率环 */
   id?: string | null;
   buy_point?: number | null;

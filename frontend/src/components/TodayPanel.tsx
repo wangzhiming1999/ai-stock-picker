@@ -1,15 +1,26 @@
 import { useEffect, useState } from "react";
-import { Activity, ClipboardList } from "lucide-react";
-import CollapsiblePanel from "./CollapsiblePanel";
+import { Activity, ClipboardList, Zap } from "lucide-react";
 import DailyBriefing from "./DailyBriefing";
+import FeatureMapBar from "./FeatureMapBar";
 import MonitorPanel from "./MonitorPanel";
+import SubNav from "./ui/SubNav";
+import PageHeader from "./ui/PageHeader";
+import type { Domain, NavJump } from "../lib/featureMap";
 import { sessionInfo, type SessionKey } from "../lib/session";
+import { subNavFor } from "../lib/subnav";
+import { STACK } from "../lib/ui";
 
 interface Props {
   onPick: (codes: string[]) => void;
+  /** 打开功能地图（null = 整张图，传域 = 滚到那一组） */
+  onOpenMap: (domain: Domain | null) => void;
+  /** 从功能地图跳进来的落点 */
+  jump?: NavJump | null;
 }
 
 type MainView = "briefing" | "monitor";
+
+const SUB_ICON = { monitor: Activity, briefing: ClipboardList } as const;
 
 /** 每个时段告诉用户「现在该看什么」，而不是让他自己在一堆卡片里找 */
 const HINT: Record<SessionKey, string> = {
@@ -27,13 +38,25 @@ const HINT: Record<SessionKey, string> = {
  * 今日作战 · 默认首屏
  *
  * 产品定位是「日内操作指令台」——用户一天只有三个决策点（早盘定方向、盘中盯盘、
- * 尾盘定动作），所以这一页的主视图必须由「现在几点」决定，打开即对应当下该干的事。
+ * 尾盘定动作），所以这一页默认停在哪个子页必须由「现在几点」决定，打开即对应当下
+ * 该干的事（规则见 `lib/session.ts:sessionInfo()`）。用户可手动覆盖，跨时段自动复位。
  *
- * 主视图规则见 lib/session.ts:sessionInfo()；用户可手动覆盖，跨时段时自动复位。
+ * ## 与另外三个页面的差别（为什么没有用 useSubPage）
+ * 选机会 / 持仓 / 研究 的默认子页是**固定**的，这里的是**随时间变**的。
+ * 多出来的那条「时段一变就复位手动覆盖」的规则塞不进通用 hook，
+ * 强塞只会让另外三个页面也背上一份用不到的复杂度。
+ *
+ * ## 重构去掉了什么
+ * 上一版是「主视图 + 另一视图折叠在下面」，两个视图互相包含：盯盘为主时下面挂着简报，
+ * 简报为主时下面挂着盯盘。结果是同一屏里两套不同节奏的读数同时存在，而且折叠区
+ * 一旦被"永久展开"过就再也回不到干净状态。现在两者是**平级的两个子页**，靠二级导航切换。
  */
-export default function TodayPanel({ onPick }: Props) {
+export default function TodayPanel({ onPick, onOpenMap, jump }: Props) {
   const [now, setNow] = useState(() => new Date());
   const [override, setOverride] = useState<MainView | null>(null);
+  const [mounted, setMounted] = useState<Set<MainView>>(
+    () => new Set<MainView>([sessionInfo(new Date()).mainView]),
+  );
 
   // 每分钟刷新时段；跨过时段边界时主视图自动跟随
   useEffect(() => {
@@ -48,70 +71,63 @@ export default function TodayPanel({ onPick }: Props) {
     setOverride(null);
   }, [info.key]);
 
+  // ⚠️ 必须排在上面那条之后：挂载时两条都会跑一遍，
+  //    顺序反了的话「跳转指定的主视图」会被「按时段复位」立刻冲掉。
+  useEffect(() => {
+    if (jump?.tab === "today" && (jump.sub === "monitor" || jump.sub === "briefing")) {
+      setOverride(jump.sub);
+    }
+  }, [jump?.id, jump?.sub, jump?.tab]);
+
   const view: MainView = override ?? info.mainView;
 
+  // 访问过的子页常驻 DOM（隐藏而非卸载）—— 来回切换不该重新拉一遍行情。
+  useEffect(() => {
+    setMounted((prev) => (prev.has(view) ? prev : new Set(prev).add(view)));
+  }, [view]);
+
+  const changeSub = (k: string) => {
+    if (k === "monitor" || k === "briefing") setOverride(k);
+  };
+
+  const items = subNavFor("today").map((s) => ({
+    ...s,
+    icon: SUB_ICON[s.key as keyof typeof SUB_ICON],
+  }));
+
   return (
-    <div className="space-y-4">
-      {/* 时段条：说明现在是什么时段、这一屏在看什么 */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3">
-        <div className="flex min-w-0 items-center gap-2.5">
-          <span className="relative flex h-2.5 w-2.5 shrink-0">
-            {info.trading && (
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand-light opacity-75" />
-            )}
-            <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${info.trading ? "bg-brand" : "bg-slate-600"}`} />
+    <div className={STACK}>
+      <PageHeader
+        icon={Zap}
+        title="今日作战"
+        desc="今天该做什么：盘中盯盘给买卖点，简报给方向与复盘"
+        meta={
+          <span className="flex items-center justify-end gap-1.5">
+            <span className="relative flex h-2 w-2">
+              {info.trading && (
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand-light opacity-75" />
+              )}
+              <span
+                className={`relative inline-flex h-2 w-2 rounded-full ${info.trading ? "bg-brand" : "bg-slate-600"}`}
+              />
+            </span>
+            <span className="font-medium text-ink-soft">{info.label}</span>
           </span>
-          <span className="text-sm font-semibold text-white">{info.label}</span>
-          <span className="truncate text-xs text-ink-faint">{HINT[info.key]}</span>
-        </div>
+        }
+      />
 
-        <div className="flex shrink-0 rounded-lg border border-slate-800 p-0.5" role="group" aria-label="主视图切换">
-          <button
-            onClick={() => setOverride("monitor")}
-            aria-pressed={view === "monitor"}
-            className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-              view === "monitor" ? "bg-brand text-white" : "text-ink-muted hover:text-ink"
-            }`}
-          >
-            <Activity className="h-3.5 w-3.5" aria-hidden />
-            盯盘
-          </button>
-          <button
-            onClick={() => setOverride("briefing")}
-            aria-pressed={view === "briefing"}
-            className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-              view === "briefing" ? "bg-brand text-white" : "text-ink-muted hover:text-ink"
-            }`}
-          >
-            <ClipboardList className="h-3.5 w-3.5" aria-hidden />
-            简报
-          </button>
-        </div>
+      {/* 时段说明：这一屏现在在看什么 */}
+      <p className="-mt-2 text-xs text-ink-faint">{HINT[info.key]}</p>
+
+      {/* 功能地图入口：一行高，说明这个工具一共有多少东西，并能按域直达 */}
+      <FeatureMapBar onOpen={onOpenMap} />
+
+      <SubNav id="today" items={items} value={view} onChange={changeSub} />
+
+      <div className={view === "monitor" ? "" : "hidden"}>{mounted.has("monitor") && <MonitorPanel />}</div>
+      <div className={view === "briefing" ? "" : "hidden"}>
+        {mounted.has("briefing") && <DailyBriefing onPick={onPick} />}
       </div>
-
-      {/* 主视图 */}
-      {view === "monitor" ? <MonitorPanel /> : <DailyBriefing onPick={onPick} />}
-
-      {/* 副视图：默认收起，按需展开（收起时不挂载，避免白跑请求） */}
-      {view === "monitor" ? (
-        <CollapsiblePanel
-          id="today-briefing"
-          title="今日作战简报"
-          subtitle="早盘方向 · 尾盘动作 · 盘前预读 · 当日复盘"
-          defaultOpen={false}
-        >
-          <DailyBriefing onPick={onPick} />
-        </CollapsiblePanel>
-      ) : (
-        <CollapsiblePanel
-          id="today-monitor"
-          title="盘中监控台"
-          subtitle="实时盯盘 · 强弱判断与买卖点"
-          defaultOpen={false}
-        >
-          <MonitorPanel />
-        </CollapsiblePanel>
-      )}
     </div>
   );
 }

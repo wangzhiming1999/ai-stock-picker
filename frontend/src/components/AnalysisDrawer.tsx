@@ -3,18 +3,22 @@ import { AnimatePresence, motion } from "framer-motion";
 import { BarChart3, PanelRightClose, X } from "lucide-react";
 import { toast } from "sonner";
 import { fetchStock, streamAnalysis } from "../api/client";
-import StockCard from "./StockCard";
-import StockSearchInput from "./StockSearchInput";
-import { cardItem, stagger } from "../lib/motion";
-import type { StockAnalysis, StockInfo, SSEEvent } from "../types";
-import Button from "./Button";
-
-type Phase = "idle" | "running" | "done" | "error";
-
-interface AnalysisItem {
-  analysis: StockAnalysis;
-  info?: StockInfo;
-}
+import type { StockInfo, SSEEvent } from "../types";
+import {
+  MIN_WIDTH,
+  WIDTH_KEY,
+  maxAllowedWidth,
+  parseCodesFromText,
+  readInitialWidth,
+  type AnalysisItem,
+  type Phase,
+} from "./analysis/shared";
+import AnalysisInput from "./analysis/AnalysisInput";
+import AnalysisStatus from "./analysis/AnalysisStatus";
+import AnalysisError from "./analysis/AnalysisError";
+import AnalysisResults from "./analysis/AnalysisResults";
+import AnalysisEmpty from "./analysis/AnalysisEmpty";
+import AnalysisPill from "./analysis/AnalysisPill";
 
 interface Props {
   open: boolean;
@@ -25,47 +29,6 @@ interface Props {
   onClose: () => void;
   /** 一批分析结果落库后触发，用于刷新历史记录列表 */
   onBatchSaved?: () => void;
-}
-
-/** 面板宽度记忆：拖窄过一次就一直是窄的，不用每次重调 */
-const WIDTH_KEY = "ai:analysisDrawerWidth";
-const DEFAULT_WIDTH = 768;
-const MIN_WIDTH = 360;
-const MAX_WIDTH = 1200;
-/** 主界面至少留出的可见宽度 —— 这是「抽屉不挡事」的硬底线 */
-const MIN_MAIN_WIDTH = 260;
-
-function readInitialWidth(): number {
-  try {
-    const n = Number(localStorage.getItem(WIDTH_KEY));
-    if (Number.isFinite(n) && n >= MIN_WIDTH && n <= MAX_WIDTH) return n;
-  } catch {
-    /* ignore */
-  }
-  return DEFAULT_WIDTH;
-}
-
-/** 当前视口允许的最大宽度：不占满，永远给主界面留一条可点的区域 */
-function maxAllowedWidth(): number {
-  if (typeof window === "undefined") return MAX_WIDTH;
-  return Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, window.innerWidth - MIN_MAIN_WIDTH));
-}
-
-function parseCodesFromText(text: string): string[] {
-  return text
-    .split(/[\s,，;；、]+/)
-    .map((s) => s.trim())
-    .filter((s) => /^\d{6}$/.test(s));
-}
-
-/** 运行中的呼吸点：状态条和折叠胶囊共用，避免两处各写一遍 */
-function RunningDot() {
-  return (
-    <span className="relative flex h-2.5 w-2.5 shrink-0">
-      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand-light opacity-75" />
-      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-brand" />
-    </span>
-  );
 }
 
 /**
@@ -87,6 +50,9 @@ function RunningDot() {
  *   停止                       —— 中止但面板留着，方便换一批股票重跑
  *
  * 面板自带完整分析状态机（流式 SSE + 中止），所以 App 不需要再持有分析状态。
+ *
+ * 本文件只保留「抽屉外壳 + 请求生命周期 + 组合」：各渲染区块（输入 / 状态 / 错误 /
+ * 结果 / 空状态 / 折叠胶囊）已拆到 ./analysis/，共享常量与格式化函数见 ./analysis/shared.ts。
  */
 export default function AnalysisDrawer({ open, codes, requestId, onClose, onBatchSaved }: Props) {
   const [input, setInput] = useState("");
@@ -371,137 +337,33 @@ export default function AnalysisDrawer({ open, codes, requestId, onClose, onBatc
 
               <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6">
                 {/* 输入区 */}
-                <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
-                  <label className="mb-2 block text-sm font-medium text-ink-soft">
-                    股票搜索 <span className="ml-1 text-xs font-normal text-ink-faint">（代码/名称 · 支持多只）</span>
-                  </label>
-                  <div className="flex flex-col gap-3 sm:flex-row">
-                    <StockSearchInput
-                      value={input}
-                      onChange={setInput}
-                      onPickCode={(code) => {
-                        setInput((prev) => {
-                          const existing = parseCodesFromText(prev);
-                          if (existing.includes(code)) return prev;
-                          return [...existing, code].join(", ");
-                        });
-                      }}
-                      disabled={phase === "running"}
-                    />
-                    {phase === "running" ? (
-                      <button
-                        onClick={stop}
-                        className="rounded-lg border border-slate-600 bg-slate-800 px-6 py-2.5 text-sm font-medium text-ink hover:bg-slate-700"
-                      >
-                        停止
-                      </button>
-                    ) : (
-                      <Button variant="primary" size="xl"
-                        onClick={() => void run(input)}
-                        >
-                        开始分析
-                      </Button>
-                    )}
-                  </div>
-                  <p className="mt-2 text-xs text-ink-faint">
-                    提示：Ctrl + Enter 触发分析 · Esc 收起 · 分析期间主界面可继续操作
-                  </p>
-                  <label className="mt-2 flex cursor-pointer items-start gap-2 text-xs text-ink-muted">
-                    <input
-                      type="checkbox"
-                      checked={debate}
-                      onChange={(e) => setDebate(e.target.checked)}
-                      disabled={phase === "running"}
-                      className="mt-0.5 accent-blue-600"
-                    />
-                    <span>
-                      多空研究员对辩
-                      <span className="ml-1 text-ink-faint">
-                        （每只票额外 2 轮 LLM 调用，更慢；结论仅为分歧与风险提示，不构成买卖依据）
-                      </span>
-                    </span>
-                  </label>
-                </div>
+                <AnalysisInput
+                  input={input}
+                  onInputChange={setInput}
+                  phase={phase}
+                  onRun={(raw) => void run(raw)}
+                  onStop={stop}
+                  debate={debate}
+                  onDebateChange={setDebate}
+                />
 
                 {/* 状态 */}
-                {(phase === "running" || phase === "done") && status && (
-                  <div className="mt-4 flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900 px-4 py-3 text-sm text-ink-soft">
-                    {phase === "running" ? (
-                      <>
-                        <RunningDot />
-                        <span>{status}</span>
-                        {total > 0 && (
-                          <span className="ml-auto shrink-0 text-xs text-ink-faint tabular-nums">
-                            {items.length}/{total}
-                          </span>
-                        )}
-                        {currentCode && <span className="text-xs text-ink-faint">({currentCode})</span>}
-                      </>
-                    ) : (
-                      <span className="text-brand-light">✓ {status}</span>
-                    )}
-                  </div>
-                )}
+                <AnalysisStatus
+                  phase={phase}
+                  status={status}
+                  total={total}
+                  doneCount={items.length}
+                  currentCode={currentCode}
+                />
 
                 {/* 错误 */}
-                {phase === "error" && errorMsg && (
-                  <div className="mt-4 rounded-lg border border-red-800 bg-red-950/40 px-4 py-3 text-sm text-red-300">
-                    {errorMsg}
-                  </div>
-                )}
+                <AnalysisError phase={phase} errorMsg={errorMsg} />
 
                 {/* 结果 */}
-                {items.length > 0 && (
-                  <div className="mt-6">
-                    <div className="mb-3 flex items-center justify-between">
-                      <h3 className="text-base font-semibold text-white">分析结果</h3>
-                      <div className="flex items-center gap-2 text-sm">
-                        <span className="text-ink-muted">平均分</span>
-                        <span className="text-lg font-bold text-brand-light tabular-nums">{avgScore.toFixed(1)}</span>
-                      </div>
-                    </div>
-                    <div className="mb-5 flex h-7 w-full overflow-hidden rounded-xl border border-slate-800 bg-slate-900">
-                      {items.map((item, idx) => (
-                        <div
-                          key={item.analysis.code + idx}
-                          className="flex items-center justify-center overflow-hidden border-r border-slate-900 text-xs font-medium text-white/90 last:border-r-0"
-                          style={{
-                            width: `${(Math.max(item.analysis.overall_score, 0) / totalScore) * 100}%`,
-                            background: "linear-gradient(to top, rgba(37,99,235,0.85), rgba(37,99,235,0.45))",
-                          }}
-                          title={`${item.analysis.name} ${item.analysis.overall_score.toFixed(1)}`}
-                        >
-                          {item.analysis.name}
-                        </div>
-                      ))}
-                    </div>
-                    <motion.div
-                      className="grid gap-5"
-                      variants={stagger}
-                      initial="hidden"
-                      animate="visible"
-                      key={items.length}
-                    >
-                      {items.map((item, idx) => (
-                        <motion.div key={item.analysis.code + idx} variants={cardItem}>
-                          <StockCard analysis={item.analysis} info={infos[item.analysis.code]} />
-                        </motion.div>
-                      ))}
-                    </motion.div>
-                  </div>
-                )}
+                <AnalysisResults items={items} infos={infos} avgScore={avgScore} totalScore={totalScore} />
 
                 {/* 空状态 */}
-                {phase === "idle" && items.length === 0 && (
-                  <div className="mt-10 text-center">
-                    <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-800 bg-slate-900">
-                      <BarChart3 className="h-7 w-7 text-brand-light" aria-hidden />
-                    </div>
-                    <p className="mt-3 text-sm text-ink-faint">
-                      输入 A 股代码，AI 将综合行情、K线趋势与最新新闻给出选股评分
-                    </p>
-                  </div>
-                )}
+                {phase === "idle" && items.length === 0 && <AnalysisEmpty />}
               </div>
             </motion.aside>
           </div>
@@ -511,22 +373,12 @@ export default function AnalysisDrawer({ open, codes, requestId, onClose, onBatc
       {/* 收起后的常驻胶囊：实时报进度，点开还原 —— 这是「分析不挡事」的关键 */}
       <AnimatePresence>
         {open && collapsed && (
-          <motion.button
-            type="button"
-            initial={{ opacity: 0, y: 12, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 12, scale: 0.96 }}
-            transition={{ duration: 0.18 }}
-            onClick={() => setCollapsed(false)}
-            aria-label="展开深度分析面板"
-            className="fixed bottom-16 right-3 z-50 flex max-w-[86vw] items-center gap-2.5 rounded-full border border-slate-700 bg-slate-900/95 py-2 pl-3 pr-4 text-left shadow-2xl backdrop-blur sm:bottom-6 sm:right-6"
-          >
-            {phase === "running" ? <RunningDot /> : <BarChart3 className="h-4 w-4 shrink-0 text-brand-light" aria-hidden />}
-            <span className="min-w-0">
-              <span className="block truncate text-xs font-medium text-ink">{pillTitle}</span>
-              <span className="block truncate text-xs text-ink-faint">{pillMeta}</span>
-            </span>
-          </motion.button>
+          <AnalysisPill
+            phase={phase}
+            pillTitle={pillTitle}
+            pillMeta={pillMeta}
+            onExpand={() => setCollapsed(false)}
+          />
         )}
       </AnimatePresence>
     </>

@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import * as echarts from "echarts";
 import { runBacktest } from "../api/client";
-import CollapsiblePanel from "./CollapsiblePanel";
+import CollapsiblePanel from "./ui/CollapsiblePanel";
 import { CaliberLine } from "./CaliberNote";
 import { safeArray, safeNumber } from "../lib/safe";
 import { pctTone, pnlTone } from "../lib/tone";
 import type { BacktestResult } from "../types";
-import Input from "./Input";
-import Button from "./Button";
+import Input from "./ui/Input";
+import Button from "./ui/Button";
 
 const STRATEGIES = [
   { name: "quality_momentum", label: "质量动量", desc: "动量排序 + 趋势确认" },
@@ -202,7 +202,7 @@ export default function BacktestPanel() {
           </div>
 
           {/* 口径随数据下发：这里的「胜率」样本单位是调仓期，不是个股，不能和形态/推荐胜率混算。
-              不可比声明统一在 VerifyPanel 顶部展示一次。 */}
+              不可比声明统一在「研究 · 证据台账」子页顶部展示一次。 */}
           <div className="mt-2">
             <CaliberLine caliber={result.caliber} />
           </div>

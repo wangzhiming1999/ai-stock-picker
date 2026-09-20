@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { fetchQuadRanking } from "../api/client";
-import CollapsiblePanel from "./CollapsiblePanel";
+import CollapsiblePanel from "./ui/CollapsiblePanel";
 import WatchStar from "./WatchStar";
 import { safeArray } from "../lib/safe";
 import { confirmForceRefresh, useSpotCooldown } from "../lib/spotGuard";
 import { pnlTone, scoreChip } from "../lib/tone";
 import type { QuadRankResult, QuadStock } from "../types";
-import Button from "./Button";
+import Button from "./ui/Button";
 
 interface Props {
   onPick: (codes: string[]) => void;

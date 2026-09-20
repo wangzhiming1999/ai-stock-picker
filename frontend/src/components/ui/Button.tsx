@@ -5,7 +5,7 @@ import {
   BTN_VARIANT,
   type ButtonSize,
   type ButtonVariant,
-} from "../lib/ui";
+} from "../../lib/ui";
 
 interface Props extends ButtonHTMLAttributes<HTMLButtonElement> {
   /** 颜色语义。默认 primary（主操作）。 */

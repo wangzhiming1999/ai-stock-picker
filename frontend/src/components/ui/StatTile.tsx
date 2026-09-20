@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { STAT, STAT_LABEL, STAT_VALUE } from "../lib/ui";
+import { STAT, STAT_LABEL, STAT_VALUE } from "../../lib/ui";
 
 interface Props {
   /** 数值本身（已格式化好的文案，如 "1,234" / "+2.31%"） */
