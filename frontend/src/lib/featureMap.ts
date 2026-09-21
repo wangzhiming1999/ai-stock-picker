@@ -39,6 +39,40 @@ export type Domain = Tab | "global";
 export type FeatureAnchor = "limitup" | "limitdown" | "search";
 
 /**
+ * 可由功能地图**直达的区块**。
+ *
+ * 一级导航 4 项、二级子页 13 个，而功能有 29 项 —— 多出来的那些不在「子页」这一层，
+ * 而是子页内部的某个折叠区块（比如「潜力龙头」是决策页里的第 4 块，且默认收起）。
+ * 只跳到子页的话，用户到了地方还得在一列收起的标题里自己找一遍 ——
+ * 那正是"点进来还是找不到"的机械原因。
+ *
+ * 取值 = 对应 `CollapsiblePanel` 的 `id`（也就是 `ai:collapse:<id>` 里那个 key）。
+ * 写成联合类型而不是 `string`：拼错在编译期就断掉。
+ * 至于「这个 id 是否真的挂在某个面板上」——组件侧的 id 是裸字符串，类型管不到，
+ * 由 `featureMap.test.ts` 扫描组件源码对账（守卫会失败，不是永远通过）。
+ */
+export type BlockId =
+  | "monitor" // 今日作战 · 盯盘监控
+  | "daily_recommend" // 推荐 · 今天有哪些可行动机会
+  | "prediction" // 推荐 · 明日大盘推衍
+  | "quad-rank" // 推荐 · 四维牛股榜
+  | "industry" // 推荐 · 行业板块热榜
+  | "vanguard-board" // 决策 · 三维选股榜
+  | "vanguard-sector" // 决策 · 板块强度
+  | "vanguard-herding" // 决策 · 主力抱团监测
+  | "vanguard-leader" // 决策 · 潜力龙头
+  | "vanguard-diagnose" // 决策 · 三维诊股
+  | "vanguard-timing" // 决策 · 买卖时机结构位
+  | "scan_strategy" // 扫描 · 一键找候选
+  | "scan_auction" // 扫描 · 开盘前异动
+  | "scan_closing" // 扫描 · 收盘前异动
+  | "scan_market" // 扫描 · 按条件筛选
+  | "scan_tactics" // 形态 · 实战形态命中
+  | "winrate" // 研究 · 胜率看板
+  | "backtest" // 研究 · 策略回测
+  | "tactic_backtest"; // 研究 · 形态回测验证
+
+/**
  * 一次「跨页跳转」请求。
  *
  * `id` 必须自增：用户可能连着点两次同一个功能（比如先手动切走再点回来），
@@ -58,6 +92,14 @@ export interface FeatureEntry {
   domain: Domain;
   /** domain != "global" 时必填：切到该 domain 后要选中哪个子页 */
   sub?: SubKey;
+  /**
+   * 子页内部的折叠区块，跳到子页后再滚到它、并把它展开。
+   *
+   * 不给有两种情况，都是对的：这一块本身就是子页的全部内容（比如「证据台账」），
+   * 或者该功能确实还没拆出可锚定的区块。**能给就给** —— 少给一个，
+   * 用户就多一次「到了地方还要自己找」。
+   */
+  block?: BlockId;
   /** domain == "global" 时必填：要展开/聚焦哪个目标 */
   anchor?: FeatureAnchor;
   /** 检索词。中文全称、简称、英文标识都放进来，用户怎么叫都能搜到 */
@@ -98,6 +140,7 @@ export const FEATURES: FeatureEntry[] = [
     desc: "日线 / 15 分 / 5 分多周期，每行给出买卖点与挂单价",
     domain: "today",
     sub: "monitor",
+    block: "monitor",
     keywords: ["盯盘", "监控", "买卖点", "挂单", "止损", "支撑", "压力", "monitor"],
     isNew: true,
   },
@@ -114,10 +157,11 @@ export const FEATURES: FeatureEntry[] = [
   {
     key: "op.recommend",
     label: "AI 每日推荐",
-    desc: "模型筛出的今日关注标的，带买点 / 止损 / 手数",
+    desc: "模型筛出的今日关注标的，带预期价格 / 触发 / 失效 / 目标——预期价格取自结构位，可直接当挂单价",
     domain: "opportunity",
     sub: "recommend",
-    keywords: ["推荐", "选股", "每日", "AI", "买点", "手数", "recommend"],
+    block: "daily_recommend",
+    keywords: ["推荐", "选股", "每日", "AI", "买点", "预期价格", "挂单价", "手数", "recommend"],
   },
   {
     key: "op.quad",
@@ -125,6 +169,7 @@ export const FEATURES: FeatureEntry[] = [
     desc: "基本面 / 技术面 / 资金面 / 情绪面打分排序",
     domain: "opportunity",
     sub: "recommend",
+    block: "quad-rank",
     keywords: ["四维", "排名", "打分", "评分", "quad"],
   },
   {
@@ -133,6 +178,7 @@ export const FEATURES: FeatureEntry[] = [
     desc: "指数场景推演与对应应对，不是点位预测",
     domain: "opportunity",
     sub: "recommend",
+    block: "prediction",
     keywords: ["大盘", "推衍", "指数", "场景", "prediction"],
   },
   {
@@ -141,6 +187,7 @@ export const FEATURES: FeatureEntry[] = [
     desc: "新浪行业板块涨跌幅排序，用来识别当前热点方向",
     domain: "opportunity",
     sub: "recommend",
+    block: "industry",
     keywords: ["板块", "热榜", "行业", "热点", "主线", "sector"],
   },
 
@@ -148,10 +195,11 @@ export const FEATURES: FeatureEntry[] = [
   {
     key: "op.vanguard",
     label: "决策先锋三维榜",
-    desc: "暗盘资金 / 趋势 / 活跃度 三维打分排序；三维分是当日读数，不是买入信号",
+    desc: "暗盘资金 / 趋势 / 活跃度 三维打分排序，每只带预期价格（突破位 / 回踩位）；三维分是当日读数，不是买入信号",
     domain: "opportunity",
     sub: "vanguard",
-    keywords: ["决策先锋", "三维", "选股", "打分", "暗盘", "资金", "vanguard"],
+    block: "vanguard-board",
+    keywords: ["决策先锋", "三维", "选股", "打分", "暗盘", "资金", "预期价格", "介入价", "vanguard"],
     isNew: true,
   },
   {
@@ -160,6 +208,7 @@ export const FEATURES: FeatureEntry[] = [
     desc: "单只票的三维分数 + 结构位 + 所属板块强度（量化读数，不给多空结论）",
     domain: "opportunity",
     sub: "vanguard",
+    block: "vanguard-diagnose",
     keywords: ["诊股", "体检", "单票", "打分", "diagnose", "个股诊断"],
   },
   {
@@ -168,6 +217,7 @@ export const FEATURES: FeatureEntry[] = [
     desc: "按当日横截面分位合成的板块强弱（资金 / 动量 / 广度 / 情绪；分位换日即换基准）",
     domain: "opportunity",
     sub: "vanguard",
+    block: "vanguard-sector",
     keywords: ["板块强度", "强度", "板块", "热点", "核心热点", "strength"],
   },
   {
@@ -176,6 +226,7 @@ export const FEATURES: FeatureEntry[] = [
     desc: "涨停板块集中度与板块资金净流入占比的合读，用来判断有没有抱团主线",
     domain: "opportunity",
     sub: "vanguard",
+    block: "vanguard-herding",
     keywords: ["抱团", "主力抱团", "集中度", "主线", "herding"],
   },
   {
@@ -184,6 +235,7 @@ export const FEATURES: FeatureEntry[] = [
     desc: "资金已进场、趋势成立且尚未被拉到买不进的候选（涨幅 ≥9% 的已剔除）",
     domain: "opportunity",
     sub: "vanguard",
+    block: "vanguard-leader",
     keywords: ["龙头", "潜力龙头", "领涨", "leader"],
   },
   {
@@ -192,6 +244,7 @@ export const FEATURES: FeatureEntry[] = [
     desc: "支撑 / 压力 / 止损锚定结构位，不随现价漂移；买入侧实测为负，只作价位参考",
     domain: "opportunity",
     sub: "vanguard",
+    block: "vanguard-timing",
     keywords: ["买卖时机", "买卖点", "支撑", "压力", "止损", "时机", "timing"],
   },
 
@@ -202,6 +255,7 @@ export const FEATURES: FeatureEntry[] = [
     desc: "按策略从缓存行情筛候选；要最新数据得先强制刷新",
     domain: "opportunity",
     sub: "scan",
+    block: "scan_strategy",
     keywords: ["候选", "找票", "筛选", "一键", "策略选股"],
   },
   {
@@ -210,6 +264,7 @@ export const FEATURES: FeatureEntry[] = [
     desc: "仅 9:15–9:30 使用；异动不等于可以买",
     domain: "opportunity",
     sub: "scan",
+    block: "scan_auction",
     keywords: ["异动", "竞价", "开盘前", "早盘"],
   },
   {
@@ -218,6 +273,7 @@ export const FEATURES: FeatureEntry[] = [
     desc: "仅 14:45–15:00 使用；需防范尾盘诱多",
     domain: "opportunity",
     sub: "scan",
+    block: "scan_closing",
     keywords: ["异动", "尾盘", "诱多", "收盘前"],
   },
   {
@@ -226,6 +282,7 @@ export const FEATURES: FeatureEntry[] = [
     desc: "按价格 / 涨幅 / 成交额过滤，不含任何形态确认",
     domain: "opportunity",
     sub: "scan",
+    block: "scan_market",
     keywords: ["筛选", "条件", "价格", "涨幅", "成交额", "filter"],
   },
 
@@ -236,6 +293,7 @@ export const FEATURES: FeatureEntry[] = [
     desc: "K 线量价条件全部成立的只数；条件成立不等于形态被回测验证",
     domain: "opportunity",
     sub: "tactic",
+    block: "scan_tactics",
     keywords: ["形态", "技巧", "命中", "tactic", "K线"],
   },
 
@@ -255,6 +313,7 @@ export const FEATURES: FeatureEntry[] = [
     desc: "各策略历史胜率；不同口径不可比较、不可相加",
     domain: "research",
     sub: "winrate",
+    block: "winrate",
     keywords: ["胜率", "winrate", "统计", "准确率"],
   },
   {
@@ -263,6 +322,7 @@ export const FEATURES: FeatureEntry[] = [
     desc: "18 只样本池的组合回测（含幸存者偏差说明）",
     domain: "research",
     sub: "backtest",
+    block: "backtest",
     keywords: ["回测", "组合", "backtest", "收益率"],
   },
   {
@@ -271,6 +331,7 @@ export const FEATURES: FeatureEntry[] = [
     desc: "K 线形态逐条的独立回测与证据档次",
     domain: "research",
     sub: "backtest",
+    block: "tactic_backtest",
     keywords: ["回测", "形态", "技巧", "回测验证"],
   },
 
@@ -294,10 +355,10 @@ export const FEATURES: FeatureEntry[] = [
   {
     key: "hold.sim",
     label: "模拟盘",
-    desc: "虚拟资金记账；一字板会自动标注「买不进」",
+    desc: "虚拟资金记账；一字板会自动标注「买不进」，建仓可记预期价格并回看执行偏差",
     domain: "holdings",
     sub: "sim",
-    keywords: ["模拟盘", "虚拟", "记账", "paper", "练手"],
+    keywords: ["模拟盘", "虚拟", "记账", "预期价格", "滑点", "执行偏差", "paper", "练手"],
   },
   {
     key: "hold.watch",
@@ -319,11 +380,14 @@ export const FEATURES: FeatureEntry[] = [
   /* ── 全局读数 ────────────────────────────────────────────── */
   {
     key: "global.limitup",
-    label: "涨停梯队 · 次日溢价读数",
-    desc: "涨停 / 连板 / 炸板率 + 打板次日溢价的统计读数（tradable 与买不进分档报）",
+    label: "涨停梯队 · 打板候选 · 次日溢价读数",
+    desc: "涨停 / 连板 / 炸板率 + 「可打板」时的候选清单（打板价与次日涨停价）+ 次日溢价读数",
     domain: "global",
     anchor: "limitup",
-    keywords: ["涨停", "连板", "梯队", "溢价", "打板", "炸板", "接力", "limitup"],
+    keywords: [
+      "涨停", "连板", "梯队", "溢价", "打板", "打板价", "炸板", "接力",
+      "预期价格", "次日涨停价", "limitup",
+    ],
     isNew: true,
   },
   {

@@ -17,6 +17,7 @@ import ResearchPanel from "./components/ResearchPanel";
 import StockSearchInput from "./components/StockSearchInput";
 import TodayPanel from "./components/TodayPanel";
 import { emitBus, useBus } from "./lib/bus";
+import { requestBlockFocus } from "./lib/blockFocus";
 import { DOMAIN_TAB, type Domain, type FeatureEntry, type NavJump } from "./lib/featureMap";
 import { DEFAULT_TAB, NAV, isTab, type Tab } from "./lib/nav";
 import { PAGE_WRAP } from "./lib/ui";
@@ -92,7 +93,15 @@ export default function App() {
     const target = DOMAIN_TAB[f.domain];
     setTab(target);
     setJump((prev) => ({ tab: target, sub: f.sub, id: (prev?.id ?? 0) + 1 }));
-    window.scrollTo({ top: 0, behavior: "smooth" });
+
+    if (f.block) {
+      // 目标区块自己认领这次请求：它可能还没挂载（lazy + Suspense），
+      // 也可能因为数据没到而根本没渲染（`{data && <CollapsiblePanel/>}`）。
+      // ⚠️ 这里**不要**再滚顶部 —— 两个滚动指令会互相打断，最后停在哪取决于谁后发生。
+      requestBlockFocus(f.block);
+    } else {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
   }, []);
 
   // 顶部搜索框的聚焦请求（功能地图里的「全局搜索 · 深度分析」）

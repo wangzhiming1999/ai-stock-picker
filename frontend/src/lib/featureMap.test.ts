@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
   DOMAINS,
@@ -186,4 +186,45 @@ test("featuresOf 只返回该域的条目", () => {
     assert.ok(featuresOf(d).every((f: FeatureEntry) => f.domain === d));
   }
   assert.equal(featuresOf("global").every((f) => f.domain === "global"), true);
+});
+
+/**
+ * 下面两条守的是 `block`（区块级落点）。
+ *
+ * 为什么这里可以「扫源码对账」，而上面那条 sub 的守卫被废掉了：
+ * `sub` 是 `SubKey` 推导出来的编译期类型，拼错根本写不出来；
+ * 但 `CollapsiblePanel` 的 `id` 按设计就是个裸字符串（它还要当 localStorage key），
+ * 类型系统接不上这一环。所以「登记了一个不存在的区块」是**唯一**能静默发生、
+ * 且后果是「点了没反应 / 只切页不滚动」的脱钩 —— 只能靠扫源码兜住。
+ */
+test("block 落点必须真的挂在某个折叠面板上（否则跳过去只切页、不滚动）", () => {
+  const componentsDir = new URL("../components/", import.meta.url);
+  const ids = new Set<string>();
+  const walk = (dir: URL): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        walk(new URL(`${entry.name}/`, dir));
+      } else if (entry.name.endsWith(".tsx")) {
+        const src = readFileSync(new URL(entry.name, dir), "utf8");
+        for (const m of src.matchAll(/\bid="([A-Za-z_][\w-]*)"/g)) ids.add(m[1]);
+      }
+    }
+  };
+  walk(componentsDir);
+
+  // 守卫自检：解析不出 id 说明扫描本身坏了，这条测试就会变成永远通过的假守卫
+  assert.ok(ids.size > 10, `只从组件里解析出 ${ids.size} 个 id，扫描逻辑可能失效了`);
+
+  for (const f of FEATURES) {
+    if (!f.block) continue;
+    assert.ok(ids.has(f.block), `${f.key} 的 block="${f.block}" 在任何组件里都不存在，点了不会滚过去`);
+  }
+});
+
+test("block 只能和 sub 一起出现（global 靠 anchor，不靠滚动）", () => {
+  for (const f of FEATURES) {
+    if (!f.block) continue;
+    assert.ok(f.sub, `${f.key} 有 block 却没给 sub，跳转时连页面都切不过去`);
+    assert.equal(f.anchor, undefined, `${f.key} 同时有 block 和 anchor，落点语义冲突`);
+  }
 });
