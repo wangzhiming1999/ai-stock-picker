@@ -24,16 +24,18 @@
  * 历史教训：全站曾有 210 处用 text-slate-500/600 当提示文字，实测只有 3.07 / 1.93:1。
  *
  * ## 字号（v3 新增，2026-09-21）
- * 尺寸只认 tailwind.config.js 的 `fontSize` 阶梯（8 档，**每档自带行高**）：
- *   micro 10 / meta 12 / label 12 / body 14 / head 16 / num 18 / h1 20 / hero 24
+ * 尺寸只认 tailwind.config.js 的 `fontSize` 阶梯（9 档，**每档自带行高**）：
+ *   micro 10 / meta 12 / label 12 / body 14 / head 16 / num 18 / h1 20 / hero 24 / display 32
  * 组件里**禁止**再写裸档位（text-xs / text-sm / text-base / text-lg / text-xl /
  * text-2xl / text-[13px]）—— 它们已不参与构建，写了就是无样式，
  * `designGuard.test.ts` 会报出来。
  *
  * 本次修的是**阶梯塌陷**：迁移前全站 557 处 text-xs、183 处 text-sm，
- * 即八成文字是同一个 12px，而且全站 0 处 `leading-*` —— 中文 12px 的浏览器
- * 默认行高只有 16px（1.33），字一多就糊成一坨灰。这不是配色问题，
- * 是「一屏之内所有字一样大 + 行高过紧」的机械缺陷。
+ * 即八成文字是同一个 12px；行高只靠 63 处零散的 `leading-relaxed` 兜底，
+ * 没有任何一档字号自带行高 —— 中文 12px 的浏览器默认行高只有 16px（1.33），
+ * 字一多就糊成一坨灰。这不是配色问题，是「一屏之内所有字一样大 + 行高过紧」
+ * 的机械缺陷。（`leading-relaxed` 保留在长段落上是有意的，不要一并清掉；
+ * 但**新写的文字不要再用它**去覆盖阶梯行高。）
  *
  * ## 字体族
  * 定义在 tailwind.config.js 的 `fontFamily.sans`：中文优先系统字体栈
