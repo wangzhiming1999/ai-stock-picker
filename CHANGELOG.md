@@ -10,6 +10,44 @@
 ## [Unreleased]
 
 ### Added
+- **决策先锋：暗盘资金 / 趋势 / 活跃度 三维选股 + 诊股 + 板块强度 + 主力抱团 + 潜力龙头**（2026-09-21）
+  > 与四维榜（基本面/技术面/资金面/消息面）**刻意并存而不是替代**：四维榜回答「这票好不好」
+  > （静态质地），决策先锋回答「今天资金在往哪去、谁跟着走」（当日行为）。维度不同、
+  > 候选池不同、口径不可比，因此各自一张快照表，前端放在同一个子页并列展示。
+  - **资金维取数：批量端点，不是逐股**。新增 `spot_service.fetch_fund_flow_rows()`，
+    复用全市场快照那套东财 clist 传输层（多域名轮换 / UA / 页间节流 / 重试），
+    只换 `fid=f62` 就按主力净流入排序**整页**返回个股 —— 一次请求覆盖数百只。
+    两页（吸筹侧 + 出货侧）即可覆盖两端，请求量比逐股方案低两个数量级。
+    ⚠️ 产品名叫「暗盘资金」，但**数据口径是主力净流入（超大单+大单）**，A 股没有
+    公开暗盘成交数据 —— 口径与名字分开写在接口、UI 与证据文案三处，不含糊过去。
+  - 新增 `backend/app/services/vanguard_service.py`：三维打分（资金 0.40 / 趋势 0.35 /
+    活跃度 0.25，**资金维不可用时权重重新归一化，缺失维不计 0 分**）、按市值分层的活跃度、
+    结构位复用 `signal_service.compute_signals`、板块强度（当日横截面分位合成：
+    资金 0.34 / 动量 0.28 / 广度 0.20 / 情绪 0.18）、主力抱团（涨停板块集中度 +
+    板块资金集中度两个代理）、潜力龙头（资金+趋势+位置，**剔除涨幅 ≥9% 的买不进标的**）。
+  - 新增路由 `GET /api/market/vanguard`（整榜，日快照缓存）与
+    `GET /api/market/vanguard/diagnose?code=`（单票诊股，命中榜内结果时**零额外请求**）。
+  - **不 force 底层行情源**：`refresh=true` 只穿透本服务的三层缓存（内存 → DB 快照 → 重算），
+    底层快照与资金流永远 `force=False`。所以本页的刷新按钮**不需要** spotGuard 确认闸门
+    （四维榜需要，因为它的 refresh 会一路 force 到底层）—— 有专项测试锁定这条约束。
+  - 新增迁移 `backend/supabase-schema-v12.sql`（`vanguard_snapshots`，幂等）并登记进
+    `/api/admin/migrate/status` 的 `EXPECTED_TABLES`。**表未建时静默降级为纯进程内缓存**
+    （功能仍可用，只是冷实例会重复拉一次资金流批次）。
+  - 证据闸门：新增 `STRATEGY_EVIDENCE["vanguard_three_dim"] = preliminary`
+    （三维分是当日读数、从未跑过收益回测，故**永久不具备升级条件**，升级路径写在 provenance 里）；
+    买卖时机复用 `monitor_levels`（**买入侧实测为负 → unsupported**）。两处档位与摘要都随接口下发。
+  - 前端：`subnav.ts` 的 `opportunity` 下新增第四个子页「决策」（一级导航仍为 4 项、二级 ≤5，
+    守卫不变）；`VanguardPanel`（thin host）+ `components/vanguard/`（`shared` / `BoardTable` /
+    `MarketLayer` / `DiagnoseCard`）四文件；`featureMap.ts` 新增 **6 条**登记
+    （三维榜 / 诊股 / 板块强度 / 抱团 / 龙头 / 买卖时机），现场数 23 → **29 条**
+    （`opportunity` 9 → 15）。配色严守 `tone.ts`：质量分走 `scoreChip`（不占红绿），
+    只有涨跌幅与资金净额用 `pnlTone`；某一维未观测到时显示「—」而不是 0.0。
+  - 后端测试 +43（`tests/test_vanguard_service.py`），全量 **578 passed**；前端 `npm test` 42 passed、
+    `tsconfig.app.json` typecheck 零错误、`vite build` 通过（`VanguardPanel` 独立分包 28.9 kB）、
+    `npm run contrast` 全绿。
+  - ⚠️ **上线前需要执行 v12 迁移**：不做也能跑（静默降级），但每个冷实例的第一位访客会
+    多拉一次资金流批次 + 数十只 K 线。命令见 `POST /api/admin/migrate?only=v12`。
+
 - **页面全量重构：视觉 v2 + 巨型组件拆分 + 信息架构重排**（2026-09-20）
   > 上一轮的「功能地图」解决的是「能不能找到」，本轮解决的是「**找起来拐几个弯**」。
   > 三处结构性原因：① 深度分析藏在「选机会」下、实战形态藏在「扫描」下，层级深且没有回头路；
