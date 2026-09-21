@@ -41,6 +41,7 @@ from app.services import (
     data_service,
     limitup_service,
     quad_service,
+    regime_service,
     signal_service,
     spot_service,
     supabase_store,
@@ -70,6 +71,15 @@ LEADER_MIN_TREND = 6.0
 LEADER_MAX_CHANGE_PCT = 9.0   # 涨幅≥9% 大概率一字/秒板，列出来只会导向买不进的价格
 LEADER_MIN_PCT_FROM_HIGH = -30.0
 SECTOR_SIZE = 12          # 板块强度展示条数
+WIDE_POOL_TOP_N = 150      # 宽池：廉价预筛（无 K 线）候选上限，仅供浏览/筛选，不进精算
+
+# 选股排序（selection_score）并入的「已有信号」加成 —— 用命名常量便于测试断言。
+# 这些信号都来自已经加载/已算好的数据（资金批次、涨停池、全市场快照），
+# 不再打任何逐股请求，因此并入排序不会放大风控风险。
+SECTOR_SEL_WEIGHT = 1.0    # 板块强度分（0-10）对 selection_score 的最大加成
+MAINLINE_BONUS = 0.4       # 属当日强势/主线板块的加成
+BREADTH_BEARISH = 5.0      # 市场宽度分低于此值视为偏弱市
+MOMENTUM_PENALTY = 1.0     # 偏弱市下对高活跃度（高 beta 动量）标的的最大降权
 
 # 资金流批次（东财 clist）缓存
 _FUND_TTL = 600           # 10 分钟内存缓存
@@ -512,6 +522,38 @@ def _composite(scores: dict[str, float | None]) -> tuple[float, dict[str, float]
     return round(overall, 2), used
 
 
+def _selection_score(
+    item: dict,
+    sector_strength: float | None,
+    is_mainline: bool,
+    breadth_score: float | None,
+) -> float:
+    """选股排序分 = 三维综合分 + 板块强度加成 + 主线加成 − 弱市动量降权。
+
+    只用于排名，**不改写** ``overall_score``（那是面向用户的「三维分」读数，含义恒定）。
+    任一信号缺失时优雅退化到三维综合分本身，不会把「没观测到」算成惩罚。
+    """
+    base = float(item.get("overall_score") or 0)
+    s_boost = (sector_strength / 10.0) * SECTOR_SEL_WEIGHT if sector_strength is not None else 0.0
+    m_boost = MAINLINE_BONUS if is_mainline else 0.0
+    r_pen = 0.0
+    if breadth_score is not None and breadth_score < BREADTH_BEARISH:
+        activity = (item.get("scores") or {}).get("activity") or 0
+        if activity >= 7:  # 只对明显高活跃度（高 beta 动量）标的降权，弱市追高更危险
+            r_pen = (BREADTH_BEARISH - breadth_score) / BREADTH_BEARISH * MOMENTUM_PENALTY
+    return round(base + s_boost + m_boost - r_pen, 3)
+
+
+def _breadth_score_from_spot(spot: list[dict]) -> float | None:
+    """从全市场快照免费算市场宽度分（0-10），无新增请求。失败降级为 None。"""
+    try:
+        b = regime_service.compute_breadth(spot)
+        return (b or {}).get("breadth_score")
+    except Exception as e:
+        print(f"[vanguard] 市场宽度计算失败，状态门控降级: {e}")
+        return None
+
+
 # ---------------- 候选池与精算 ----------------
 
 
@@ -934,9 +976,12 @@ async def generate_board(force_refresh: bool = False) -> dict:
     fund_available = fund.get("status") in ("ok", "cached") and bool(fund_rows)
     fund_by_code = {r["code"]: r for r in fund_rows if r.get("code")}
 
-    pool = _preselect(spot, fund_by_code, top_n=POOL_TOP_N)
-    if not pool:
+    wide_pool = _preselect(spot, fund_by_code, top_n=WIDE_POOL_TOP_N)
+    if not wide_pool:
         raise RuntimeError("三维候选池为空（今日全市场无符合硬过滤条件的标的）")
+    # 宽池（廉价预筛，无 K 线）只供浏览；精算只在「窄池」前 POOL_TOP_N 只上发生，
+    # 因此 K 线请求数锁死在 POOL_TOP_N —— 调大宽池不会放大 IP 封禁风险。
+    pool = wide_pool[:POOL_TOP_N]
 
     scored = await concurrency.gather_limited(
         (
@@ -949,19 +994,7 @@ async def generate_board(force_refresh: bool = False) -> dict:
     if not items:
         raise RuntimeError("候选股票三维评分失败（K 线全部不可用）")
 
-    def _rank_key(x: dict):
-        avail = [v for v in x["scores"].values() if v is not None]
-        return (
-            sum(1 for v in avail if v >= 7),
-            x["overall_score"],
-        )
-
-    items.sort(key=_rank_key, reverse=True)
-    top = items[:BOARD_SIZE]
-    for i, item in enumerate(top):
-        item["rank"] = i + 1
-
-    # 涨停池（板块情绪层）：失败只降级抱团/板块的情绪维度，不让整条榜失败
+    # 板块强度（用已加载的资金批次 + 涨停池快照，均为既有数据/最佳努力，无新增逐股请求）
     snapshot: dict | None = None
     try:
         snapshot = await limitup_service.get_snapshot()
@@ -969,16 +1002,29 @@ async def generate_board(force_refresh: bool = False) -> dict:
         print(f"[vanguard] 涨停池不可用，板块情绪层降级: {e}")
 
     sectors, sector_field_available = _sector_strength(fund_rows, snapshot)
-    if sector_field_available:
-        # 给榜单个股挂上它所属板块的强度分（用于龙头判定与 UI 展示）
-        strength_by_sector = {s["sector"]: s["strength_score"] for s in sectors}
-        for item in top:
-            item["sector_strength"] = strength_by_sector.get(item.get("sector"))
-    else:
-        for item in top:
-            item["sector_strength"] = None
-
+    strength_by_sector = {s["sector"]: s["strength_score"] for s in sectors}
     strong_sectors = {s["sector"] for s in sectors[:5]}
+
+    # 市场状态（从已有全市场快照免费计算，无新增请求）：宽度分偏低 = 偏弱市，
+    # 对高活跃度（高 beta 动量）标的降权，避免在退潮日追高。
+    breadth_score = _breadth_score_from_spot(spot)
+
+    # 给每个精算项挂板块强度 + 主线标签，并算 selection_score（选股用，不改三维分含义）
+    for it in items:
+        sec = it.get("sector")
+        it["sector_strength"] = strength_by_sector.get(sec) if sector_field_available else None
+        is_mainline = bool(sec) and sec in strong_sectors
+        it["selection_score"] = _selection_score(it, it["sector_strength"], is_mainline, breadth_score)
+        if is_mainline and "主线" not in it["tags"]:
+            it["tags"] = [*it["tags"], "主线"]
+
+    # 排名以 selection_score 为主、三维综合分兜底；这样板块/主线/状态信号
+    # 能影响谁能上榜，但用户看到的「三维分」仍是纯粹的当日读数。
+    items.sort(key=lambda x: (x.get("selection_score") or 0, x["overall_score"]), reverse=True)
+    top = items[:BOARD_SIZE]
+    for i, item in enumerate(top):
+        item["rank"] = i + 1
+
     leaders = _leaders(items, strong_sectors)
     herding = _herding(sectors, snapshot)
 
@@ -988,10 +1034,36 @@ async def generate_board(force_refresh: bool = False) -> dict:
         else "资金维不可用，权重已重新归一化到 趋势 / 活跃度（缺失维不计 0 分）"
     )
     headline = (
-        f"候选池 {len(pool)} 只 → K 线精算 {len(items)} 只 → 上榜 {len(top)} 只；"
+        f"宽池 {len(wide_pool)} 只（廉价预筛）→ 精算 {len(items)} 只（K线）→ 上榜 {len(top)} 只；"
         f"资金维{'可用' if fund_available else '不可用'}（{fund.get('status')}）。"
         "三维分是当日读数，不是买入信号。"
     )
+
+    # 宽池视图（廉价，无 K 线）：供前端「宽池候选」浏览/筛选。被精算命中的票带三维分与板块强度。
+    scored_map = {it["code"]: it for it in items}
+    wide_pool_view: list[dict] = []
+    for r in wide_pool:
+        code = r.get("code") or ""
+        fr = fund_by_code.get(code) or {}
+        sc = scored_map.get(code)
+        wide_pool_view.append(
+            {
+                "code": code,
+                "name": r.get("name") or "",
+                "price": round(r.get("price") or 0, 2),
+                "change_pct": round(r.get("change_pct") or 0, 2),
+                "amount_yi": round(r.get("amount_yi") or 0, 2),
+                "turnover": round(r["turnover"], 2) if r.get("turnover") is not None else None,
+                "volume_ratio": round(r["volume_ratio"], 2) if r.get("volume_ratio") is not None else None,
+                "sector": fr.get("sector") or None,
+                "main_pct": round(fr["main_pct"], 2) if fr.get("main_pct") is not None else None,
+                "pre_score": round(r.get("_pre_score") or 0, 2),
+                "scored": code in scored_map,
+                "overall_score": sc.get("overall_score") if sc else None,
+                "sector_strength": sc.get("sector_strength") if sc else None,
+                "selection_score": sc.get("selection_score") if sc else None,
+            }
+        )
 
     result = {
         "date": data_day,
@@ -999,6 +1071,7 @@ async def generate_board(force_refresh: bool = False) -> dict:
         "generated_at": trade_calendar_service.now_cn().isoformat(timespec="seconds"),
         "pool_size": len(pool),
         "scored_size": len(items),
+        "wide_pool_size": len(wide_pool_view),
         "evidence": _evidence_block(),
         "dims": [
             {"key": "dark_money", "label": "暗盘资金", "desc": "主力净流入（超大单+大单）口径，非真实暗盘数据"},
@@ -1019,6 +1092,8 @@ async def generate_board(force_refresh: bool = False) -> dict:
         "sectors": sectors,
         "herding": herding,
         "leaders": leaders,
+        "wide_pool": wide_pool_view,
+        "market_state": {"breadth_score": breadth_score},
         # 资金快照映射：供「诊股」在冷实例上也能拿到资金维，而不必再打一次端点
         "fund_map": _fund_map(fund_rows),
     }

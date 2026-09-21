@@ -7,6 +7,7 @@ import Button from "./ui/Button";
 import CollapsiblePanel from "./ui/CollapsiblePanel";
 import Panel from "./ui/Panel";
 import BoardTable from "./vanguard/BoardTable";
+import WidePoolTable from "./vanguard/WidePoolTable";
 import DiagnoseCard from "./vanguard/DiagnoseCard";
 import { HerdingCard, LeadersList, SectorTable } from "./vanguard/MarketLayer";
 import { EvidenceBadge, EvidenceNote, FundFlowNotice } from "./vanguard/shared";
@@ -156,6 +157,15 @@ export default function VanguardPanel({ onPick }: Props) {
             defaultOpen={false}
           >
             <SectorTable data={data} />
+          </CollapsiblePanel>
+
+          <CollapsiblePanel
+            id="vanguard-wide-pool"
+            title="宽池候选"
+            subtitle="廉价预筛（无 K 线）的更广候选面，点行可送三维诊股；「精算」标记=进入 K 线精算、带三维分"
+            defaultOpen={false}
+          >
+            <WidePoolTable data={data} onDiagnose={diagnose} />
           </CollapsiblePanel>
 
           <CollapsiblePanel

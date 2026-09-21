@@ -681,6 +681,78 @@ class BoardGenerationTests:
         assert board["items"]
         assert board["herding"]["level"] in {"low", "mid", "high", "unknown"}
 
+    @pytest.mark.asyncio
+    async def test_wide_pool_exposes_candidates_and_scored_rows_carry_scores(self, monkeypatch) -> None:
+        """宽池是廉价预筛的全部候选；精算行带三维分、未精算行 overall_score 为 null（非 0）。"""
+        calls: dict = {}
+        fund_rows = [_fund_row(f"6000{i:02d}", 1e8 * i, 2.0 * i, "半导体") for i in range(1, 7)]
+        self._patch_environment(monkeypatch, calls, fund_rows)
+
+        board = await V.generate_board(force_refresh=True)
+
+        assert board["wide_pool_size"] >= board["scored_size"]
+        assert len(board["wide_pool"]) == board["wide_pool_size"]
+        for r in board["wide_pool"]:
+            if r["scored"]:
+                assert r["overall_score"] is not None
+                assert r["selection_score"] is not None
+            else:
+                assert r["overall_score"] is None
+
+    @pytest.mark.asyncio
+    async def test_wide_pool_can_exceed_kline_pool_with_kline_count_locked(self, monkeypatch) -> None:
+        """放大数据：宽池 150 远超精算 40，但 K 线请求数恰好 = POOL_TOP_N（风控不恶化）。"""
+        calls: dict = {"kline": 0}
+        codes = [f"6000{i:03d}" for i in range(200)]
+
+        async def fake_spot(force: bool = False):
+            return [_spot_row(c) for c in codes]
+
+        def counting_history(code, days=120, **k):
+            calls["kline"] += 1
+            return _hist(_up_closes())
+
+        monkeypatch.setattr(quad_service, "get_full_spot", fake_spot)
+        async def fake_fund(force: bool = False):
+            return {"status": "ok", "rows": [_fund_row(c, 1e8, 2.0, "半导体") for c in codes]}
+
+        monkeypatch.setattr(V, "_load_fund_flow", fake_fund)
+        monkeypatch.setattr(data_service, "get_history", counting_history)
+
+        async def fake_snapshot(force=False):
+            return {"stocks": [], "sectors": [], "sentiment": {}}
+
+        monkeypatch.setattr(L, "get_snapshot", fake_snapshot)
+        monkeypatch.setattr(supabase_store, "is_configured", lambda: False)
+
+        async def fake_last_trading_day():
+            return dt.date(2026, 9, 19)
+
+        monkeypatch.setattr(trade_calendar_service, "last_trading_day", fake_last_trading_day)
+
+        board = await V.generate_board(force_refresh=True)
+
+        assert board["wide_pool_size"] == V.WIDE_POOL_TOP_N
+        assert board["scored_size"] <= V.POOL_TOP_N
+        assert calls["kline"] == V.POOL_TOP_N
+
+    @pytest.mark.asyncio
+    async def test_selection_score_folds_sector_and_mainline(self, monkeypatch) -> None:
+        """选股排序分并入板块强度与主线加成，且不改写用户可见的三维分。"""
+        calls: dict = {}
+        fund_rows = [_fund_row(f"6000{i:02d}", 1e8 * i, 2.0 * i, "半导体") for i in range(1, 7)]
+        self._patch_environment(monkeypatch, calls, fund_rows)
+
+        board = await V.generate_board(force_refresh=True)
+
+        for it in board["items"]:
+            assert it["selection_score"] is not None
+            # 全部属同一强势板块 → 主线加成，selection_score 不低于三维分
+            assert it["selection_score"] >= it["overall_score"]
+            assert "主线" in it["tags"]
+            # 三维分本身含义不变（仍是纯读数）
+            assert set(it["scores"]) == {"dark_money", "trend", "activity"}
+
 
 # ───────────────────────── 预期价格（执行锚点） ─────────────────────────
 
