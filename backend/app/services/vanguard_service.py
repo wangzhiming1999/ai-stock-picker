@@ -632,7 +632,7 @@ async def _score_one(rich: dict, fund: dict | None, fund_available: bool) -> dic
         tags.append("趋势明确")
     if ac_score is not None and ac_score >= 8:
         tags.append("量能活跃")
-    if levels and levels.get("rr_ratio", 0) >= 2:
+    if levels and (levels.get("rr_ratio") or 0) >= 2:
         tags.append("风报比达标")
 
     return {
