@@ -75,7 +75,7 @@ TACTICS: list[dict] = [
         "source": "daily",
         "history_days": 160,
         "warmup": 70,
-        "desc": "长期下跌后缩量至前期均量 20% 以下，再温和放量 2 倍为左侧买点。",
+        "desc": "长期下跌后缩量至前期均量 30% 以下，再温和放量 2 倍为左侧买点。",
     },
     {
         "key": "volume_peak",

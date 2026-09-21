@@ -81,25 +81,33 @@ async def settle_daily_recommendations() -> int:
     return settled
 
 
+def _err_note(e: Exception) -> str:
+    return f"{type(e).__name__}: {e}"
+
+
 async def get_winrate_stats() -> dict:
     """胜率统计：预测命中率 + 推荐胜率。表未创建时返回空。
 
     每个统计块都带上 `caliber`（口径定义，见 `calibers`）——
     这两个命中率的标的/持有期/分类数都不同，`caliber_note` 明确声明不可比较。
     前端只展示，不自己解释口径。
+
+    DB 查询失败会返回 `error` 与各块 `error`，避免把「取数炸了」显示成「今天还没数据」。
     """
     if not supabase_store.is_configured():
         return {
             "prediction": None,
             "recommendation": None,
             "snapshot": None,
+            "error": "supabase_not_configured",
             "caliber_note": calibers.note(),
         }
 
     sb = await supabase_store.get_service_client()
 
     # 预测统计
-    pred_rows = []
+    pred_rows: list[dict] = []
+    pred_error: str | None = None
     try:
         pred_res = (
             await sb.table("prediction_records")
@@ -108,8 +116,8 @@ async def get_winrate_stats() -> dict:
             .execute()
         )
         pred_rows = pred_res.data or []
-    except Exception:
-        pass
+    except Exception as e:
+        pred_error = _err_note(e)
     pred_total = len(pred_rows)
     pred_hit = sum(1 for r in pred_rows if r.get("hit"))
     by_dir: dict = {}
@@ -125,7 +133,8 @@ async def get_winrate_stats() -> dict:
     # 推荐统计（带 source 细分）
     # 口径纪律：'quad'（四维榜 Top10）与 'llm'/'rule'（每日推荐）的入选机制完全不同，
     # 命中率不可相加比较 —— 主口径只算推荐链路，quad/watch 单列。
-    rec_rows = []
+    rec_rows: list[dict] = []
+    rec_error: str | None = None
     try:
         rec_res = (
             await sb.table("daily_recommendations")
@@ -134,8 +143,8 @@ async def get_winrate_stats() -> dict:
             .execute()
         )
         rec_rows = rec_res.data or []
-    except Exception:
-        pass
+    except Exception as e:
+        rec_error = f"daily_recommendations: {_err_note(e)}"
 
     def _is_reco_source(src) -> bool:
         return src not in ("quad", "watch")
@@ -158,6 +167,7 @@ async def get_winrate_stats() -> dict:
 
     # 最新快照
     snapshot = None
+    snap_error: str | None = None
     try:
         snap_res = (
             await sb.table("winrate_snapshot")
@@ -167,8 +177,10 @@ async def get_winrate_stats() -> dict:
             .execute()
         )
         snapshot = snap_res.data[0] if snap_res.data else None
-    except Exception:
-        pass
+    except Exception as e:
+        snap_error = f"winrate_snapshot: {_err_note(e)}"
+
+    top_error = " / ".join(filter(None, [pred_error, rec_error, snap_error])) or None
 
     return {
         "prediction": {
@@ -178,6 +190,7 @@ async def get_winrate_stats() -> dict:
             "by_direction": by_dir,
             "sample_status": _sample_status(pred_total),
             "caliber": calibers.describe("prediction"),
+            "error": pred_error,
         },
         "recommendation": {
             "total": rec_total,
@@ -189,8 +202,11 @@ async def get_winrate_stats() -> dict:
                 "quad": _block(quad_rows),
                 "watch": _block(watch_rows),
             },
+            "error": rec_error,
         },
         "snapshot": snapshot,
+        "snapshot_error": snap_error,
+        "error": top_error,
         "caliber_note": calibers.note(),
     }
 
@@ -200,6 +216,9 @@ async def refresh_winrate_snapshot() -> None:
     if not supabase_store.is_configured():
         return
     stats = await get_winrate_stats()
+    # 查询侧已报错时，不要把「0 命中」污染进历史快照
+    if stats.get("error"):
+        return
     p = stats.get("prediction") or {}
     r = stats.get("recommendation") or {}
     sb = await supabase_store.get_service_client()

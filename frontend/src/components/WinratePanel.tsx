@@ -46,6 +46,15 @@ export default function WinratePanel() {
 
       {data && (
         <div className="space-y-4">
+          {/* 取数失败时必须先说清楚，否则 total=0 会被读成「还没数据」。 */}
+          {data.error && (
+            <div className="rounded-lg border border-amber-700/50 bg-amber-950/30 px-3 py-2 text-xs text-amber-300">
+              <span className="font-medium">胜率数据部分取数失败：</span>
+              {data.error}
+              <span className="ml-1 text-ink-faint">（下方数字来自成功返回的部分，total=0 可能是查询失败而非暂无数据）</span>
+            </div>
+          )}
+
           {/* 数据积累徽标：让用户看见闭环在跑 */}
           {(data.prediction?.total ?? 0) + (data.recommendation?.total ?? 0) > 0 ? (
             <div className="flex items-center gap-2 rounded-lg border border-brand/30 bg-brand/5 px-3 py-2 text-xs text-brand-light">
@@ -54,7 +63,7 @@ export default function WinratePanel() {
             </div>
           ) : (
             <div className="rounded-lg border border-slate-700 bg-slate-800/40 px-3 py-2 text-xs text-ink-muted">
-              闭环待启动 · 首次结算将在今日收盘后自动执行
+              {data.error ? "取数失败，无法判断闭环状态" : "闭环待启动 · 首次结算将在今日收盘后自动执行"}
             </div>
           )}
 
@@ -119,6 +128,9 @@ export default function WinratePanel() {
             )}
             {data.recommendation?.sample_status === "insufficient" && data.recommendation.total > 0 && (
               <p className="mt-2 text-xs text-amber-400">样本不足 30 只，暂不据此判断策略有效性。</p>
+            )}
+            {data.recommendation?.error && (
+              <p className="mt-2 text-xs text-amber-400">推荐记录查询失败：{data.recommendation.error}</p>
             )}
             {/* 来源细分：quad=四维榜 / watch=观察层（拦截样本），与主口径不可相加 */}
             {data.recommendation?.by_source && Object.values(data.recommendation.by_source).some((b) => b.total > 0) && (

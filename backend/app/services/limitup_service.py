@@ -199,11 +199,25 @@ async def accumulated_stats() -> dict:
     每日落库（v10）就是为此把窗口自积累起来。这个读数让「观察到第几天了」
     可被直接看到，而不是靠猜（此前 accumulated_days 一直是 0，很容易被误判成迁移没生效）。
 
-    Supabase 未配置 / 表未建 → 返回 configured=False + days=0（静默降级，不抛）。
+    三种降级状态必须**说清楚原因**，不能混成同一个「未接入」，否则用户分不清是
+    配置问题还是迁移没跑：
+    - ``supabase_not_configured``：全站数据类功能都不可用（不只本面板）；
+    - ``table_missing``：v10 迁移没跑（limitup_daily_snapshot 表不存在）—— 需在
+      Supabase SQL Editor 执行 backend/supabase-schema-v10.sql；
+    - ``read_error:<Type>``：连接 / 权限等真实异常。
+    注意：表已建但暂无数据是 ``configured=True 且 days=0``，那是正常的（每日落库任务
+    会逐步积累），不要和上面的「未接入」混淆。
     """
-    empty = {"configured": False, "days": 0, "rows": 0, "first_date": None, "last_date": None}
+    empty = {
+        "configured": False,
+        "days": 0,
+        "rows": 0,
+        "first_date": None,
+        "last_date": None,
+        "note": None,
+    }
     if supabase_store is None or not supabase_store.is_configured():
-        return empty
+        return {**empty, "note": "supabase_not_configured"}
     try:
         sb = await supabase_store.get_service_client()
         res = await sb.table("limitup_daily_snapshot").select("trade_date").limit(_ACCUMULATED_SCAN_LIMIT).execute()
@@ -215,10 +229,16 @@ async def accumulated_stats() -> dict:
             "rows": len(rows),
             "first_date": min(dates) if dates else None,
             "last_date": max(dates) if dates else None,
+            "note": None,
         }
     except Exception as e:
+        msg = str(e)
+        # PostgrestError 报 relation "limitup_daily_snapshot" does not exist（SQLSTATE 42P01）
+        if "does not exist" in msg or "42P01" in msg:
+            print(f"[limitup] 累积表未建（v10 迁移未执行）: {e}")
+            return {**empty, "configured": True, "note": "table_missing"}
         print(f"[limitup] 累积表统计失败: {e}")
-        return {**empty, "configured": True}
+        return {**empty, "configured": True, "note": f"read_error:{type(e).__name__}"}
 
 
 async def load_accumulated_snapshots(start_date: str, end_date: str) -> dict[str, list[dict]]:

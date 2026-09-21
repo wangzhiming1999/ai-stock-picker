@@ -143,13 +143,25 @@ export default function EvidenceLedgerPanel() {
 
       <div>
         <h4 className="text-xs font-semibold text-ink-faint">观察期自积累</h4>
-        <p className="mt-1 text-xs leading-relaxed text-ink-soft">
+        <p
+          className={`mt-1 text-xs leading-relaxed ${
+            acc.configured ? "text-ink-soft" : "text-amber-300/90"
+          }`}
+        >
           涨停池累积表：
-          {acc.configured
+          {acc.configured && acc.days > 0
             ? `已落库 ${acc.days} 个交易日 / ${acc.rows} 行${
                 acc.first_date ? `（${acc.first_date} 起）` : ""
               }`
-            : "未接入（Supabase 未配置或 v10 表未建）"}
+            : acc.configured
+            ? "已落库 0 个交易日（表已建，暂无快照；每日落库任务会逐步积累）"
+            : acc.note === "supabase_not_configured"
+            ? "未接入：Supabase 未配置（全站数据类功能均不可用，需在 Vercel 环境变量设置 SUPABASE_URL / SUPABASE_SERVICE_KEY）"
+            : acc.note === "table_missing"
+            ? "未接入：v10 表 limitup_daily_snapshot 未迁移（需在 Supabase SQL Editor 执行 backend/supabase-schema-v10.sql）"
+            : acc.note && acc.note.startsWith("read_error:")
+            ? `读取失败（${acc.note.slice("read_error:".length)}）`
+            : "未接入（原因未知）"}
         </p>
         <p className="mt-1 text-xs leading-relaxed text-ink-faint">{data.observation.note}</p>
       </div>

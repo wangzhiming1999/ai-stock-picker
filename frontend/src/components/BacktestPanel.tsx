@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import * as echarts from "echarts";
-import { runBacktest } from "../api/client";
+import { runBacktest, fetchBacktestPool } from "../api/client";
 import CollapsiblePanel from "./ui/CollapsiblePanel";
 import { CaliberLine } from "./CaliberNote";
 import { safeArray, safeNumber } from "../lib/safe";
@@ -26,6 +26,9 @@ export default function BacktestPanel() {
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<BacktestResult | null>(null);
   const [err, setErr] = useState("");
+  const [poolCodes, setPoolCodes] = useState<string[] | null>(null);
+  const [customCodes, setCustomCodes] = useState("");
+  const [showPool, setShowPool] = useState(false);
   const chartRef = useRef<HTMLDivElement>(null);
   const chart = useRef<echarts.ECharts | null>(null);
 
@@ -38,6 +41,12 @@ export default function BacktestPanel() {
       window.removeEventListener("resize", onResize);
       chart.current?.dispose();
     };
+  }, []);
+
+  useEffect(() => {
+    fetchBacktestPool()
+      .then((p) => setPoolCodes(p.codes))
+      .catch(() => setPoolCodes(null));
   }, []);
 
   useEffect(() => {
@@ -86,12 +95,16 @@ export default function BacktestPanel() {
     setErr("");
     setResult(null);
     try {
+      const codes = customCodes.trim()
+        ? customCodes.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean)
+        : undefined;
       const res = await runBacktest({
         strategy,
         start_date: startDate,
         end_date: "",
         top_n: parseInt(topN) || 5,
         rebalance_days: parseInt(rebalance) || 5,
+        codes,
       });
       setResult(res);
     } catch (e) {
@@ -148,6 +161,47 @@ export default function BacktestPanel() {
           <span className="mb-1 block text-xs text-ink-faint">调仓周期(交易日)</span>
           <Input value={rebalance} onChange={(e) => setRebalance(e.target.value)} className="w-16 rounded-lg bg-slate-800/70 px-2 py-1.5 text-xs" />
         </label>
+      </div>
+
+      {/* 股票池：默认 18 只行业代表标的（来自 /api/backtest/pool）。留空即用默认池，可自定义覆盖。 */}
+      <div className="mb-4 rounded-lg border border-slate-800 bg-slate-900/40 px-3 py-2">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+          <span className="text-ink-faint">股票池</span>
+          {poolCodes ? (
+            <button
+              onClick={() => setShowPool((v) => !v)}
+              className="text-brand-light hover:underline"
+              title="查看/收起默认池"
+            >
+              默认 {poolCodes.length} 只行业代表标的{showPool ? " ▲" : " ▼"}
+            </button>
+          ) : (
+            <span className="text-ink-muted">默认 18 只行业代表标的</span>
+          )}
+          <span className="text-ink-faint">· 自定义覆盖：</span>
+          <Input
+            value={customCodes}
+            onChange={(e) => setCustomCodes(e.target.value)}
+            placeholder="留空用默认池，逗号/空格分隔"
+            className="w-64 rounded-lg bg-slate-800/70 px-2 py-1 text-xs"
+          />
+          {customCodes.trim() && (
+            <button
+              onClick={() => setCustomCodes("")}
+              className="text-ink-muted transition-colors hover:text-ink"
+              title="恢复默认池"
+            >
+              重置
+            </button>
+          )}
+        </div>
+        {showPool && poolCodes && (
+          <div className="mt-2 flex flex-wrap gap-1">
+            {poolCodes.map((c) => (
+              <span key={c} className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-[10px] text-ink-muted">{c}</span>
+            ))}
+          </div>
+        )}
       </div>
 
       {err && <div className="mb-3 rounded-lg border border-red-800 bg-red-950/40 px-3 py-2 text-sm text-red-300">{err}</div>}

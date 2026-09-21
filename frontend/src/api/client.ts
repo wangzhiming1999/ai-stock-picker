@@ -335,6 +335,13 @@ export async function runBacktest(params: {
   return res.json();
 }
 
+/** 策略回测默认股票池（18 只行业代表标的）。留空 codes 时后端即用此池。 */
+export async function fetchBacktestPool(): Promise<{ codes: string[]; count: number }> {
+  const res = await fetch(`${API}/backtest/pool`);
+  if (!res.ok) throw await errorFrom(res, "获取默认回测池失败");
+  return res.json();
+}
+
 export async function fetchWinrate(): Promise<WinrateStats> {
   const res = await fetch(`${API}/market/winrate`);
   if (!res.ok) throw await errorFrom(res, "获取胜率失败");
@@ -590,6 +597,15 @@ export async function fetchAlertUnread(): Promise<number> {
 
 export async function markAlertRead(): Promise<void> {
   await authFetch(`${API}/alerts/read`, { method: "POST" });
+}
+
+/** 勾选标记部分预警为已读（ids 为空等价于全部已读）。 */
+export async function markAlertReadPartial(ids: number[]): Promise<void> {
+  await authFetch(`${API}/alerts/read/partial`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(ids),
+  });
 }
 
 export async function evaluateAlerts(): Promise<number> {

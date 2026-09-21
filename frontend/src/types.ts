@@ -874,6 +874,8 @@ export interface WinrateStats {
     by_direction: Record<string, { total: number; hit: number; hit_rate: number | null }>;
     sample_status?: "insufficient" | "developing" | "established";
     caliber?: Caliber;
+    /** DB 查询失败时的错误信息；存在时不应把 total=0 解读为「暂无数据」 */
+    error?: string | null;
   } | null;
   recommendation: {
     total: number;
@@ -883,12 +885,18 @@ export interface WinrateStats {
     caliber?: Caliber;
     /** 按来源细分的结算数（quad=四维榜 / watch=观察层）；与主口径不可相加 */
     by_source?: Record<string, { total: number; hit: number; hit_rate: number | null; sample_status?: string }>;
+    /** DB 查询失败时的错误信息 */
+    error?: string | null;
   } | null;
   snapshot: {
     snapshot_date: string;
     prediction_rate: number | null;
     recommend_rate: number | null;
   } | null;
+  /** winrate_snapshot 查询失败时的错误信息 */
+  snapshot_error?: string | null;
+  /** 任意查询失败时的汇总错误信息；存在时 refresh_winrate_snapshot 不会写入快照 */
+  error?: string | null;
   /** 不可比声明：多种口径的数字不能比较、不能相加 */
   caliber_note?: string;
 }
@@ -1475,6 +1483,8 @@ export interface EvidenceLedger {
       rows: number;
       first_date: string | null;
       last_date: string | null;
+      /** 降级原因：supabase_not_configured / table_missing / read_error:<Type> / null */
+      note?: string | null;
     };
     note: string;
   };

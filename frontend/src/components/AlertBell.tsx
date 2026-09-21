@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Bell, BellRing, CheckCheck } from "lucide-react";
+import { Bell, BellRing, Check, CheckCheck } from "lucide-react";
 import { toast } from "sonner";
-import { evaluateAlerts, fetchAlertEvents, fetchAlertUnread, markAlertRead } from "../api/client";
+import { evaluateAlerts, fetchAlertEvents, fetchAlertUnread, markAlertRead, markAlertReadPartial } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import type { AlertEvent } from "../types";
 
@@ -84,6 +84,16 @@ export default function AlertBell() {
     setEvents((ev) => ev.map((e) => ({ ...e, is_read: true })));
   };
 
+  const markOne = async (id: number) => {
+    try {
+      await markAlertReadPartial([id]);
+    } catch {
+      // 单条标记失败不影响其余
+    }
+    setEvents((ev) => ev.map((e) => (e.id === id ? { ...e, is_read: true } : e)));
+    setUnread((u) => Math.max(0, u - 1));
+  };
+
   return (
     <div className="relative">
       <button
@@ -127,13 +137,25 @@ export default function AlertBell() {
                   events.map((e) => (
                     <div
                       key={e.id}
-                      className={`border-b border-slate-800/60 px-4 py-2.5 ${e.is_read ? "" : "bg-amber-950/10"}`}
+                      className={`flex items-start justify-between gap-2 border-b border-slate-800/60 px-4 py-2.5 ${e.is_read ? "" : "bg-amber-950/10"}`}
                     >
-                      <div className="flex items-center justify-between">
-                        <span className={`text-xs font-semibold ${sevStyle[e.severity] ?? "text-ink"}`}>{e.title}</span>
-                        <span className="text-xs text-ink-faint">{timeAgo(e.created_at)}</span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className={`text-xs font-semibold ${sevStyle[e.severity] ?? "text-ink"}`}>{e.title}</span>
+                          <span className="shrink-0 text-xs text-ink-faint">{timeAgo(e.created_at)}</span>
+                        </div>
+                        <p className="mt-0.5 text-xs text-ink-muted">{e.message}</p>
                       </div>
-                      <p className="mt-0.5 text-xs text-ink-muted">{e.message}</p>
+                      {!e.is_read && (
+                        <button
+                          onClick={() => void markOne(e.id)}
+                          title="标为已读"
+                          aria-label="标为已读"
+                          className="shrink-0 rounded-md p-1 text-ink-faint transition-colors hover:bg-slate-700 hover:text-brand-light"
+                        >
+                          <Check className="h-3.5 w-3.5" aria-hidden />
+                        </button>
+                      )}
                     </div>
                   ))
                 )}
