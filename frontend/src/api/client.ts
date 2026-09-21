@@ -31,6 +31,7 @@ import type {
   SimAccount,
   SimPerformance,
   SimPositionsData,
+  SimTrade,
   SimTradesData,
   SpotStatus,
   StockInfo,
@@ -615,7 +616,9 @@ export async function simTrade(payload: {
   source?: "manual" | "briefing" | "recommend" | "agent" | "limitup_relay";
   related_reco_id?: string | null;
   note?: string;
-}): Promise<{ trade: unknown; account: SimAccount; realized_pnl?: number }> {
+  /** 预期价格（执行锚点）：建仓时计划成交的价位，仅记录用于事后对比滑点 */
+  expected_price?: number;
+}): Promise<{ trade: SimTrade; account: SimAccount; realized_pnl?: number }> {
   const res = await authFetch(`${API}/sim/trade`, { method: "POST", body: JSON.stringify(payload) });
   if (!res.ok) {
     const d = await res.json().catch(() => ({}));

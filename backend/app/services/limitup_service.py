@@ -32,6 +32,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import time
+from decimal import ROUND_HALF_UP, Decimal
 
 import requests
 
@@ -498,7 +499,12 @@ def ladder_gaps(ladder: list[dict]) -> list[int]:
     return [b for b in range(2, top) if counts.get(b, 0) == 0]
 
 
-def play_advice(sentiment: dict, ladder: list[dict], sectors: list[dict]) -> dict:
+def play_advice(
+    sentiment: dict,
+    ladder: list[dict],
+    sectors: list[dict],
+    stocks: list[dict] | None = None,
+) -> dict:
     """今日操作建议：可打板 / 只看不动手 / 空仓等待 三档。
 
     判定顺序（从否决到放宽）：
@@ -506,6 +512,11 @@ def play_advice(sentiment: dict, ladder: list[dict], sectors: list[dict]) -> dic
     2. 梯队断层 → 高度接力无承接，追高容易接最后一棒
     3. 无主线板块 → 资金没形成合力，「追最热」在回测里反而晋级率更低
     4. 以上都过关 → 环境相对友好，但仍强调选 2-4 板的「鱼腹」段，不追孤岛高位
+
+    ``stocks`` 是当日涨停池（``get_snapshot`` 里已挂好 position / premium 的那份）。
+    传了它才会在「可打板」档下给出 ``focus`` 打板候选清单 —— 这正是用户反馈的
+    「说了可打板，却没说打板什么」。**只有环境过关时才给清单**：环境不过关时列股票，
+    等于用一张名单否掉自己刚给的结论（本项目在观察层踩过同一个坑）。
     """
     rate = sentiment["break_rate"]
     relay = sentiment["relay_count"]
@@ -515,24 +526,43 @@ def play_advice(sentiment: dict, ladder: list[dict], sectors: list[dict]) -> dic
     mainline_name = top_sector["sector"] if top_sector else "—"
     max_boards = sentiment["max_boards"]
 
+    # 三档共用同一份载荷形状：focus / focus_note / playbook 恒存在，
+    # 前端不必为「这个档位有没有这些字段」写分支（旧后端读到 None 时也只退化成不显示）。
+    def _pack(level: str, title: str, reasons: list[str]) -> dict:
+        # 只有「可打板」才给候选清单。其余两档一律 focus=None + 一句说明为什么没有 ——
+        # 说「别动手」的同时列一张可以买的名单，是本项目在观察层明确踩过的矛盾。
+        if level == "hunt":
+            focus = build_focus(stocks or [], mainline_name)
+            note = focus["note"]
+            playbook = _PLAYBOOK
+        else:
+            focus = None
+            note = (
+                "环境判定不过关，因此不给候选清单：环境不过关时「打哪只」是个伪问题，"
+                "先等炸板率与梯队结构回到可接力的状态，再谈选股。"
+            )
+            playbook = []
+        return {
+            "level": level,
+            "title": title,
+            "reasons": reasons,
+            "gaps": gaps,
+            "mainline": mainline_name,
+            "focus": focus,
+            "focus_note": note,
+            "playbook": playbook,
+        }
+
     reasons: list[str] = []
     if sentiment["limit_up_count"] == 0:
-        return {
-            "level": "avoid",
-            "title": "空仓等待",
-            "reasons": ["全市场没有涨停，情绪冰点，无从接力"],
-            "gaps": gaps,
-            "mainline": mainline_name,
-        }
+        return _pack("avoid", "空仓等待", ["全市场没有涨停，情绪冰点，无从接力"])
     if relay == 0:
         # 有涨停但全是首板：梯队尚未形成，谈不上「追连板」，但也不是冰点 —— 放 watch。
-        return {
-            "level": "watch",
-            "title": "只看不动手",
-            "reasons": [f"今日 {sentiment['limit_up_count']} 家全部为首板，鱼腹（2-4 板梯队）尚未形成，明天才看得到晋级分化"],
-            "gaps": gaps,
-            "mainline": mainline_name,
-        }
+        return _pack(
+            "watch",
+            "只看不动手",
+            [f"今日 {sentiment['limit_up_count']} 家全部为首板，鱼腹（2-4 板梯队）尚未形成，明天才看得到晋级分化"],
+        )
     if rate >= _BREAK_RATE_BAD:
         reasons.append(f"炸板率 {rate}% ≥ {_BREAK_RATE_BAD}%，分歧过大")
     if gaps:
@@ -540,36 +570,26 @@ def play_advice(sentiment: dict, ladder: list[dict], sectors: list[dict]) -> dic
     if mainline_count < _MIN_MAINLINE:
         reasons.append(f"最热板块仅 {mainline_count} 家（{mainline_name}），资金无合力")
     if reasons:
-        return {
-            "level": "avoid",
-            "title": "空仓等待",
-            "reasons": reasons,
-            "gaps": gaps,
-            "mainline": mainline_name,
-        }
+        return _pack("avoid", "空仓等待", reasons)
 
     if rate >= _BREAK_RATE_GOOD or max_boards <= 1:
-        return {
-            "level": "watch",
-            "title": "只看不动手",
-            "reasons": [
+        return _pack(
+            "watch",
+            "只看不动手",
+            [
                 f"炸板率 {rate}% 处于中性区间，接力盈亏比一般" if rate >= _BREAK_RATE_GOOD else "市场只有首板，鱼腹尚未形成"
             ],
-            "gaps": gaps,
-            "mainline": mainline_name,
-        }
+        )
 
-    return {
-        "level": "hunt",
-        "title": "可打板",
-        "reasons": [
+    return _pack(
+        "hunt",
+        "可打板",
+        [
             f"炸板率 {rate}% 封板扎实",
             f"梯队完整（最高 {max_boards} 板，无断层）",
             f"主线 {mainline_name}（{mainline_count} 家涨停）",
         ],
-        "gaps": gaps,
-        "mainline": mainline_name,
-    }
+    )
 
 
 # ---------- 连板资金面评分（明日晋级概率） ----------
@@ -903,6 +923,230 @@ def premium_summary(stocks: list[dict]) -> dict:
     }
 
 
+# ---------- 打板价与候选清单 ----------
+#
+# 用户反馈：「这个可打板，但是没说打板什么」。上面的三档判定回答的是**环境**，
+# 这一节把「环境过关之后到底打哪只、什么价」落到具体标的与具体价位上，
+# 同时不越证据闸门：
+#
+#   · 价 = 交易所价格规则算出来的事实。封板的股票 D 日价格就是 D 日涨停价，
+#     D+1 涨停价 = D 日收盘价 ×(1+限幅)。是算术，不是预测，也不会随行情漂移；
+#   · 名单 = 只用已登记口径筛（换手档 / 炸板次数 / 封板时间档 + 连板资金面三因子），
+#     每条 basis 都能追到上面注释里的那个 n；
+#   · 措辞 = 全程无动作词，收尾仍写明「这是统计读数，不是买入指令」。
+#
+# ⚠️ 它不参与任何收益率结算：预期价格只是执行锚点，胜率 / 溢价口径一律不用它。
+
+# 涨停幅度（%）：主板 10 / 创业板·科创板 20 / 北交所 30 / 主板 ST 5。
+_LIMIT_MAIN = 10.0
+_LIMIT_GEM = 20.0   # 创业板 300/301、科创板 688/689
+_LIMIT_BSE = 30.0   # 北交所 4xx / 8xx / 920
+_LIMIT_ST = 5.0     # 主板 ST
+
+# 候选硬筛阈值。每条都是上方某个已回测口径的边界，改这里必须同步改
+# test_limitup_service.FocusTests 的用例与本节注释。
+_FOCUS_MIN_TURNOVER = 5.0       # 可成交档边界（与 premium 的 tradable 同一条线）
+_FOCUS_MAX_BREAKS = 3           # 炸板 ≥3 次 → 期望降至 +0.68%（0–2 次为 +2.0~2.5%）
+_FOCUS_LATE_SEAL = "14:00:00"   # 首封 ≥14:00 = 唯一负期望档（胜率 37.8%）
+
+_FOCUS_MAX_RELAY = 5   # 连板候选展示上限
+_FOCUS_MAX_FIRST = 3   # 首板候选展示上限
+
+# 剔除原因的短标签：用于 focus["rejected"] 的计数与前端展示。
+_FOCUS_REJECT_LABELS = {
+    "untradable": "换手 <5%（缩量一字/秒板，挂不上单）",
+    "high_break": "炸板 ≥3 次（期望降至 +0.68%）",
+    "late_seal": "尾盘封板（唯一负期望档）",
+}
+
+# 「可打板」档的执行剧本：只讲**怎么执行**，不讲会涨到哪。
+# 每一句都能在上面的口径注释里找到出处，不引入新判据。
+# 刻意不给仓位比例 —— 本项目没有任何回测支持某个具体比例，编一个出来就是假精确。
+_PLAYBOOK = [
+    "价位直接用清单里的数：今日打板价 = 今日涨停价；明日若继续封板，明日的打板价 = 清单里的「次日涨停价」，不必自己乘。",
+    "清单已内建剔除：换手 <5%（缩量一字/秒板，挂不上单）、尾盘封板（唯一负期望档）、炸板 ≥3 次（期望降至 +0.68%）。被剔除的票封得再好看也不在执行范围内。",
+    "卖出口径是「涨停价买入 → 次日集合竞价卖出」，不是持有到盘中高点；可成交档的历史读数见上方「次日溢价读数」块。",
+    "环境判定不过关（空仓等待 / 只看不动手）时不给清单 —— 那时「打哪只」是个伪问题。",
+    "单票仓位不在这里给：本项目没有任何回测支持某个具体比例，编一个百分比出来就是假精确。",
+]
+
+
+def price_limit_pct(code: str, name: str = "") -> float:
+    """该股的涨跌幅限制（%）。
+
+    顺序即优先级：ST 判定放在板块判定**之后** —— 创业板 / 科创板的 ST 股仍是 20%。
+    """
+    c = str(code or "").strip()
+    if c.startswith(("4", "8", "920")):
+        return _LIMIT_BSE
+    if c.startswith(("300", "301", "688", "689")):
+        return _LIMIT_GEM
+    if "ST" in str(name or "").upper():
+        return _LIMIT_ST
+    return _LIMIT_MAIN
+
+
+def next_limit_price(code: str, name: str, close: float) -> float | None:
+    """次日涨停价 = 今日收盘价 ×(1+限幅)。取不到价返回 None（不猜、不折算 0）。
+
+    ⚠️ 必须用 ROUND_HALF_UP：Python 内置 round() 是银行家舍入，
+    11.055 会被舍成 11.05，而交易所进位到 11.06 —— 差一分钱就挂不上单。
+    """
+    try:
+        close = float(close)
+    except (TypeError, ValueError):
+        return None
+    if close <= 0:
+        return None
+    factor = (Decimal("100") + Decimal(str(price_limit_pct(code, name)))) / Decimal("100")
+    return float((Decimal(str(close)) * factor).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+
+def _focus_reject_key(stock: dict) -> str | None:
+    """候选硬筛：返回剔除原因的 key（None = 通过）。
+
+    判定顺序即优先级。同一只票可能同时命中多条，只按**首个**命中的归类 ——
+    这样 rejected 各档计数之和 + 入选数恒等于涨停总数，不会重复计数。
+    """
+    if float(stock.get("turnover") or 0) < _FOCUS_MIN_TURNOVER:
+        return "untradable"
+    if int(stock.get("break_count") or 0) >= _FOCUS_MAX_BREAKS:
+        return "high_break"
+    seal = stock.get("seal_time") or ""
+    if seal and seal >= _FOCUS_LATE_SEAL:
+        return "late_seal"
+    return None
+
+
+def _focus_row(stock: dict, relay: dict | None) -> dict:
+    """一只候选 → 前端一行。``relay`` 为 None 表示它是首板，没有连板口径可引。"""
+    code = str(stock.get("code") or "")
+    name = str(stock.get("name") or "")
+    price = round(float(stock.get("price") or 0), 2)
+    pct = price_limit_pct(code, name)
+    seal = str(stock.get("seal_time") or "")
+    turnover = round(float(stock.get("turnover") or 0), 2)
+    seal_ratio = round(float(stock.get("seal_ratio") or 0), 3)
+    breaks = int(stock.get("break_count") or 0)
+
+    basis: list[str] = []
+    if seal and seal <= "09:35:00":
+        basis.append("首封 ≤09:35 属早盘档：该档溢价读数 +3.67%，是分档里最高的一档")
+    elif seal:
+        basis.append(f"首封 {seal}")
+    basis.append(f"换手 {turnover}% ≥{_FOCUS_MIN_TURNOVER}%：属可成交档（<5% 的票多数挂不上单）")
+    if relay:
+        # 这三条只在连板股上引 —— 44.6~44.8% 那几个数是 n=164 的**连板**样本，
+        # 首板引用它们就是把口径套用到了没被测过的样本上。
+        if seal_ratio >= _SEAL_RATIO_HIT:
+            basis.append(f"封单/流通 {seal_ratio}% ≥{_SEAL_RATIO_HIT}%：该档晋级读数 44.7%（n=164）")
+        if turnover < _TURNOVER_HIT:
+            basis.append(f"换手 {turnover}% <{_TURNOVER_HIT}%：该档晋级读数 44.8%（n=164）")
+        basis.append(f"炸板 {breaks} 次：0 次档晋级读数 44.6%（n=164）")
+
+    return {
+        "code": code,
+        "name": name,
+        "boards": int(stock.get("boards") or 0),
+        "sector": str(stock.get("sector") or ""),
+        "price": price,
+        # 「预期价格」跨页面同名同义（推荐 / 三维选股 / 模拟盘记账都用这个字段名）
+        "expected_price": price,
+        "expected_price_basis": "limit_up_price",
+        "expected_price_note": f"打板价 = 今日涨停价 {price:.2f}（封板价即当日收盘价，与次日溢价口径同基准）",
+        "next_limit_price": next_limit_price(code, name, price),
+        "limit_pct": pct,
+        "turnover": turnover,
+        "seal_ratio": seal_ratio,
+        "seal_time": seal,
+        "break_count": breaks,
+        "seal_fund_yi": stock.get("seal_fund_yi"),
+        "expect_pct": (stock.get("premium") or {}).get("expect_pct"),
+        "tier": (relay or {}).get("tier"),
+        "tier_label": (relay or {}).get("tier_label"),
+        "rate": (relay or {}).get("rate"),
+        "rate_n": (relay or {}).get("rate_n"),
+        "basis": basis,
+    }
+
+
+def build_focus(stocks: list[dict], mainline: str = "") -> dict:
+    """打板候选清单：连板候选 / 首板候选**分两组**，两组口径不可比、不相加。
+
+    为什么分组而不是合成一个名次：连板股有「明日晋级读数」（n=164 的连板样本），
+    首板没有 —— 两套读数口径不同、不可比（见 calibers）。硬排在一起等于造一个
+    没有样本量的名次，那正是本项目反复出现的可信度越界。
+    """
+    relay_by_code = {
+        str(s.get("code")): relay_score(s) for s in stocks if int(s.get("boards") or 0) >= 2
+    }
+
+    rejected: dict[str, int] = {}
+    relay_rows: list[tuple[int, dict]] = []
+    first_rows: list[tuple[int, dict]] = []
+    for s in stocks:
+        key = _focus_reject_key(s)
+        if key:
+            rejected[key] = rejected.get(key, 0) + 1
+            continue
+        relay = relay_by_code.get(str(s.get("code")))
+        row = _focus_row(s, relay)
+        # 展示权重（降序）：主线板块内 +1；连板再按资金面分层 +2 / +1。
+        # 权重只影响**展示顺序**，不影响入选与否 —— 入选完全由上面的硬筛决定。
+        weight = 1 if mainline and s.get("sector") == mainline else 0
+        if relay:
+            weight += 2 if relay["tier"] == 1 else (1 if relay["tier"] == 2 else 0)
+            relay_rows.append((weight, row))
+        else:
+            first_rows.append((weight, row))
+
+    def _take(rows: list[tuple[int, dict]], limit: int) -> tuple[list[dict], int]:
+        # 权重降序 → 封板时间早者优先 → 封单/流通厚者优先（排序键全是可复核字段）
+        rows.sort(key=lambda x: (-x[0], x[1]["seal_time"] or "99:99:99", -float(x[1]["seal_ratio"] or 0)))
+        return [r for _, r in rows[:limit]], max(0, len(rows) - limit)
+
+    relay_out, relay_cut = _take(relay_rows, _FOCUS_MAX_RELAY)
+    first_out, first_cut = _take(first_rows, _FOCUS_MAX_FIRST)
+    cut = relay_cut + first_cut
+    total = len(stocks)
+
+    reject_text = ""
+    if rejected:
+        # 按固定顺序列出（挂不上单 → 炸板多 → 尾盘封板），不按字典键排序 ——
+        # 键名排序会把结果变成 high_break/late_seal/untradable 这种读起来没逻辑的顺序。
+        parts = [
+            f"{_FOCUS_REJECT_LABELS[k]} {rejected[k]} 只"
+            for k in _FOCUS_REJECT_LABELS
+            if k in rejected
+        ]
+        reject_text = "已剔除：" + "、".join(parts) + "（同一只票命中多条时按首个原因归类）。"
+
+    if relay_out or first_out:
+        note = (
+            f"今日 {total} 只涨停股中 {len(relay_out) + len(first_out)} 只通过可执行性硬筛："
+            f"连板 {len(relay_out)} 只、首板 {len(first_out)} 只。"
+            + (f"另 {cut} 只也达标但排在展示上限之外。" if cut else "")
+            + reject_text
+            # 注意：note 是纯文本直出（前端不跑 Markdown），不要在这里写 ** 加粗之类的标记。
+            + "两组读数口径不同、不可比，也不相加。清单是可执行性筛选的结果，不是买入指令。"
+        )
+    else:
+        note = (
+            f"今日 {total} 只涨停股全部未通过可执行性硬筛。{reject_text}"
+            "此时「可打板」指的是环境，不是某只票 —— 没有可执行标的，就不必硬找价。"
+        )
+
+    return {
+        "relay": relay_out,
+        "first": first_out,
+        "rejected": rejected,
+        "rejected_labels": _FOCUS_REJECT_LABELS,
+        "cut": cut,
+        "total": total,
+        "note": note,
+    }
+
+
 # ---------- 当日全景 ----------
 
 
@@ -947,7 +1191,9 @@ async def get_snapshot(force: bool = False) -> dict:
         "session": trade_calendar_service.session_label(),
         "sentiment": sentiment,
         "sentiment_note": sentiment_note(sentiment),
-        "play_advice": play_advice(sentiment, ladder, sectors),
+        # 传 decorated（已挂 position / premium）而不是 limit_up：候选行要用到溢价读数，
+        # 重算一遍等于给同一天的数据造第二份口径。
+        "play_advice": play_advice(sentiment, ladder, sectors, decorated),
         "ladder": ladder,
         "sectors": sectors,
         "relay_stocks": relay_stocks,

@@ -615,6 +615,10 @@ async def _score_one(rich: dict, fund: dict | None, fund_available: bool) -> dic
 
     # 买卖时机：复用盯盘那条结构位链路（买卖点=主支撑/主压力，不随现价漂移）
     levels = signal_service.compute_signals(closes, price, highs, lows)
+    # 预期价格（执行锚点）：这里是「选股榜」，没有现成的形态判定，用 auto 档 ——
+    # 现价贴着主压力就按突破位给价、否则按回踩位给价，规则固定可复算。
+    # 它是**锚点**不是预测，也不参与任何收益口径。
+    expected = signal_service.expected_price_from_levels(price, levels, "auto")
 
     tags: list[str] = []
     avail = [v for v in scores.values() if v is not None]
@@ -670,6 +674,7 @@ async def _score_one(rich: dict, fund: dict | None, fund_available: bool) -> dic
             "r20": round(metrics["r20"], 2),
         },
         "levels": levels,
+        "expected_price": expected,
         "tags": tags,
     }
 
@@ -1118,6 +1123,7 @@ async def diagnose(code: str) -> dict:
     scores: dict[str, float | None] = {"dark_money": dm_score, "trend": tr_score, "activity": ac_score}
     overall, weights_used = _composite(scores)
     levels = signal_service.compute_signals(closes, price, highs, lows)
+    expected = signal_service.expected_price_from_levels(price, levels, "auto")
     sector_name = (fund_row or {}).get("sector")
 
     return {
@@ -1163,6 +1169,7 @@ async def diagnose(code: str) -> dict:
                 else None
             ),
             "levels": levels,
+            "expected_price": expected,
             "tags": [],
         },
         "sector": _sector_of(board, sector_name),

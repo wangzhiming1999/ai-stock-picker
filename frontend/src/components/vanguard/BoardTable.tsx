@@ -5,7 +5,7 @@ import { CELL } from "../../lib/ui";
 import type { VanguardBoard, VanguardItem } from "../../types";
 import Button from "../ui/Button";
 import WatchStar from "../WatchStar";
-import { DIM_SHORT, DimChip, LevelChips, PctText, YiText } from "./shared";
+import { DIM_SHORT, DimChip, ExpectedPriceChip, LevelChips, PctText, YiText } from "./shared";
 
 interface Props {
   data: VanguardBoard;
@@ -75,10 +75,16 @@ function DetailRow({ item, colSpan }: { item: VanguardItem; colSpan: number }) {
 
           <div className="min-w-0">
             <p className="mb-1.5 text-xs font-semibold text-ink-muted">买卖时机 · 结构位</p>
+            {item.levels && (
+              <p className="mb-1.5">
+                <ExpectedPriceChip ep={item.expected_price} />
+              </p>
+            )}
             <LevelChips levels={item.levels} />
             <p className="mt-1.5 text-xs text-ink-faint">
-              买卖点锚定主支撑 / 主压力，不随现价漂移。买入侧实测超额为负（证据档
-              unsupported）—— 这是价位结构参考，不是买入指令。
+              买卖点锚定主支撑 / 主压力，不随现价漂移；预期价格取其中**这一个**锚点
+              （现价贴压力→突破位，否则回踩位），是为了让「回踩/突破到多少才动手」有个能直接挂的数。
+              买入侧实测超额为负（证据档 unsupported）—— 这是价位结构参考，不是买入指令。
             </p>
           </div>
         </div>
@@ -193,6 +199,17 @@ export default function BoardTable({ data, onPick, onDiagnose }: Props) {
                         {it.change_pct >= 0 ? "+" : ""}
                         {it.change_pct.toFixed(2)}%
                       </div>
+                      {/* 预期价格在主表就露出（展开明细里给完整说明）——
+                          用户反馈「不知道怎么操作」，多半是不会点开每一行找价位。
+                          缺值时不占位：旧快照（undefined）与算不出（null）都留空。 */}
+                      {it.expected_price && (
+                        <div className="text-xs text-ink-faint" title={it.expected_price.note}>
+                          预期 {it.expected_price.price.toFixed(2)}
+                          <span className="text-ink-faint">
+                            {it.expected_price.setup === "breakout" ? " 突破" : " 回踩"}
+                          </span>
+                        </div>
+                      )}
                     </td>
                     <td className={`${CELL} text-center`}>
                       <DimChip v={it.scores.dark_money} title={it.comments.dark_money} />

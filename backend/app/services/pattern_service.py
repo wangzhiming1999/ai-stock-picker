@@ -107,6 +107,36 @@ TACTICS: list[dict] = [
         "warmup": 25,
         "desc": "跌破 10 日均线后连续 3 日无力收回，趋势走弱离场信号。",
     },
+    {
+        "key": "chip_single_peak",
+        "name": "单峰密集",
+        "category": "筹码形态",
+        "direction": "buy",
+        "source": "daily",
+        "history_days": 220,
+        "warmup": 130,
+        "desc": "90% 筹码集中度高（成本区间收窄）且股价贴近成本峰，筹码换手充分后的蓄势形态。",
+    },
+    {
+        "key": "chip_low_profit",
+        "name": "低位低获利盘",
+        "category": "筹码形态",
+        "direction": "buy",
+        "source": "daily",
+        "history_days": 220,
+        "warmup": 130,
+        "desc": "获利比例极低（深跌后套牢盘为主）且股价处 60 日低位区，抛压趋于枯竭。",
+    },
+    {
+        "key": "chip_transfer_up",
+        "name": "筹码转移向上",
+        "category": "筹码形态",
+        "direction": "buy",
+        "source": "daily",
+        "history_days": 220,
+        "warmup": 130,
+        "desc": "获利比例 10 日内持续抬升、成本重心上移，筹码由套牢盘向获利盘温和转移。",
+    },
 ]
 
 # 已下线技巧（2026-09-17）：不在 TACTICS 里 = 扫描/回测/面板都不再出现。
@@ -893,6 +923,190 @@ def detect_ma20_slope(ctx: dict) -> dict:
     return _pack(tactic, conditions, matched=matched, action=action, metrics=metrics)
 
 
+# ---------------- 筹码形态（CYQ 复刻，数据来自 chip_service） ----------------
+
+# 单峰密集：90 成本集中度阈值。东财口径集中度 = (90高-90低)/(90高+90低)，
+# 越小越密集。初值 0.07（约 ±3.5% 成本带），需回测校准。
+_CHIP_CONC_SINGLE_PEAK = 0.07
+# 单峰密集：现价与平均成本（中位成本）的偏离上限，超出说明峰已脱离现价
+_CHIP_PEAK_PRICE_TOL = 0.04
+# 低位低获利：获利比例上限（获利盘 <10% = 深度套牢结构）
+_CHIP_PROFIT_LOW = 0.10
+# 低位：现价距 60 日最低收盘的抬升幅度上限（仍在底部区域）
+_CHIP_LOW_ZONE_PCT = 10.0
+# 筹码转移向上：获利比例 10 日抬升下限（百分点）
+_CHIP_TRANSFER_GAIN = 5.0
+# 筹码转移向上：成本重心（中位成本）抬升下限（%）
+_CHIP_COST_SHIFT = 1.0
+# 筹码转移方向约束：10 日内不能出现过深回撤（转移应温和，非 V 型抢筹）
+_CHIP_TRANSFER_MAX_DROP = -6.0
+
+
+def _chip_from_ctx(ctx: dict) -> dict | None:
+    """从 ctx 取筹码序列（由调用方注入 chip_service 结果）。"""
+    chip = ctx.get("chip")
+    if not chip or not chip.get("dates"):
+        return None
+    return chip
+
+
+def detect_chip_single_peak(ctx: dict) -> dict:
+    """单峰密集：换手充分后 90% 筹码收窄在一个窄成本带，且现价贴着峰。
+
+    条件（确定性清单，非黑箱）：
+    1. 90 集中度 ≤ 阈值（成本区间收窄）
+    2. 集中度在收敛（10 日前更大）—— 排除「发散后刚好路过」
+    3. 现价贴近中位成本（峰没有脱离现价）
+    """
+    tactic = TACTIC_MAP["chip_single_peak"]
+    chip = _chip_from_ctx(ctx)
+    if chip is None or len(chip["dates"]) < 20:
+        return _insufficient(tactic, "缺少筹码分布数据（东财源失败或冷却中）")
+
+    conc = chip["concentration_90"]
+    avg_cost = chip["avg_cost"]
+    price = ctx.get("price") or chip.get("close")
+    if price is None:
+        return _insufficient(tactic, "缺少现价")
+
+    conc_now = conc[-1]
+    conc_prev = conc[-10] if len(conc) >= 11 else conc[0]
+    narrowing = conc_now <= conc_prev
+    cost_now = avg_cost[-1]
+    near_peak = abs(price / cost_now - 1) <= _CHIP_PEAK_PRICE_TOL if cost_now > 0 else False
+
+    conditions = [
+        _cond(
+            f"90 集中度 ≤ {_CHIP_CONC_SINGLE_PEAK:.2f}",
+            conc_now <= _CHIP_CONC_SINGLE_PEAK,
+            f"当前 {conc_now:.4f}（90 成本 {chip['cost_90_low'][-1]:.2f}~{chip['cost_90_high'][-1]:.2f}）",
+        ),
+        _cond("集中度仍在收敛", narrowing, f"10 日前 {conc_prev:.4f} → 现在 {conc_now:.4f}"),
+        _cond(
+            f"现价贴近成本峰（|偏离| ≤ {_CHIP_PEAK_PRICE_TOL:.0%}）",
+            near_peak,
+            f"现价 {price:.2f} / 中位成本 {cost_now:.2f}，偏离 {abs(price / cost_now - 1) * 100:.1f}%" if cost_now > 0 else "成本数据异常",
+        ),
+    ]
+    matched = all(c["passed"] for c in conditions)
+    if matched:
+        action = "单峰密集，换手充分蓄势中，突破成本峰可关注"
+    else:
+        action = "筹码未形成单峰密集结构"
+    metrics = {
+        "concentration_90": conc_now,
+        "concentration_90_10d_ago": conc_prev,
+        "avg_cost": cost_now,
+    }
+    return _pack(tactic, conditions, matched=matched, action=action, metrics=metrics)
+
+
+def detect_chip_low_profit(ctx: dict) -> dict:
+    """低位低获利盘：深跌后获利盘枯竭 + 价格仍在底部区，抛压趋于枯竭。
+
+    条件：
+    1. 获利比例 ≤ 10%（套牢盘为主）
+    2. 现价距 60 日最低收盘 ≤ 10%（仍在底部区，不是半山腰）
+    3. 近 5 日获利比例未继续恶化（跌势趋缓的旁证）
+    """
+    tactic = TACTIC_MAP["chip_low_profit"]
+    chip = _chip_from_ctx(ctx)
+    if chip is None or len(chip["dates"]) < 10:
+        return _insufficient(tactic, "缺少筹码分布数据（东财源失败或冷却中）")
+
+    profit = chip["profit_ratio"]
+    daily = ctx.get("daily")
+    closes = (daily.closes if daily else None) or []
+    price = ctx.get("price") or chip.get("close")
+    if price is None or len(closes) < 60:
+        return _insufficient(tactic, "缺少现价或 60 日收盘数据")
+
+    pr_now = profit[-1]
+    lo60 = min(closes[-60:])
+    off_low = (price / lo60 - 1) * 100 if lo60 > 0 else 0.0
+    in_low_zone = off_low <= _CHIP_LOW_ZONE_PCT
+    pr_5d = profit[-6] if len(profit) >= 6 else profit[0]
+    not_worsening = pr_now >= pr_5d - 0.02
+
+    conditions = [
+        _cond(
+            f"获利比例 ≤ {_CHIP_PROFIT_LOW:.0%}",
+            pr_now <= _CHIP_PROFIT_LOW,
+            f"当前 {pr_now:.1%}（获利盘占比）",
+        ),
+        _cond(
+            f"股价处 60 日低位区（距最低收盘 ≤ {_CHIP_LOW_ZONE_PCT:.0f}%）",
+            in_low_zone,
+            f"现价 {price:.2f}，60 日最低收盘 {lo60:.2f}，抬升 {off_low:.1f}%",
+        ),
+        _cond("获利比例未继续恶化", not_worsening, f"5 日前 {pr_5d:.1%} → 现在 {pr_now:.1%}"),
+    ]
+    matched = all(c["passed"] for c in conditions)
+    if matched:
+        action = "深跌后获利盘枯竭，抛压减轻，企稳信号需右侧确认"
+    else:
+        action = "获利盘结构未到低位特征"
+    metrics = {"profit_ratio": pr_now, "off_low_pct": round(off_low, 1)}
+    return _pack(tactic, conditions, matched=matched, action=action, metrics=metrics)
+
+
+def detect_chip_transfer_up(ctx: dict) -> dict:
+    """筹码转移向上：获利比例温和抬升 + 成本重心上移，筹码由套牢转获利。
+
+    条件：
+    1. 获利比例 10 日抬升 ≥ 5 个百分点
+    2. 中位成本 10 日抬升 ≥ 1%（重心上移）
+    3. 期间无深回撤（现价 ≥ 10 日前收盘 × 0.94，排除 V 型抢筹）
+    """
+    tactic = TACTIC_MAP["chip_transfer_up"]
+    chip = _chip_from_ctx(ctx)
+    if chip is None or len(chip["dates"]) < 11:
+        return _insufficient(tactic, "缺少筹码分布数据（东财源失败或冷却中）")
+
+    profit = chip["profit_ratio"]
+    avg_cost = chip["avg_cost"]
+    daily = ctx.get("daily")
+    closes = (daily.closes if daily else None) or []
+    if len(closes) < 11:
+        return _insufficient(tactic, "日线不足 11 根，无法核对回撤")
+
+    gain = (profit[-1] - profit[-11]) * 100
+    cost_now = avg_cost[-1]
+    cost_prev = avg_cost[-11]
+    cost_up = (cost_now / cost_prev - 1) * 100 if cost_prev > 0 else 0.0
+    price_drop = (closes[-1] / closes[-11] - 1) * 100
+    gentle = price_drop >= _CHIP_TRANSFER_MAX_DROP
+
+    conditions = [
+        _cond(
+            f"获利比例 10 日抬升 ≥ {_CHIP_TRANSFER_GAIN:.0f}pt",
+            gain >= _CHIP_TRANSFER_GAIN,
+            f"{profit[-11]:.1%} → {profit[-1]:.1%}（{gain:+.1f}pt）",
+        ),
+        _cond(
+            f"成本重心抬升 ≥ {_CHIP_COST_SHIFT:.0f}%",
+            cost_up >= _CHIP_COST_SHIFT,
+            f"中位成本 {cost_prev:.2f} → {cost_now:.2f}（{cost_up:+.1f}%）",
+        ),
+        _cond(
+            "转移过程温和（无 V 型抢筹）",
+            gentle,
+            f"10 日价格变动 {price_drop:+.1f}%（要求 ≥ {_CHIP_TRANSFER_MAX_DROP:.0f}%）",
+        ),
+    ]
+    matched = all(c["passed"] for c in conditions)
+    if matched:
+        action = "筹码温和转移向上，套牢盘消化中，可观察回踩成本峰"
+    else:
+        action = "筹码未形成向上转移结构"
+    metrics = {
+        "profit_gain_pt": round(gain, 1),
+        "cost_shift_pct": round(cost_up, 2),
+        "price_change_pct": round(price_drop, 1),
+    }
+    return _pack(tactic, conditions, matched=matched, action=action, metrics=metrics)
+
+
 # 允许把「持有观察」升级为「建议减仓」的卖出形态。
 # 原则：只有回测达到显著（`tactic_evidence` 里 tier == "verified"）的技巧才有资格触发仓位动作。
 # 这张集合由证据登记表**推导**而不是手写 —— 手写会出现「表里写了已验证、代码里还是空集」这类
@@ -914,6 +1128,9 @@ DETECTORS = {
     "macd_zone_cross": detect_macd_zone_cross,
     "ma10_break": detect_ma10_break,
     "ma20_slope": detect_ma20_slope,
+    "chip_single_peak": detect_chip_single_peak,
+    "chip_low_profit": detect_chip_low_profit,
+    "chip_transfer_up": detect_chip_transfer_up,
 }
 
 
@@ -1054,6 +1271,9 @@ async def check_codes(codes: list[str], keys: list[str] | None = None, intraday_
     need_intraday = any(TACTIC_MAP[k]["source"] == "intraday" for k in selected)
     days = max((TACTIC_MAP[k]["history_days"] for k in selected if TACTIC_MAP[k]["source"] == "daily"), default=0)
 
+    # 筹码形态需要 chip_service 的 CYQ 序列（自复刻东财，每日缓存）
+    need_chip = any(k.startswith("chip_") for k in selected)
+
     quotes = await asyncio.to_thread(data_service.get_spot_quote, codes)
     quote_map = {q.code: q for q in quotes}
 
@@ -1074,6 +1294,12 @@ async def check_codes(codes: list[str], keys: list[str] | None = None, intraday_
     # 额外周期（周线/月线）：只有多周期共振需要，其余技巧下这一步不产生任何请求
     period_map = await load_tactic_periods(codes, selected)
 
+    chip_map: dict[str, object] = {}
+    if need_chip:
+        from app.services import chip_service
+
+        chip_map = await chip_service.get_chip_batch_async(codes)
+
     out: list[dict] = []
     for code in codes:
         q = quote_map.get(code)
@@ -1086,6 +1312,8 @@ async def check_codes(codes: list[str], keys: list[str] | None = None, intraday_
             "turnover": q.turnover if q else None,
             **(period_map.get(code) or {}),
         }
+        if need_chip:
+            ctx["chip"] = chip_map.get(code)
         out.append(
             {
                 "code": code,

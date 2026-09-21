@@ -423,7 +423,8 @@ class RegistryTests(unittest.TestCase):
         items = ps.list_tactics()
 
         # ma20_slope 已下线（2026-09-17）：9 → 8 条
-        self.assertEqual(len(items), 8)
+        # chip_* 三条新增（2026-09-21）：8 → 11 条
+        self.assertEqual(len(items), 11)
         self.assertEqual({i["direction"] for i in items}, {"buy", "sell"})
         self.assertTrue(all({"key", "name", "category", "desc"} <= set(i) for i in items))
 

@@ -1,4 +1,4 @@
-import type { LimitUpLadderGroup } from "../types";
+import type { LimitUpFocus, LimitUpLadderGroup } from "../types";
 
 /**
  * 连板梯队的纯逻辑（与渲染分离，便于用 node:test 直接跑）。
@@ -23,4 +23,27 @@ export function ladderGaps(groups: LimitUpLadderGroup[]): number[] {
     if ((counts.get(level) ?? 0) === 0) gaps.push(level);
   }
   return gaps;
+}
+
+/** 候选总数（两组相加只用于**计数展示**，两组的率不可比、不可加）。 */
+export function focusCount(focus?: LimitUpFocus | null): number {
+  if (!focus) return 0;
+  return focus.relay.length + focus.first.length;
+}
+
+/**
+ * 常驻条上的建议徽标文案。
+ *
+ * 用户反馈「这个可打板，但是没说打板什么」—— 所以 hunt 档在**折叠态就把候选数带出来**，
+ * 让人知道展开后有具体标的与价位，而不是又一句结论。非 hunt 档不报数：
+ * 那两档不给清单，报个数会让人以为清单被藏起来了。
+ */
+export function adviceBadgeText(advice: {
+  level: string;
+  title: string;
+  focus?: LimitUpFocus | null;
+}): string {
+  if (advice.level !== "hunt") return `今日建议：${advice.title}`;
+  const n = focusCount(advice.focus);
+  return n > 0 ? `今日建议：${advice.title} · 候选 ${n} 只` : `今日建议：${advice.title} · 无可执行标的`;
 }

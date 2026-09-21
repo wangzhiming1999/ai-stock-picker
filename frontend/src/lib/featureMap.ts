@@ -386,7 +386,7 @@ export const FEATURES: FeatureEntry[] = [
     anchor: "limitup",
     keywords: [
       "涨停", "连板", "梯队", "溢价", "打板", "打板价", "炸板", "接力",
-      "预期价格", "次日涨停价", "limitup",
+      "买不进", "打板候选", "预期价格", "次日涨停价", "limitup",
     ],
     isNew: true,
   },

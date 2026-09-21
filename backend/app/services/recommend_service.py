@@ -18,7 +18,10 @@ _recommendation_cache: dict[str, tuple[str, dict]] = {}
 _RECOMMENDATION_CACHE_MAX = 7
 # v4：观察候选（watchlist）改为「拦截原因 + 解锁条件」，不再复用买入计划文案。
 # 旧快照里存的是矛盾文案（提醒盈亏比不足，却给出买点），必须强制重算。
-_RECOMMENDATION_SCHEMA_VERSION = 4
+# v5：推荐条目新增「预期价格」（expected_price / expected_price_note / gap）。v4 快照
+# 里没有这四个字段，前端会渲染成「—」而不是当真值 —— 但缓存按数据日共享，
+# 不升版本就会整整一天给不出预期价格，所以必须强制重算。
+_RECOMMENDATION_SCHEMA_VERSION = 5
 
 # 盈亏比硬门槛：观察候选的解锁价按同一门槛反推，两处必须一致
 _RR_MIN_RATIO = 1.2
@@ -199,12 +202,29 @@ def _is_breakout_setup(candidate: dict) -> bool:
 
 
 def _build_action_plan(candidate: dict, valid_until: str) -> dict:
-    """把技术信号转成可核验的 T+1 行动条件。"""
+    """把技术信号转成可核验的 T+1 行动条件 + 一个可执行的预期价格。
+
+    `expected_price` 回答的是「这笔动作打算在什么价位成交」，取自**同一条计划里已经在用的
+    那个结构位**（突破型取突破位、回踩型取回踩位）—— 于是「触发条件」与「预期价格」
+    永远是同一个数，不会出现文案说 12.30、价格给 12.85 这种自相矛盾。
+    取值口径与不可逾越的边界见 `signal_service.expected_price_from_levels`。
+    """
     signal = candidate.get("signal") or {}
     buy = float(signal.get("buy_point") or candidate.get("price") or 0)
     stop = float(signal.get("stop_loss") or 0)
     target = float(signal.get("resistance") or signal.get("sell_point") or 0)
-    if _is_breakout_setup(candidate):
+    breakout_setup = _is_breakout_setup(candidate)
+    ep = signal_service.expected_price_from_levels(
+        candidate.get("price"), signal, "breakout" if breakout_setup else "pullback"
+    )
+    price_cols = {
+        # 结构位拿不到（K 线不足 60 根）时为 None，由前端显示「—」，绝不折算成 0 / 现价
+        "expected_price": (ep or {}).get("price"),
+        "expected_price_setup": (ep or {}).get("setup"),
+        "expected_price_gap_pct": (ep or {}).get("gap_pct"),
+        "expected_price_note": (ep or {}).get("note") or "结构位样本不足（K 线 <60 根），预期价格不可给",
+    }
+    if breakout_setup:
         breakout = float(signal.get("resistance") or 0)
         projected_target = breakout + max(breakout - stop, breakout * 0.03) * 1.5
         return {
@@ -214,6 +234,7 @@ def _build_action_plan(candidate: dict, valid_until: str) -> dict:
             "risk_reward": 1.5,
             "valid_until": valid_until,
             "setup": "breakout",
+            **price_cols,
         }
     return {
         "trigger": f"回踩 {buy:.2f} 附近企稳，或放量确认后再关注",
@@ -222,6 +243,7 @@ def _build_action_plan(candidate: dict, valid_until: str) -> dict:
         "risk_reward": float(signal.get("rr_ratio") or 0),
         "valid_until": valid_until,
         "setup": "pullback",
+        **price_cols,
     }
 
 
@@ -618,10 +640,19 @@ def db_source(rec: dict) -> str:
     return _CONFIDENCE_SOURCE_TO_DB.get(str(rec.get("confidence_source") or ""), _DB_SOURCE_FALLBACK)
 
 
+# v13 之前的表没有 expected_price 列。缺失时本进程记住一次，之后不再重复撞。
+# 为什么要降级重试而不是直接失败：迁移由用户在 Supabase 控制台跑，没跑完时直插会让
+# **整条推荐落库失败** —— 连带丢掉胜率跟踪，比少一个字段严重得多。
+_OPTIONAL_REC_COLUMNS: set[str] = set()
+
+
 async def save_recommendations(rec_date: str, recs: list[dict]) -> dict[str, str]:
     """将当日推荐写入 Supabase daily_recommendations 表（幂等），返回 {code: id} 映射。
 
     返回的 id 用于模拟盘成交流水回写 related_reco_id，闭合「推荐 → 模拟验证 → 胜率」环。
+
+    ``expected_price`` 是 v13 新增的可选列：列不存在时剥掉它重试（见 ``_OPTIONAL_REC_COLUMNS``）。
+    注意它只是**执行锚点**，结算 / 胜率一律不看这一列。
     """
     if not supabase_store.is_configured() or not recs:
         return {}
@@ -644,10 +675,22 @@ async def save_recommendations(rec_date: str, recs: list[dict]) -> dict[str, str
             "reason": r.get("reason", ""),
             "confidence": r.get("confidence"),
             "source": db_source(r),
+            "expected_price": r.get("expected_price"),
         }
         for r in recs
     ]
-    res = await sb.table("daily_recommendations").insert(rows).select("id, code").execute()
+    if "expected_price" in _OPTIONAL_REC_COLUMNS:
+        rows = [{k: v for k, v in row.items() if k != "expected_price"} for row in rows]
+    try:
+        res = await sb.table("daily_recommendations").insert(rows).select("id, code").execute()
+    except Exception as e:
+        if "expected_price" in str(e) and "expected_price" not in _OPTIONAL_REC_COLUMNS:
+            _OPTIONAL_REC_COLUMNS.add("expected_price")
+            print("[recommend] daily_recommendations.expected_price 列不存在（需执行 v13 迁移），本次降级写入")
+            stripped = [{k: v for k, v in row.items() if k != "expected_price"} for row in rows]
+            res = await sb.table("daily_recommendations").insert(stripped).select("id, code").execute()
+        else:
+            raise
     return {row["code"]: str(row["id"]) for row in (res.data or [])}
 
 
@@ -658,6 +701,9 @@ async def save_watchlist(rec_date: str, watchlist: list[dict]) -> int:
     「推荐链路质量差」在系统内部不可见。观察层是「拦截原因 + 解锁条件」，
     不是买入建议 —— source='watch' 与主口径分开统计（winrate by_source.watch），
     永不与 llm/rule/quad 的命中率相加。幂等：同日已有任何行则跳过。
+
+    这里**刻意不写 expected_price**：观察层的语义是「凭什么被拦下、什么条件才解锁」，
+    给它配一个可执行价位就等于把被风控否决的票又变回买入计划（用户明确反馈过这个矛盾）。
     """
     if not supabase_store.is_configured() or not watchlist:
         return 0

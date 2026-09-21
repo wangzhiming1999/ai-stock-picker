@@ -583,5 +583,217 @@ class RelayTierTests(unittest.TestCase):
         self.assertEqual(summary["groups"], [])
 
 
+class PlaybookTests(unittest.TestCase):
+    """「可打板」档必须同时给出**打哪只 + 什么价 + 怎么执行**（用户反馈的缺口），
+    以及**环境不过关时不给清单**（否则等于用名单否掉自己刚给的结论）。"""
+
+    @staticmethod
+    def _sentiment(rate: float = 15.0, max_boards: int = 5, relay: int = 9, limit_up: int = 47) -> dict:
+        return {"break_rate": rate, "max_boards": max_boards, "relay_count": relay, "limit_up_count": limit_up}
+
+    @staticmethod
+    def _sectors() -> list[dict]:
+        return [{"sector": "半导体", "count": 5}]
+
+    @classmethod
+    def _ladder(cls) -> list[dict]:
+        return [{"key": k, "count": c, "label": "", "items": []} for k, c in ((5, 1), (4, 2), (3, 3), (2, 4), (1, 20))]
+
+    @staticmethod
+    def _pool(**overrides) -> list[dict]:
+        base = {
+            "code": "600001",
+            "name": "测试股",
+            "boards": 2,
+            "sector": "半导体",
+            "seal_time": "09:31:00",
+            "seal_fund_yi": 2.0,
+            "seal_ratio": 3.0,
+            "turnover": 8.0,
+            "break_count": 0,
+            "price": 12.00,
+        }
+        base.update(overrides)
+        return [base]
+
+    def test_hunt_carries_focus_and_playbook(self) -> None:
+        adv = L.play_advice(self._sentiment(), self._ladder(), self._sectors(), self._pool())
+        self.assertEqual(adv["level"], "hunt")
+        self.assertIsNotNone(adv["focus"])
+        self.assertEqual([r["code"] for r in adv["focus"]["relay"]], ["600001"])
+        self.assertTrue(adv["playbook"])
+
+    def test_non_hunt_levels_withhold_the_list(self) -> None:
+        """watch / avoid 两档不得给候选清单 —— 说「别动手」同时给名单是明确踩过的坑。"""
+        for adv in (
+            # watch：炸板率中性
+            L.play_advice(self._sentiment(28.0), self._ladder(), self._sectors(), self._pool()),
+            # avoid：炸板率过高
+            L.play_advice(self._sentiment(36.0), self._ladder(), self._sectors(), self._pool()),
+        ):
+            self.assertIn(adv["level"], ("watch", "avoid"))
+            self.assertIsNone(adv["focus"])
+            self.assertTrue(adv["focus_note"])
+            self.assertIn("不给候选清单", adv["focus_note"])
+            self.assertEqual(adv["playbook"], [])
+
+    def test_advice_shape_is_uniform_across_levels(self) -> None:
+        """三档载荷形状一致：前端不必为「这一档有没有这些字段」写分支。"""
+        for adv in (
+            L.play_advice(self._sentiment(0, 0, relay=0, limit_up=0), [], []),
+            L.play_advice(self._sentiment(36.0), self._ladder(), self._sectors()),
+            L.play_advice(self._sentiment(), self._ladder(), self._sectors(), self._pool()),
+        ):
+            for key in ("focus", "focus_note", "playbook"):
+                self.assertIn(key, adv)
+
+
+class FocusTests(unittest.TestCase):
+    """打板候选清单：价位是交易所规则算的算术，名单只由已回测口径筛出。"""
+
+    @staticmethod
+    def _stock(**overrides) -> dict:
+        base = {
+            "code": "600001",
+            "name": "测试股",
+            "boards": 2,
+            "sector": "半导体",
+            "seal_time": "09:31:00",
+            "seal_fund_yi": 2.0,
+            "seal_ratio": 3.0,
+            "turnover": 8.0,
+            "break_count": 0,
+            "price": 12.00,
+            "premium": {"expect_pct": 1.56},
+        }
+        base.update(overrides)
+        return base
+
+    # ---------- 涨跌幅限制与次日涨停价 ----------
+
+    def test_price_limit_by_board(self) -> None:
+        self.assertEqual(L.price_limit_pct("600519"), 10.0)
+        self.assertEqual(L.price_limit_pct("000001"), 10.0)
+        self.assertEqual(L.price_limit_pct("300750"), 20.0)
+        self.assertEqual(L.price_limit_pct("301001"), 20.0)
+        self.assertEqual(L.price_limit_pct("688981"), 20.0)
+        self.assertEqual(L.price_limit_pct("430047"), 30.0)
+        self.assertEqual(L.price_limit_pct("830799"), 30.0)
+        self.assertEqual(L.price_limit_pct("920001"), 30.0)
+
+    def test_st_limit_is_five_percent_only_on_main_board(self) -> None:
+        # 主板 ST 是 5%，但创业板 / 科创板的 ST 仍是 20% —— 判定顺序不能反。
+        self.assertEqual(L.price_limit_pct("600123", "ST 测试"), 5.0)
+        self.assertEqual(L.price_limit_pct("300123", "ST 测试"), 20.0)
+
+    def test_next_limit_price_rounds_half_up(self) -> None:
+        # 10.05 × 1.1 = 11.055 → 交易所进位到 11.06；
+        # Python 内置 round() 是银行家舍入，会给 11.05 —— 差一分就挂不上单。
+        self.assertEqual(L.next_limit_price("600001", "测试股", 10.05), 11.06)
+        self.assertEqual(L.next_limit_price("300750", "宁德", 10.00), 12.00)
+        self.assertEqual(L.next_limit_price("600001", "测试股", 12.00), 13.20)
+
+    def test_next_limit_price_missing_input_returns_none(self) -> None:
+        for raw in (None, 0, -1.0, "abc"):
+            self.assertIsNone(L.next_limit_price("600001", "测试股", raw))
+
+    # ---------- 硬筛 ----------
+
+    def test_reject_reasons(self) -> None:
+        self.assertEqual(L._focus_reject_key(self._stock(turnover=4.9)), "untradable")
+        self.assertEqual(L._focus_reject_key(self._stock(break_count=3)), "high_break")
+        self.assertEqual(L._focus_reject_key(self._stock(seal_time="14:00:00")), "late_seal")
+        self.assertIsNone(L._focus_reject_key(self._stock(turnover=5.0, seal_time="13:59:59")))
+
+    def test_reject_order_picks_first_hit_only(self) -> None:
+        # 同时命中多条时按首个归类 —— 否则各档计数之和会超过涨停总数。
+        both = self._stock(turnover=1.0, break_count=9, seal_time="14:30:00")
+        self.assertEqual(L._focus_reject_key(both), "untradable")
+
+    # ---------- 清单 ----------
+
+    def test_relay_and_first_are_grouped_not_merged(self) -> None:
+        focus = L.build_focus(
+            [self._stock(code="600001", boards=2), self._stock(code="600002", boards=1)]
+        )
+        self.assertEqual([r["code"] for r in focus["relay"]], ["600001"])
+        self.assertEqual([r["code"] for r in focus["first"]], ["600002"])
+        # 连板行有晋级读数，首板行没有（且不得从别处借一个 n 过来）
+        self.assertEqual(focus["relay"][0]["tier"], 1)
+        self.assertIsNone(focus["first"][0]["tier"])
+        self.assertIsNone(focus["first"][0]["rate"])
+
+    def test_first_board_does_not_cite_relay_caliber(self) -> None:
+        """44.6~44.8% 那几个数是 n=164 的连板样本，首板引用它们就是套用未测样本。"""
+        focus = L.build_focus([self._stock(code="600002", boards=1)])
+        blob = " ".join(focus["first"][0]["basis"])
+        self.assertNotIn("44.7%", blob)
+        self.assertNotIn("44.8%", blob)
+        self.assertNotIn("44.6%", blob)
+
+    def test_expected_price_is_limit_up_price(self) -> None:
+        row = L.build_focus([self._stock(price=12.00)])["relay"][0]
+        self.assertEqual(row["expected_price"], 12.00)
+        self.assertEqual(row["expected_price"], row["price"])
+        self.assertEqual(row["expected_price_basis"], "limit_up_price")
+        self.assertEqual(row["next_limit_price"], 13.20)
+        self.assertIn("12.00", row["expected_price_note"])
+
+    def test_counts_conserve(self) -> None:
+        pool = [
+            self._stock(code="600001"),                                  # 入选
+            self._stock(code="600002", turnover=1.0),                    # 挂不上单
+            self._stock(code="600003", break_count=4),                   # 炸板过多
+            self._stock(code="600004", seal_time="14:20:00"),            # 尾盘封板
+        ]
+        focus = L.build_focus(pool)
+        kept = len(focus["relay"]) + len(focus["first"])
+        self.assertEqual(kept + sum(focus["rejected"].values()), focus["total"])
+        self.assertEqual(focus["rejected"], {"untradable": 1, "high_break": 1, "late_seal": 1})
+
+    def test_empty_result_says_the_advice_is_about_environment(self) -> None:
+        focus = L.build_focus([self._stock(turnover=0.5)])
+        self.assertEqual(focus["relay"], [])
+        self.assertEqual(focus["first"], [])
+        self.assertIn("指的是环境", focus["note"])
+
+    def test_note_keeps_caliber_disclaimers(self) -> None:
+        focus = L.build_focus([self._stock()], mainline="半导体")
+        self.assertIn("不可比", focus["note"])
+        self.assertIn("不是买入指令", focus["note"])
+
+    def test_mainline_and_tier_drive_order_not_selection(self) -> None:
+        # 权重只改展示顺序：不在主线的弱分层票一样入选，只是排在后面。
+        pool = [
+            self._stock(code="600001", sector="其他", seal_ratio=0.1, turnover=30.0),
+            self._stock(code="600002", sector="半导体", seal_ratio=3.0, turnover=6.0),
+        ]
+        focus = L.build_focus(pool, mainline="半导体")
+        self.assertEqual([r["code"] for r in focus["relay"]], ["600002", "600001"])
+
+    def test_show_limit_reported_as_cut(self) -> None:
+        pool = [self._stock(code=f"60000{i}", boards=1) for i in range(5)]
+        focus = L.build_focus(pool)
+        self.assertEqual(len(focus["first"]), L._FOCUS_MAX_FIRST)
+        self.assertEqual(focus["cut"], 5 - L._FOCUS_MAX_FIRST)
+        self.assertIn("展示上限", focus["note"])
+
+    def test_empty_pool(self) -> None:
+        focus = L.build_focus([])
+        self.assertEqual(focus["total"], 0)
+        self.assertEqual(focus["relay"], [])
+        self.assertEqual(focus["rejected"], {})
+
+    def test_focus_rows_avoid_action_words(self) -> None:
+        """纪律：清单只描述筛选结果，不出现指令性动作词。"""
+        focus = L.build_focus([self._stock(code="600001", boards=2), self._stock(code="600002", boards=1)])
+        rows = focus["relay"] + focus["first"]
+        blob = " ".join(
+            r["expected_price_note"] + " ".join(r["basis"]) + r["name"] for r in rows
+        )
+        for banned in ("建议买入", "可以买", "逢低买入", "加仓", "建仓"):
+            self.assertNotIn(banned, blob)
+
+
 if __name__ == "__main__":
     unittest.main()

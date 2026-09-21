@@ -270,6 +270,37 @@ async def init_account(user_id: str, total_capital: float | None = None) -> dict
     return await get_account(user_id)
 
 
+# v13 新增可选列 expected_price。缺失时本进程记住一次，之后不再重复撞。
+# 为什么要记：这一列由用户在 Supabase 控制台执行迁移后才有，没跑之前每次建仓
+# 都会先失败一次再降级 —— 记下来就只付一次成本。
+_OPTIONAL_TRADE_COLUMNS: set[str] = set()
+
+
+async def _write_expected_price(sb, trade_id, expected_price: float | None) -> None:
+    """把「预期价格」回填到刚写入的成交行。
+
+    为什么不塞进 `execute_sim_trade` 那个 RPC：RPC 的签名变更会创建**重载**而不是替换
+    （`CREATE OR REPLACE` 只对同签名生效），线上会出现两个同名函数、调用方还得处理歧义。
+    成交已经落库、id 已拿到，补一条 UPDATE 更简单也更安全。
+
+    这一列缺失时静默跳过：它只是执行锚点，丢了不影响成交、现金与胜率 ——
+    而把整笔建仓弄失败则是不可接受的。
+    """
+    if expected_price is None or "expected_price" in _OPTIONAL_TRADE_COLUMNS:
+        return
+    try:
+        value = float(expected_price)
+    except (TypeError, ValueError):
+        return
+    if value <= 0:
+        return
+    try:
+        await sb.table("sim_trades").update({"expected_price": value}).eq("id", trade_id).execute()
+    except Exception as e:
+        _OPTIONAL_TRADE_COLUMNS.add("expected_price")
+        print(f"[sim] sim_trades.expected_price 列不存在（需执行 v13 迁移），本次跳过回填: {type(e).__name__}")
+
+
 async def buy(
     user_id: str,
     code: str,
@@ -278,8 +309,14 @@ async def buy(
     source: str = "manual",
     related_reco_id: str | None = None,
     note: str = "",
+    expected_price: float | None = None,
 ) -> dict:
-    """模拟买入：扣现金，写 sim_trades。"""
+    """模拟买入：扣现金，写 sim_trades。
+
+    ``expected_price`` 是**下单时的计划成交价**（执行锚点，可空）：记下来是为了事后
+    能算「预期 vs 实际成交」的滑点，回答「我本来打算 12.30 买，实际成交在哪」。
+    ⚠️ 它不参与**任何**盈亏或胜率计算 —— 账仍然是按实际成交价 `price` 记的。
+    """
     _require_configured()
     code = code.strip()
     if not code or len(code) != 6 or not code.isdigit():
@@ -316,6 +353,10 @@ async def buy(
         related_reco_id=related_reco_id, note=note,
     )
     row = executed["trade"]
+    await _write_expected_price(sb, row.get("id"), expected_price)
+    if expected_price is not None and row.get("id") is not None:
+        # 让返回值与库内一致：前端不必再拉一次流水就能显示「预期 vs 实际」
+        row = {**row, "expected_price": round(float(expected_price), 2)}
     account = await get_account(user_id)
     return {"trade": row, "account": account}
 

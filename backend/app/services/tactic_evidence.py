@@ -189,6 +189,35 @@ EVIDENCE: dict[str, Evidence] = {
         ),
         provenance=_RUN,
     ),
+    # 筹码形态（2026-09-21 新增）：尚未回测，先挂 unknown 进观察池。
+    # 数据链路：chip_service 自复刻东财 CYQ（已与 akshare 输出对齐，偏差 <2%）；
+    # 历史回测路径：每日逐根 K 线复算 CYQ 可行但成本高（90 日 × 每根 120 窗口），
+    # 待回测时若成本过高可只算命中日 ±1，或降采样评估。
+    "chip_single_peak": Evidence(
+        tier="unknown",
+        summary=(
+            "单峰密集（90 集中度 ≤0.07 且收敛、现价贴峰）尚未回测，无有效性证据。"
+            "传统说法「单峰密集蓄势」未经本项目口径验证，仅作观察池登记。"
+        ),
+        provenance="2026-09-21 新增，数据=chip_service 自复刻 CYQ（与东财官方值偏差 <2%）",
+    ),
+    "chip_low_profit": Evidence(
+        tier="unknown",
+        summary=(
+            "低位低获利盘（获利比例 ≤10% + 60 日低位区）尚未回测。"
+            "注意「深跌=便宜」在本项目多次被证伪（跌停次日、低开再买均为负期望），"
+            "此形态是否不同待回测回答。"
+        ),
+        provenance="2026-09-21 新增，数据=chip_service 自复刻 CYQ",
+    ),
+    "chip_transfer_up": Evidence(
+        tier="unknown",
+        summary=(
+            "筹码转移向上（获利比例 10 日 +5pt、成本重心上移、无深回撤）尚未回测。"
+            "「筹码转移」类说法样本口径差异大，必须用本项目统一口径跑过才算数。"
+        ),
+        provenance="2026-09-21 新增，数据=chip_service 自复刻 CYQ",
+    ),
 }
 
 # 非形态策略的证据登记，与 EVIDENCE 分**命名空间**。

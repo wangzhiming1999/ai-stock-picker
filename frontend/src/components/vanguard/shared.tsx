@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { AlertTriangle } from "lucide-react";
 import { CHIP, pnlTone, scoreChip } from "../../lib/tone";
-import type { VanguardEvidence, VanguardLevels } from "../../types";
+import type { VanguardEvidence, VanguardExpectedPrice, VanguardLevels } from "../../types";
 
 /**
  * 决策先锋 · 共享展示件
@@ -182,6 +182,59 @@ export function LevelChips({ levels }: { levels: VanguardLevels | null }) {
         <b className="text-ink-soft">{levels.strength.toFixed(1)}</b>
       </span>
     </div>
+  );
+}
+
+/**
+ * 预期价格（执行锚点）。回答「这笔动作打算在什么价位成交」。
+ *
+ * 与 `LevelChips` 的分工：LevelChips 摆出**全部**结构位供复核；这里只挑出计划真正用的
+ * 那一个锚点，并给出「距现价多远」——用户要的是能直接挂出去的那个数。
+ *
+ * 缺数据必须区分两种原因，不能笼统写成「—」：
+ *   null      —— K 线不足 60 根，结构位算不出来；
+ *   undefined —— 当日榜单快照是本次上线前落库的（整份 JSONB 缓存到收盘）。
+ * 两种都不折算成现价：折算出来的假锚点会被当成真价位用。
+ * 也不做红绿着色 —— 锚点是**价位**不是方向，红绿在这个页面只表达涨跌。
+ */
+export function ExpectedPriceChip({
+  ep,
+  className = "",
+}: {
+  ep?: VanguardExpectedPrice | null;
+  className?: string;
+}) {
+  if (ep === undefined) {
+    return (
+      <span className={`text-xs text-ink-faint ${className}`}>
+        预期价格 <b className="text-ink-muted">—</b>
+        <span className="ml-1">（当日榜单生成于本功能上线前，下一个交易日重算后可见）</span>
+      </span>
+    );
+  }
+  if (ep === null) {
+    return (
+      <span className={`text-xs text-ink-faint ${className}`}>
+        预期价格 <b className="text-ink-muted">—</b>
+        <span className="ml-1">（K 线不足 60 根，结构位算不出）</span>
+      </span>
+    );
+  }
+  const gap = ep.gap_pct;
+  return (
+    <span className={`inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs ${className}`}>
+      <span className="text-ink-faint">预期价格</span>
+      <span className="rounded bg-slate-800/60 px-1.5 py-0.5 font-semibold text-ink" title={ep.note}>
+        {ep.price.toFixed(2)}
+      </span>
+      <span className="text-ink-faint">（{ep.setup === "breakout" ? "突破位" : "回踩位"}）</span>
+      {gap != null && Number.isFinite(gap) && (
+        <span className="text-ink-muted">
+          距现价 {gap >= 0 ? "+" : ""}
+          {gap.toFixed(2)}%
+        </span>
+      )}
+    </span>
   );
 }
 

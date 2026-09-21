@@ -30,6 +30,14 @@ class TradeRequest(BaseModel):
     source: str = Field("manual", pattern="^(manual|briefing|recommend|agent|limitup_relay)$")
     related_reco_id: str | None = None
     note: str = ""
+    expected_price: float | None = Field(
+        None,
+        gt=0,
+        description=(
+            "预期价格（执行锚点）：建仓时计划成交的价位。仅记录，用于事后对比"
+            "预期与实际成交的滑点，不参与任何盈亏 / 胜率计算。"
+        ),
+    )
 
 
 class ResetRequest(BaseModel):
@@ -53,6 +61,8 @@ async def trade(req: TradeRequest, user_id: str = Depends(_require_user)):
             return await sim_service.buy(
                 user_id, req.code, req.shares, req.price,
                 source=req.source, related_reco_id=req.related_reco_id, note=req.note,
+                # 预期价格只在买入时记录：它是「建仓计划价」，卖出没有对应语义
+                expected_price=req.expected_price,
             )
         return await sim_service.sell(
             user_id, req.code, req.shares, req.price,
@@ -178,6 +188,9 @@ async def adopt_from_plan(req: AdoptPlanRequest, user_id: str = Depends(_require
             source="agent",
             related_reco_id=str(req.decision_id),
             note="，".join(note_parts),
+            # 计划入场价就是这笔建仓的「预期价格」：事后可直接看「计划价 vs 实际成交价」，
+            # 这是判研 agent 计划可执行性（而不是只看方向对不对）唯一的事实依据。
+            expected_price=entry,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

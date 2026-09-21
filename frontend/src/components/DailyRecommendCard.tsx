@@ -182,12 +182,40 @@ export default function DailyRecommendCard({ onPick, collapsed = false }: Props)
                   ))}
                 </div>
               )}
-              {(r.trigger || r.invalidation || r.target) && (
-                <div className="mt-2 grid gap-1 rounded-xl border border-slate-800 bg-slate-900/70 p-2 text-xs sm:grid-cols-3">
-                  <div><span className="text-ink-faint">触发：</span><span className="text-green-300">{r.trigger || "等待确认"}</span></div>
-                  <div><span className="text-ink-faint">失效：</span><span className="text-red-300">{r.invalidation || "转弱放弃"}</span></div>
-                  <div><span className="text-ink-faint">目标：</span><span className="text-ink-soft">{r.target || "待确认"}</span></div>
-                </div>
+              {(r.trigger || r.invalidation || r.target || r.expected_price != null) && (
+                <>
+                  <div className="mt-2 grid gap-1 rounded-xl border border-slate-800 bg-slate-900/70 p-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
+                    <div>
+                      <span className="text-ink-faint">预期价格：</span>
+                      {r.expected_price != null ? (
+                        <>
+                          <span className="font-semibold text-ink">{r.expected_price.toFixed(2)}</span>
+                          <span className="text-ink-faint">
+                            （{r.expected_price_setup === "breakout" ? "突破位" : "回踩位"}）
+                          </span>
+                          {r.expected_price_gap_pct != null && (
+                            <span className="ml-1 text-ink-muted">
+                              距现价 {r.expected_price_gap_pct >= 0 ? "+" : ""}
+                              {r.expected_price_gap_pct}%
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        // 结构位样本不足时显示「—」：折算成现价会造出一个假锚点
+                        <span className="text-ink-faint">—</span>
+                      )}
+                    </div>
+                    <div><span className="text-ink-faint">触发：</span><span className="text-green-300">{r.trigger || "等待确认"}</span></div>
+                    <div><span className="text-ink-faint">失效：</span><span className="text-red-300">{r.invalidation || "转弱放弃"}</span></div>
+                    <div><span className="text-ink-faint">目标：</span><span className="text-ink-soft">{r.target || "待确认"}</span></div>
+                  </div>
+                  {r.expected_price_note && (
+                    <p className="mt-1 text-xs leading-relaxed text-ink-faint">
+                      预期价格是执行锚点：{r.expected_price_note}。它取自结构位而非预测，
+                      结构位买入侧实测超额为负（证据档 unsupported），只作挂单价参考。
+                    </p>
+                  )}
+                </>
               )}
             </div>
           ))}

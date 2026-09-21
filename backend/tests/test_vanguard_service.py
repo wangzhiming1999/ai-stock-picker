@@ -23,6 +23,7 @@ from app.routes import market as market_routes
 from app.services import data_service
 from app.services import limitup_service as L
 from app.services import quad_service
+from app.services import signal_service
 from app.services import spot_service as S
 from app.services import supabase_store
 from app.services import tactic_evidence as ev
@@ -679,6 +680,90 @@ class BoardGenerationTests:
 
         assert board["items"]
         assert board["herding"]["level"] in {"low", "mid", "high", "unknown"}
+
+
+# ───────────────────────── 预期价格（执行锚点） ─────────────────────────
+
+
+class ExpectedPriceTests:
+    """预期价格：三维榜与诊股都要回答「计划在什么价位成交」（用户反馈的直接缺口）。
+
+    三条不变量：
+      1. 只有结构位可用时才给价，拿不到一律 None —— **不折算成现价**；
+      2. auto 档的判据确定且可复算：现价 ≥ 主压力 ×0.98 → 突破位，否则回踩位；
+      3. 它只是锚点：锚点必须真的落在结构位上，且榜单里不得冒出收益承诺字段。
+    """
+
+    def test_auto_picks_breakout_when_price_hugs_resistance(self) -> None:
+        ep = signal_service.expected_price_from_levels(
+            108.0, {"resistance": 108.0, "buy_point": 101.0}, "auto"
+        )
+
+        assert ep["setup"] == "breakout"
+        assert ep["price"] == 108.0
+        assert ep["basis"] == "structure_breakout"
+        assert "突破位" in ep["note"]
+        # 自动选档必须说明凭什么选了这一档，否则用户看到的是黑箱
+        assert "贴近主压力" in ep["note"]
+
+    def test_auto_picks_pullback_when_price_is_far_below_resistance(self) -> None:
+        ep = signal_service.expected_price_from_levels(
+            50.0, {"resistance": 108.0, "buy_point": 48.0}, "auto"
+        )
+
+        assert ep["setup"] == "pullback"
+        assert ep["price"] == 48.0
+        # 现价 50 > 锚点 48 → 偏离为负（要等它跌回来才到这个价）
+        assert ep["gap_pct"] == -4.0
+        assert "回踩位" in ep["note"]
+
+    @pytest.mark.parametrize(
+        "ratio,expected_setup",
+        [(1.0, "breakout"), (0.98, "breakout"), (0.97, "pullback")],
+    )
+    def test_auto_boundary_is_stable(self, ratio: float, expected_setup: str) -> None:
+        """边界必须可复现：同一只票不能在两次取数间在回踩/突破之间跳档。"""
+        ep = signal_service.expected_price_from_levels(
+            100.0 * ratio, {"resistance": 100.0, "buy_point": 90.0}, "auto"
+        )
+
+        assert ep["setup"] == expected_setup
+
+    def test_missing_or_zero_levels_return_none(self) -> None:
+        assert signal_service.expected_price_from_levels(10.0, None, "auto") is None
+        assert signal_service.expected_price_from_levels(10.0, {}, "auto") is None
+        assert (
+            signal_service.expected_price_from_levels(10.0, {"resistance": 0.0, "buy_point": 0.0}, "auto")
+            is None
+        )
+
+    @pytest.mark.asyncio
+    async def test_board_items_carry_expected_price_on_a_real_level(self, monkeypatch) -> None:
+        calls: dict = {}
+        fund_rows = [_fund_row(f"6000{i:02d}", 1e8 * i, 2.0 * i, "半导体") for i in range(1, 7)]
+        BoardGenerationTests._patch_environment(monkeypatch, calls, fund_rows)
+
+        board = await V.generate_board(force_refresh=True)
+
+        first = board["items"][0]
+        ep = first["expected_price"]
+
+        assert ep is not None
+        assert ep["setup"] in {"breakout", "pullback"}
+        # 锚点必须真的是结构位上的那个数，不能凭空造
+        assert ep["price"] in {first["levels"]["resistance"], first["levels"]["buy_point"]}
+
+    @pytest.mark.asyncio
+    async def test_board_carries_no_return_promise_from_the_anchor(self, monkeypatch) -> None:
+        """口径隔离：预期价格是锚点，不得带出任何期望/收益字段。"""
+        calls: dict = {}
+        fund_rows = [_fund_row(f"6000{i:02d}", 1e8 * i, 2.0 * i, "半导体") for i in range(1, 7)]
+        BoardGenerationTests._patch_environment(monkeypatch, calls, fund_rows)
+
+        board = await V.generate_board(force_refresh=True)
+
+        ep = board["items"][0]["expected_price"]
+        assert set(ep) == {"price", "setup", "basis", "gap_pct", "note"}
 
 
 # ───────────────────────── 证据闸门 ─────────────────────────

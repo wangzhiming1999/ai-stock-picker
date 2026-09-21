@@ -1,6 +1,8 @@
 import { SUB_QUIET, TEXT } from "../../lib/ui";
-import { playAdviceTone } from "../../lib/tone";
+import { playAdviceTone, upTone } from "../../lib/tone";
 import type {
+  LimitUpFocus,
+  LimitUpFocusRow,
   LimitUpLadderGroup,
   LimitUpPlayAdvice,
   LimitUpRelayResult,
@@ -9,7 +11,7 @@ import type {
   LimitUpStock,
   LimitUpTierSummary,
 } from "../../types";
-import { ladderGaps } from "../limitUpLogic";
+import { adviceBadgeText, ladderGaps } from "../limitUpLogic";
 import { tierChip, upPositionChip } from "./constants";
 
 /**
@@ -27,36 +29,211 @@ import { tierChip, upPositionChip } from "./constants";
  * 本组组件据此只做位置描述与情绪描述，不得渲染成买点。
  */
 
-/** 展开区顶部的建议详情：档位 + 三条判定理由（断层/炸板率/主线）。 */
+/** 折叠态徽标：档位 + 候选数（见 limitUpLogic.adviceBadgeText 的注释）。 */
 function AdviceBadge({ advice }: { advice: LimitUpPlayAdvice }) {
   return (
-    <span className={`inline-flex items-center gap-1 font-semibold ${playAdviceTone(advice.level)}`} title={advice.reasons.join("；")}>
-      今日建议：{advice.title}
+    <span
+      className={`inline-flex items-center gap-1 font-semibold ${playAdviceTone(advice.level)}`}
+      title={advice.reasons.join("；")}
+    >
+      {adviceBadgeText(advice)}
     </span>
   );
 }
 
-/** 操作建议徽标（常驻条上那颗）。 */
-function AdviceSection({ advice }: { advice: LimitUpPlayAdvice }) {
+/**
+ * 一只打板候选：**打哪只 + 什么价**（用户反馈的核心缺口）。
+ *
+ * 价位是交易所规则算出来的事实，不是预测：封板股的今日价就是今日涨停价，
+ * 次日涨停价 = 今日价 ×(1+限幅)。两行结构 —— 第一行给结论（票 + 两个价），
+ * 第二行给可复核的依据（换手 / 封单比 / 首封 / 溢价读数）。
+ */
+function FocusRow({ r }: { r: LimitUpFocusRow }) {
+  return (
+    <div className={`${SUB_QUIET} px-3 py-2`}>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <span className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+          <span className="text-sm font-semibold text-ink">{r.name}</span>
+          <span className="text-xs text-ink-faint">{r.code}</span>
+          <span className="text-xs text-ink-muted">
+            {r.boards} 板 · {r.sector}
+          </span>
+          {r.tier_label && (
+            <span className={`text-xs ${r.tier === 1 ? "text-brand-light" : "text-ink-soft"}`}>{r.tier_label}</span>
+          )}
+        </span>
+        <span className="text-xs text-ink-muted" title={r.expected_price_note}>
+          打板价 <span className="font-semibold text-ink">{r.expected_price.toFixed(2)}</span>
+          {r.next_limit_price != null && (
+            <>
+              <span className="mx-1 text-ink-faint">·</span>
+              次日涨停价 <span className="font-semibold text-ink">{r.next_limit_price.toFixed(2)}</span>
+              <span className={`ml-1 ${upTone(400)}`}>
+                较今收 +{r.limit_pct}%
+                {r.limit_pct === 20 ? "（创业板/科创板）" : r.limit_pct === 30 ? "（北交所）" : ""}
+              </span>
+            </>
+          )}
+        </span>
+      </div>
+      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-ink-faint">
+        <span>换手 {r.turnover}%</span>
+        <span>封单/流通 {r.seal_ratio}%</span>
+        <span>首封 {r.seal_time || "--"}</span>
+        {r.break_count > 0 && <span className="text-amber-300">开板 {r.break_count} 次</span>}
+        {r.seal_fund_yi != null && <span>封单 {r.seal_fund_yi} 亿</span>}
+        {r.expect_pct != null && r.expect_pct > 0 && (
+          <span>
+            溢价读数 <span className="text-ink-soft">{r.expect_pct > 0 ? "+" : ""}{r.expect_pct}%</span>
+          </span>
+        )}
+        {r.rate != null && (
+          <span>
+            明日晋级读数 <span className="text-ink-soft">{r.rate}%</span>
+            <span className="text-ink-faint">（n={r.rate_n}）</span>
+          </span>
+        )}
+      </div>
+      {r.basis.length > 0 && (
+        <ul className="mt-1 space-y-0.5">
+          {r.basis.map((b) => (
+            <li key={b} className="flex gap-1.5 text-xs leading-relaxed text-ink-faint">
+              <span>✓</span>
+              {b}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function FocusGroup({ title, rows, desc }: { title: string; rows: LimitUpFocusRow[]; desc: string }) {
+  if (rows.length === 0) return null;
+  return (
+    <div>
+      <div className="mb-1.5 flex flex-wrap items-baseline gap-x-2">
+        <span className="text-xs font-semibold text-ink-muted">{title}</span>
+        <span className="text-xs text-ink-faint">
+          {rows.length} 只 · {desc}
+        </span>
+      </div>
+      <div className="space-y-1.5">
+        {rows.map((r) => (
+          <FocusRow key={r.code} r={r} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 打板候选清单：回答「可打板，到底打什么、什么价」。
+ *
+ * 三条纪律（与整个涨停带一致，别在这里松口）：
+ *   1. 只在**环境过关**（level=hunt）时出现。说「别动手」的同时给名单，是自相矛盾 ——
+ *      后端就不下发 focus，这里也只做「有就渲染」。
+ *   2. 连板与首板**分开列**：连板有明日晋级读数（n=164 连板样本），首板没有 ——
+ *      两套读数口径不可比，合成一个名次等于造一个没有样本量的排名。
+ *   3. 价位不是预测：「打板价」就是今日涨停价，「次日涨停价」是交易所规则算出来的。
+ */
+function FocusSection({ advice }: { advice: LimitUpPlayAdvice }) {
+  const focus: LimitUpFocus | null | undefined = advice.focus;
+  if (!focus) return null;
+  const empty = focus.relay.length === 0 && focus.first.length === 0;
+
   return (
     <div className={`${SUB_QUIET} px-3 py-2.5`}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className={`text-sm font-semibold ${playAdviceTone(advice.level)}`}>今日建议：{advice.title}</h3>
-        <span className="text-xs text-ink-faint">主线 {advice.mainline}</span>
+        <h3 className="text-sm font-semibold text-ink">打板候选（可执行性筛选 · 非买入指令）</h3>
+        <span className="text-xs text-ink-faint">
+          涨停池 {focus.total} 只
+          {focus.cut > 0 && ` · ${focus.cut} 只达标但未进前列`}
+        </span>
       </div>
-      <ul className="mt-1.5 space-y-1">
-        {advice.reasons.map((r) => (
-          <li key={r} className="flex gap-1.5 text-xs leading-relaxed text-ink-soft">
-            <span className="text-ink-faint">·</span>
-            {r}
-          </li>
-        ))}
-      </ul>
-      <p className="mt-1.5 text-xs leading-relaxed text-ink-faint">
-        判定依据是已回测的口径（炸板率当日横截面、板块聚集度对晋级率的影响、梯队断层结构），
-        讲的是「环境」而不是个股 —— 连板接力整体仍是初步证据等级，不构成买点。
-      </p>
+      <p className="mt-1 text-xs leading-relaxed text-ink-soft">{focus.note}</p>
+
+      {empty ? (
+        <p className="mt-2 text-xs leading-relaxed text-ink-faint">
+          没有可执行标的不是「今天不能打板」，而是这批涨停股在**可成交性**上不成立：
+          缩量一字/秒板挂不上单，尾盘封板是唯一负期望档。这类日子里环境读数再好看也没有落点。
+        </p>
+      ) : (
+        <div className="mt-2 space-y-3">
+          <FocusGroup
+            title="连板候选（有明日晋级读数）"
+            rows={focus.relay}
+            desc="晋级读数来自 n=164 连板样本，13 个交易日窗口，只作相对强弱"
+          />
+          <FocusGroup
+            title="首板候选（无连板口径，只引溢价与封板时间档）"
+            rows={focus.first}
+            desc="首板没有对应的晋级样本，因此不借连板的数字"
+          />
+        </div>
+      )}
+
+      {Object.entries(focus.rejected).length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-ink-faint">
+          {Object.entries(focus.rejected).map(([key, n]) => (
+            <span key={key}>
+              剔除 {focus.rejected_labels[key] ?? key} <span className="text-ink-soft">{n}</span> 只
+            </span>
+          ))}
+        </div>
+      )}
     </div>
+  );
+}
+
+/** 展开区顶部的建议详情：档位 + 判定理由 + 打板候选 + 执行剧本。 */
+function AdviceSection({ advice }: { advice: LimitUpPlayAdvice }) {
+  return (
+    <>
+      <div className={`${SUB_QUIET} px-3 py-2.5`}>
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h3 className={`text-sm font-semibold ${playAdviceTone(advice.level)}`}>
+            {adviceBadgeText(advice)}
+          </h3>
+          <span className="text-xs text-ink-faint">主线 {advice.mainline}</span>
+        </div>
+        <ul className="mt-1.5 space-y-1">
+          {advice.reasons.map((r) => (
+            <li key={r} className="flex gap-1.5 text-xs leading-relaxed text-ink-soft">
+              <span className="text-ink-faint">·</span>
+              {r}
+            </li>
+          ))}
+        </ul>
+        <p className="mt-1.5 text-xs leading-relaxed text-ink-faint">
+          判定依据是已回测的口径（炸板率当日横截面、板块聚集度对晋级率的影响、梯队断层结构）。
+          连板接力整体仍是初步证据等级，所以这里的档位说的是**环境**；环境过关时下面才给候选与价位。
+        </p>
+      </div>
+
+      <FocusSection advice={advice} />
+
+      {!advice.focus && advice.focus_note && (
+        <div className={`${SUB_QUIET} px-3 py-2.5`}>
+          <h3 className="text-sm font-semibold text-ink-muted">这次为什么没有候选清单</h3>
+          <p className="mt-1 text-xs leading-relaxed text-ink-soft">{advice.focus_note}</p>
+        </div>
+      )}
+
+      {advice.playbook && advice.playbook.length > 0 && (
+        <div className={`${SUB_QUIET} px-3 py-2.5`}>
+          <h3 className="text-sm font-semibold text-ink">怎么执行（按顺序看）</h3>
+          <ol className="mt-1.5 space-y-1">
+            {advice.playbook.map((step, i) => (
+              <li key={step} className="flex gap-2 text-xs leading-relaxed text-ink-soft">
+                <span className="shrink-0 font-semibold text-ink-faint">{i + 1}.</span>
+                {step}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+    </>
   );
 }
 

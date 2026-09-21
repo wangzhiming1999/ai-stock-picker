@@ -267,6 +267,18 @@ export interface DailyRecommendation {
   target?: string;
   risk_reward?: number;
   valid_until?: string;
+  /**
+   * 预期价格 = **这笔动作打算在什么价位成交**，取自结构位（突破型取突破位、回踩型取回踩位），
+   * 与同一行的 `trigger` 用的是同一个数。不是预测价、不是目标价。
+   * 结构位样本不足时为 null —— 显示「—」，**不要折算成现价**。
+   */
+  expected_price?: number | null;
+  /** `breakout` = 突破型（锚点=突破位）/ `pullback` = 回踩型（锚点=回踩位） */
+  expected_price_setup?: "breakout" | "pullback";
+  /** 预期价格相对现价的偏离 %：正 = 现价还低于锚点，负 = 现价已高于锚点。不是预期收益 */
+  expected_price_gap_pct?: number | null;
+  /** 一句说明这个价是怎么来的（含「挂低了不成交 / 挂高了买贵了」这类执行含义） */
+  expected_price_note?: string;
 }
 
 export interface DailyRecommendResult {
@@ -409,7 +421,29 @@ export interface VanguardItem {
   fund: VanguardFund | null;
   metrics: VanguardMetrics | null;
   levels: VanguardLevels | null;
+  /**
+   * 预期价格（执行锚点）：现价贴着主压力就按突破位给价、否则按回踩位给价
+   * （`signal_service.expected_price_from_levels(..., "auto")`）。
+   *
+   * 三个**缺省可能**，前端一律显示「—」：
+   *   1. null —— K 线不足 60 根，结构位算不出来（不折算成现价）；
+   *   2. undefined —— 当日快照是本次上线前落库的（榜单整份 JSONB 缓存，当天不重算）。
+   * 它是锚点不是预测，也不参与任何收益口径。
+   */
+  expected_price?: VanguardExpectedPrice | null;
   tags: string[];
+}
+
+/** 预期价格（结构位锚点）。口径见 `signal_service.expected_price_from_levels`。 */
+export interface VanguardExpectedPrice {
+  price: number;
+  /** breakout=突破型（锚点=突破位）/ pullback=回踩型（锚点=回踩位） */
+  setup: "breakout" | "pullback";
+  basis: "structure_breakout" | "structure_pullback";
+  /** 相对现价的偏离 %：正 = 现价还低于锚点，负 = 现价已高于锚点。不是预期收益 */
+  gap_pct: number | null;
+  /** 一句说明这个价怎么来的（含执行含义） */
+  note: string;
 }
 
 export interface VanguardSector {
@@ -1014,6 +1048,14 @@ export interface SimTrade {
   source: "manual" | "briefing" | "recommend";
   related_reco_id?: string | null;
   note?: string;
+  /**
+   * 预期价格（执行锚点）：建仓时计划成交的价位（v13 迁移新增列）。
+   *
+   * 用途只有一个 —— 事后对比「预期 vs 实际成交价」（滑点）。
+   * **不参与任何盈亏 / 胜率计算**：账是按实际成交价 `price` 记的。
+   * undefined = 迁移未执行或该笔卖出（卖出没有建仓计划价的语义）。
+   */
+  expected_price?: number | null;
 }
 
 /** 模拟盘账户总览 */
@@ -1672,7 +1714,63 @@ export interface LimitUpSentimentNote {
   text: string;
 }
 
-/** 今日操作建议（三档）。后端 play_advice 基于已回测口径（炸板率/断层/板块聚集度）给出，讲环境不讲个股。 */
+/**
+ * 一只打板候选（后端 `build_focus` 的 relay / first 行）。
+ *
+ * 价位是**交易所涨跌幅规则算出来的事实**（封板股当日价 = 当日涨停价，
+ * 次日涨停价 = 当日价 ×(1+限幅)），不是预测；名单只由已回测口径筛出，
+ * 每条 `basis` 都能追到样本量。两组读数（连板晋级 / 涨停溢价）口径不同、不可比。
+ */
+export interface LimitUpFocusRow {
+  code: string;
+  name: string;
+  boards: number;
+  sector: string;
+  /** 今日涨停价（= 今日收盘价） */
+  price: number;
+  /** 预期价格 = 打板价（今日涨停价）。跨页面统一字段名 */
+  expected_price: number;
+  expected_price_basis: string;
+  expected_price_note: string;
+  /** 次日涨停价（若明日继续封板，那才是明日的打板价）；取不到价时为 null */
+  next_limit_price: number | null;
+  /** 涨跌幅限制 %：主板 10 / 创业板·科创板 20 / 北交所 30 / 主板 ST 5 */
+  limit_pct: number;
+  turnover: number;
+  seal_ratio: number;
+  seal_time: string;
+  break_count: number;
+  seal_fund_yi: number | null;
+  /** 次日溢价读数 %（换手档口径） */
+  expect_pct: number | null;
+  /** 以下四项仅连板股有：首板没有连板口径可引，一律 null */
+  tier: number | null;
+  tier_label: string | null;
+  rate: number | null;
+  rate_n: number | null;
+  /** 入选依据，每条都带口径与样本量 */
+  basis: string[];
+}
+
+/** 打板候选清单。连板与首板**分两组**，两组口径不可比、不可相加。 */
+export interface LimitUpFocus {
+  relay: LimitUpFocusRow[];
+  first: LimitUpFocusRow[];
+  /** 剔除计数，key 见 rejected_labels；按「首个命中的原因」归类，各档之和 + 入选数 = total */
+  rejected: Record<string, number>;
+  rejected_labels: Record<string, string>;
+  /** 达标但排在展示上限之外的数量 */
+  cut: number;
+  total: number;
+  note: string;
+}
+
+/**
+ * 今日操作建议（三档）。后端 play_advice 基于已回测口径（炸板率/断层/板块聚集度）给出。
+ *
+ * `focus` 只在 `hunt` 档有值 —— 说「别动手」的同时列一张可买名单是明确踩过的矛盾。
+ * 三个新字段恒存在（后端三档统一载荷形状），旧后端连到时为 undefined，前端降级隐藏。
+ */
 export interface LimitUpPlayAdvice {
   /** avoid=空仓等待 / watch=只看不动手 / hunt=可打板 */
   level: "avoid" | "watch" | "hunt";
@@ -1682,6 +1780,12 @@ export interface LimitUpPlayAdvice {
   gaps: number[];
   /** 主线板块名（聚集度最高的），无涨停时为 "—" */
   mainline: string;
+  /** 打板候选清单；非 hunt 档为 null */
+  focus?: LimitUpFocus | null;
+  /** 没有清单时的原因说明（非 hunt 档必给） */
+  focus_note?: string;
+  /** 「可打板」档的执行步骤；非 hunt 档为空数组 */
+  playbook?: string[];
 }
 
 export interface LimitUpSnapshot {

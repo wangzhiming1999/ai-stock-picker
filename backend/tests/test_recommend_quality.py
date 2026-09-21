@@ -21,7 +21,9 @@ class RecommendQualityTests(unittest.TestCase):
         self.assertFalse(_should_use_cached_recommendation({"schema_version": 2, "source": "empty", "recommendations": [], "watchlist": []}))
         # v3 快照存的是「盈亏比不足 + 买点关注」的矛盾文案，必须重算
         self.assertFalse(_should_use_cached_recommendation({"schema_version": 3, "source": "empty", "recommendations": [], "watchlist": []}))
-        self.assertTrue(_should_use_cached_recommendation({"schema_version": 4, "source": "empty", "recommendations": [], "watchlist": []}))
+        # v4 快照没有 expected_price 字段 —— 不重算就会整整一天给不出预期价格
+        self.assertFalse(_should_use_cached_recommendation({"schema_version": 4, "source": "empty", "recommendations": [], "watchlist": []}))
+        self.assertTrue(_should_use_cached_recommendation({"schema_version": 5, "source": "empty", "recommendations": [], "watchlist": []}))
 
     def test_rejects_high_chase_candidate(self) -> None:
         candidate = {"price": 20, "change_pct": 8.5, "turnover": 4, "strategy_score": 8, "signal": {"rr_ratio": 2}}
@@ -87,6 +89,72 @@ class RecommendQualityTests(unittest.TestCase):
         self.assertIn("19.80", plan["trigger"])
         self.assertIn("18.90", plan["invalidation"])
         self.assertEqual(plan["valid_until"], "2026-09-08")
+
+
+class ExpectedPriceTests(unittest.TestCase):
+    """预期价格：给「不知道怎么操作」补上执行价位。
+
+    核心不变量：**预期价格必须与同一行的触发文案是同一个数** ——
+    文案说回踩 19.80、价格却给 20.10，用户会不知道挂哪个。
+    """
+
+    def test_pullback_plan_anchors_on_buy_point(self) -> None:
+        candidate = {
+            "price": 20,
+            "signal": {"buy_point": 19.8, "stop_loss": 18.9, "sell_point": 22.0, "rr_ratio": 2.2},
+        }
+        plan = _build_action_plan(candidate, "2026-09-08")
+        self.assertEqual(plan["expected_price"], 19.8)
+        self.assertEqual(plan["expected_price_setup"], "pullback")
+        # 触发文案里的数与预期价格必须是同一个
+        self.assertIn(f"{plan['expected_price']:.2f}", plan["trigger"])
+        # 现价 20 > 锚点 19.8 → 偏离为负（要等它跌回来）
+        self.assertEqual(plan["expected_price_gap_pct"], -1.0)
+        self.assertIn("回踩位", plan["expected_price_note"])
+
+    def test_breakout_plan_anchors_on_resistance(self) -> None:
+        candidate = {
+            "price": 106.97,
+            "change_pct": 0.94,
+            "strategy_score": 5.9,
+            "tags": ["接近新高", "量能活跃", "均线多头"],
+            "signal": {"buy_point": 105.9, "stop_loss": 101.0, "resistance": 108.0, "rr_ratio": 0.6, "strength": 8},
+        }
+        plan = _build_action_plan(candidate, "2026-09-09")
+        self.assertEqual(plan["expected_price_setup"], "breakout")
+        self.assertEqual(plan["expected_price"], 108.0)
+        self.assertIn("108.00", plan["trigger"])
+        self.assertIn("突破位", plan["expected_price_note"])
+        # 现价低于锚点 → 偏离为正（要等它涨上去突破）
+        self.assertGreater(plan["expected_price_gap_pct"], 0)
+
+    def test_missing_levels_yield_none_not_zero(self) -> None:
+        """结构位拿不到时必须是 None —— 折算成 0 或现价会造出一个假锚点。"""
+        plan = _build_action_plan({"price": 20, "signal": None}, "2026-09-08")
+        self.assertIsNone(plan["expected_price"])
+        self.assertIsNone(plan["expected_price_gap_pct"])
+        self.assertIn("不可给", plan["expected_price_note"])
+
+    def test_gap_is_none_when_price_unknown(self) -> None:
+        """锚点有、现价没有：价格照给，偏离量置 None（不除以 0）。"""
+        plan = _build_action_plan(
+            {"price": 0, "signal": {"buy_point": 19.8, "stop_loss": 18.9, "resistance": 22.0}},
+            "2026-09-08",
+        )
+        self.assertEqual(plan["expected_price"], 19.8)
+        self.assertIsNone(plan["expected_price_gap_pct"])
+
+    def test_expected_price_never_used_as_entry_for_settlement(self) -> None:
+        """口径隔离：预期价格只是执行锚点，结算用的仍是 recommend_price（现价）。"""
+        candidate = {
+            "price": 20,
+            "signal": {"buy_point": 19.8, "stop_loss": 18.9, "sell_point": 22.0, "rr_ratio": 2.2},
+        }
+        plan = _build_action_plan(candidate, "2026-09-08")
+        self.assertNotIn("recommend_price", plan)
+        # 计划里不出现任何以预期价格为准的收益字段
+        self.assertNotIn("expected_return", plan)
+        self.assertNotIn("target_from_expected", plan)
 
     def test_strategy_merge_requires_momentum_and_trend_confirmation(self) -> None:
         results = [

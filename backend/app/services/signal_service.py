@@ -135,3 +135,81 @@ def compute_signals(
         "low60": round(low, 2),
         "high60": round(high, 2),
     }
+
+
+# ---------- 预期价格（执行锚点） ----------
+#
+# 用户反馈：「决策类文案太少了，我都不知道怎么操作」「选股的时候记得带一个预期价格」。
+# 预期价格回答的只有一件事：**这笔动作打算在什么价位成交**。
+#
+# 取值来源是**已经存在的结构位**（主支撑 / 主压力），不是预测价、不是目标价：
+#   breakout → 取主压力位。放量突破该价才成立，所以预期成交价就是突破位（挂低了不成交）；
+#   pullback → 取主支撑位。回到该价附近才成立，所以预期成交价就是回踩位（挂高了就贵了）；
+#   auto     → 由**现价与主压力的距离**自动二选一（见 `_SETUP_NEAR_RESISTANCE`）。
+#              「选股榜」这类没有现成形态判定的地方用它，规则仍然是确定的、可复算的。
+#
+# ⚠️ 三条不能破的约束：
+#   1. **不参与任何收益率结算**。预期价格只是执行锚点，胜率 / 溢价 / agent 计划口径
+#      一律不用它 —— 否则会凭空造出一个没人回测过的收益口径。
+#   2. 结构位本身的证据档是 unsupported（见 `tactic_evidence.monitor_levels`：买入侧
+#      实测超额为负）。这里只是把同一个价位搬到「执行锚点」的位置展示，
+#      **不得**因此把 buy_point 说成买点。
+#   3. 拿不到结构位就返回 None，由前端显示「—」。**永不折算成 0 或现价** ——
+#      折算出来的假价格会被当成真锚点用。
+
+# `auto` 的判定边界：现价 ≥ 主压力 ×0.98 视为「贴着压力」，锚点取突破位；否则取回踩位。
+# 取 0.98 而不是 1.00：结构位与现价之间常常差几分钱，用 1.00 会让同一只票在两次取数间
+# 在「回踩」和「突破」之间跳档，挂单价跟着跳 —— 档位必须稳定、可复现。
+_SETUP_NEAR_RESISTANCE = 0.98
+
+
+def expected_price_from_levels(
+    price: float | None,
+    levels: dict | None,
+    setup: str = "pullback",
+) -> dict | None:
+    """结构位 → 预期价格。取不到返回 None（调用方显示「—」，不要兜底成 0）。
+
+    返回的 ``gap_pct`` = 预期价格相对**现价**的偏离：正数表示现价还低于锚点（要等它涨上来），
+    负数表示现价已高于锚点（要等它跌回来）。它只是「离锚点多远」的读数，不是预期收益。
+    """
+    if not levels:
+        return None
+    try:
+        price = float(price or 0)
+    except (TypeError, ValueError):
+        price = 0.0
+
+    auto = setup == "auto"
+    if auto:
+        try:
+            resistance = float(levels.get("resistance") or 0)
+        except (TypeError, ValueError):
+            resistance = 0.0
+        setup = "breakout" if (price > 0 and resistance > 0 and price >= resistance * _SETUP_NEAR_RESISTANCE) else "pullback"
+
+    key = "resistance" if setup == "breakout" else "buy_point"
+    try:
+        anchor = float(levels.get(key) or 0)
+    except (TypeError, ValueError):
+        anchor = 0.0
+    if anchor <= 0:
+        return None
+
+    if setup == "breakout":
+        note = f"放量突破 {anchor:.2f} 后才成立，预期成交价取突破位（挂低了不会成交）"
+        basis = "structure_breakout"
+    else:
+        note = f"回到 {anchor:.2f} 附近才成立，预期成交价取回踩位（挂高了就买贵了）"
+        basis = "structure_pullback"
+    if auto:
+        # 自动选档时必须把「凭什么选了这一档」写出来，否则用户看到的是个黑箱结论。
+        note += "；现价已贴近主压力，按突破位给价" if setup == "breakout" else "；现价离主压力尚远，按回踩位给价"
+
+    return {
+        "price": round(anchor, 2),
+        "setup": setup,
+        "basis": basis,
+        "gap_pct": round((anchor - price) / price * 100, 2) if price > 0 else None,
+        "note": note,
+    }

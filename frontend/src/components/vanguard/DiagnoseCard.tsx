@@ -7,7 +7,7 @@ import { fmtNum } from "../../lib/safe";
 import type { VanguardDiagnose, VanguardSector } from "../../types";
 import Button from "../ui/Button";
 import StockSearchInput from "../StockSearchInput";
-import { DIM_SHORT, DimChip, EvidenceBadge, LevelChips, PctText, YiText } from "./shared";
+import { DIM_SHORT, DimChip, EvidenceBadge, ExpectedPriceChip, LevelChips, PctText, YiText } from "./shared";
 
 interface Props {
   /** 外部（榜单行的「诊股」按钮）请求诊断的代码 */
@@ -170,6 +170,11 @@ export default function DiagnoseCard({ code, requestId }: Props) {
 
             <div className={`${SUB} px-3 py-2`}>
               <p className="mb-1.5 text-xs font-semibold text-ink-muted">买卖时机 · 结构位</p>
+              {item.levels && (
+                <p className="mb-1.5">
+                  <ExpectedPriceChip ep={item.expected_price} />
+                </p>
+              )}
               <LevelChips levels={item.levels} />
               <p className="mt-1.5 text-xs text-ink-faint">{data.timing?.note}</p>
             </div>
