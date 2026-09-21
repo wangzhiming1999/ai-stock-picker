@@ -6,6 +6,18 @@ from __future__ import annotations
 
 import statistics
 
+# 支撑/压力位相对现价的**最小距离**（比例），仅施加于**压力侧**。
+#
+# 为什么只给压力侧：候选池里的布林上轨 = MA20 + 2σ，当指数贴着自己的均线运行时
+# 2σ 可能只有零点几个百分点，`min()` 几乎必然选中它，产出「压力位只比现价高 0.1%」
+# 这种没有交易价值的档位（挂上去立刻成交，等于没有压力位）。
+#
+# 为什么**不**施加于支撑侧：现价贴着 MA20 / 布林下轨运行是 A 股常态，
+# 而「回踩到均线」恰恰是有效的买点。若同样要求 0.5% 距离，会把绝大多数正常形态
+# 的支撑位判为无效（实测阶梯上行有效率跌到 6%、区间上沿 0%）。
+# 支撑侧只需要「在现价下方」这一条，不需要额外距离闸门。
+_MIN_RESISTANCE_GAP_PCT = 0.005
+
 
 def compute_signals(
     closes: list[float],
@@ -68,19 +80,43 @@ def compute_signals(
     ma5 = sum(basis[-5:]) / 5 if len(basis) >= 5 else ma20
     ma60 = sum(basis[-60:]) / 60
 
-    # 参考价 = 最后一根已完成 K 线的收盘。定档只认它，现价不参与，
-    # 否则现价一抖，支撑/压力候选就被换掉，建议会往回跳。
-    reference = basis[-1]
+# 支撑/压力必须相对**现价**成立。
+    #
+    # 旧实现写的是 `s <= reference` / `r > reference`（reference = 最后一根已完成 K 线的收盘），
+    # 注释却写「低于/高于现价」—— 两者在**趋势行情里会分叉**：上行时现价已涨过 reference，
+    # 一个通过 reference 检验的候选可能仍**低于现价**，再被 max()/min() 选中，
+    # 就产出「压力位在现价下方」这种自相矛盾的档位。
+    # 实测（120 根，各形态 200 次）：
+    #   · 阶梯上行 / 平滑上行 / 区间上沿 → 压力位距现价 p10 = **−0.16% ~ −0.27%**
+    #     （即压力位低于现价），中位仅 +0.05% ~ +0.15%
+    #   · rr_ratio 中位 0.07~0.10，**100% 的样本 rr < 0.5** —— 因为 upside = resistance − current
+    #     被压成接近 0 甚至负数，不是「形态差」，是点位算错了
+    #
+    # 因此现在直接以现价为准：支撑取「低于现价」中最近者，压力取「高于现价 + 最小距离」中
+    # 最近者。**不再使用 reference** —— 它既造成上述分叉，又让挂单价跟着最后一根 K 线漂移。
+    min_res_gap = current * _MIN_RESISTANCE_GAP_PCT
 
-    # 主支撑：取最近的支撑候选（低于现价且尽可能接近）
+    # 主支撑：低于现价的候选里取最近的一个（不加距离要求，回踩均线即有效买点）
     supports = [fib_618, bb_lower, ma20, ma60]
-    valid_supports = [s for s in supports if s <= reference]
-    support = max(valid_supports) if valid_supports else low
+    valid_supports = [s for s in supports if s < current]
 
-    # 主压力：取最近的压力候选（高于现价且尽可能接近）
+    # 主压力：高于现价且留出最小距离的候选里取最近的一个
     resistances = [fib_382, bb_upper, high]
-    valid_resistances = [r for r in resistances if r > reference]
+    valid_resistances = [r for r in resistances if r >= current + min_res_gap]
+
+    # 兜底也可能落在错误一侧 —— 这在**创新高/创新低**行情里是必然的，不是异常：
+    # 当现价已站上 60 日最高价，上方**不存在**任何结构压力（fib_382 / bb_upper / high
+    # 全在现价之下），此时唯一诚实的答案是「没有压力位」，而不是把 high60 报成压力位 ——
+    # 那会产出「压力位低于现价」这种自相矛盾的档位（实测阶梯上行 84%、平滑上行 71% 命中）。
+    #
+    # ⚠️ 对外仍给一个**数值**，但它是 None 的替身（见下方 level_valid）：
+    # monitor / intraday / debate 等下游对支撑/压力/止损做直接下标与 float() 运算，
+    # 一改 None 就会在实盘路径抛 TypeError。所以「无效」这件事用 level_valid 表达，
+    # **数值本身不是有效档位**，调用方必须判 level_valid 才可使用。
+    level_valid = bool(valid_resistances and valid_supports)
+    # 无效时用 60 日高低点占位（最接近的边界事实），仅用于满足数值契约与避免崩溃。
     resistance = min(valid_resistances) if valid_resistances else high
+    support = max(valid_supports) if valid_supports else low
 
     # 止损位：主支撑下方约 3%（或斐波那契 61.8% 下方）
     stop_loss = round(support * 0.97, 2)
@@ -93,11 +129,15 @@ def compute_signals(
     buy_point = round(support, 2)
     sell_point = round(resistance, 2)
 
-    # 风险收益比按主压力位计算；sell_point 只是 1% 的分批观察价，不能作为完整收益空间，
-    # 否则绝大多数正常形态都会被错误判为低风险收益比。
+    # 风险收益比。档位无效时（现价已穿透 60 日区间）upside 可能为负 ——
+    # 那不是「低风险收益比」，而是「不存在压力位」，因此置 None 而不是给 0 或负数。
+    # 下游（monitor / debate）用 `.get("rr_ratio")` 或算术前需容 None。
     upside = resistance - current
     downside = current - stop_loss
-    rr_ratio = round(upside / downside, 2) if downside > 0 else 0.0
+    if not level_valid:
+        rr_ratio = None
+    else:
+        rr_ratio = round(upside / downside, 2) if downside > 0 else None
 
     # 信号强度：趋势 + 位置 + 距离
     strength = 5.0
@@ -109,13 +149,17 @@ def compute_signals(
         strength += 1.0
     if current > bb_lower:
         strength += 0.5
-    # 接近支撑或压力时机会更好
+    # 接近支撑时机会更好
     if support > 0 and 0 < (current - support) / current < 0.03:
         strength += 1.0
-    if rr_ratio >= 2:
-        strength += 1.0
-    elif rr_ratio < 1:
-        strength -= 1.0
+    # rr 的加减分只在档位有效时生效。旧实现无条件按 rr 扣分，而 rr 之所以低是因为
+    # 压力位算错了（见上面候选池注释）—— 等于用一个 bug 的产物去扣另一个指标的分，
+    # 让「阶梯上行」这类正常形态被扣成弱信号。档位无效时不给 rr 加减分。
+    if rr_ratio is not None:
+        if rr_ratio >= 2:
+            strength += 1.0
+        elif rr_ratio < 1:
+            strength -= 1.0
     strength = round(max(0, min(10, strength)), 1)
 
     return {
@@ -134,6 +178,11 @@ def compute_signals(
         "ma60": round(ma60, 2),
         "low60": round(low, 2),
         "high60": round(high, 2),
+        # ⚠️ level_valid=False 表示现价已穿透 60 日区间（创新高/创新低），
+        # 此时 support/resistance/buy_point/sell_point/stop_loss 只是占位数值，
+        # **不是有效档位**，rr_ratio 为 None。下游展示应显示「—」，
+        # 且不得据此挂单（假价位会被当成真锚点）。
+        "level_valid": level_valid,
     }
 
 

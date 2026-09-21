@@ -87,7 +87,9 @@ class TradeSignal(BaseModel):
     buy_point: float
     sell_point: float
     stop_loss: float
-    rr_ratio: float
+    # 现价已穿透 60 日区间（创新高/创新低）时无法计算风险收益比 → None。
+    # 旧类型是必填 float，逼调用方拿 0 顶替，会显示成「风险收益比 0.00」这种假读数。
+    rr_ratio: float | None = None
     strength: float
     bb_upper: float | None = None
     bb_lower: float | None = None
@@ -96,6 +98,9 @@ class TradeSignal(BaseModel):
     ma60: float | None = None
     low60: float | None = None
     high60: float | None = None
+    # False = support/resistance/buy_point/sell_point/stop_loss 只是占位数值，
+    # 不是有效档位（现价已在 60 日区间之外）。前端应显示「—」。
+    level_valid: bool = True
 
 
 class StrategyAssessment(BaseModel):

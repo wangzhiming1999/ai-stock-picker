@@ -83,10 +83,21 @@ PREDICTION_SYSTEM_PROMPT = """你是一位擅长 A 股大盘研判的资深策�
 - 市场状态：输入已给出状态（上行/震荡/下行）、状态分、状态自转移概率与期望持续时间 ——
   自转移概率高说明状态粘性强，下一个交易日大概率延续，不要因为单日小波动就推翻它
 - 市场宽度：涨跌家数比、涨停/跌停家数、全市场成交额环比 —— 判断是普涨普跌还是结构性行情
-- 技术面：均线多头/空头排列、MACD 金叉死叉状态、RSI 是否超买超卖、布林带位置、量价是否配合
+- 技术面：均线排列（现价在 MA20/MA60 之上还是之下、两条均线的相对位置）、
+  现价与主支撑/主压力的距离、布林带位置、量价是否配合
 - 位置与空间：指数处于近期 60 日区间的高位还是低位，距离支撑/压力位的空间
-- 情绪与节奏：结合当日涨跌幅、量比、5日/20日动量判断市场情绪强弱
+- 情绪与节奏：结合当日涨跌幅、量比、多窗口动量一致度判断市场情绪强弱
 - 多空博弈：结合关键点位给出多空分水岭
+
+【关于 RSI 与量比的硬性约束（重要）】
+- RSI 与量比是**读数**，不参与证据分计算。给出它们的数值是为了让你解释得更具体，
+  **不是**让你用它们推翻证据分。
+- **禁止把「RSI 超卖」当作看多理由**，也禁止把「RSI 超买」当作看空理由并据此改变方向倾向。
+  A 股指数在下跌趋势中长期处于低 RSI 是常态，低 RSI 不等于「该反弹了」；
+  同理高 RSI 不等于「该回调了」。若你的判断与证据分冲突，**以证据分为准**。
+- 引用这些读数时只描述事实（"RSI(14) 为 34.9，处于近月低位"），
+  不要延伸成方向结论（"因此超卖反弹可期"）。
+- 不得提到输入中未给出的指标（例如 MACD、KDJ），也不得编造任何数值。
 【写作风格】
 - summary 要像专业股评：先给结论方向，再用数据支撑逻辑，避免空话套话
 - drivers 要具体可验证（状态/宽度/技术信号/量能/位置），不要泛泛而谈
@@ -110,6 +121,20 @@ def get_index_history(days: int = 180) -> list[dict]:
         }
         for _, row in df.iterrows()
     ]
+
+
+def _pos_word(price: float, ma: float) -> str:
+    """现价相对均线的方位词：供 prompt 描述多空排列。
+
+    提出成函数是因为「之上/之下」必须在两处（MA20/MA60）保持一致口径，
+    并在差值为 0 时不给出错误方向。
+    """
+    delta = price - ma
+    if delta > 0:
+        return f"之上（+{delta / ma * 100:.2f}%）"
+    if delta < 0:
+        return f"之下（{delta / ma * 100:.2f}%）"
+    return "同价"
 
 
 def build_market_context(
@@ -159,11 +184,30 @@ def build_market_context(
         f"近5日 {ret5:+.2f}%，近20日 {ret20:+.2f}%，60日区间位置 {pos:.0f}%\n"
     )
     if sig:
+        # 均线必须带「在现价之上/之下」的方位，否则模型无法判断多头/空头排列；
+        # 布林轨必须标明哪个是支撑哪个是压力，否则模型只能猜（曾把下轨猜成支撑）。
         ctx += (
-            f"技术信号：支撑 {sig['support']}，压力 {sig['resistance']}，"
-            f"MA5 {sig['ma5']}，MA20 {sig['ma20']}，MA60 {sig['ma60']}，"
-            f"RSI 由 MACD 等综合评估，布林上轨 {sig['bb_upper']}，下轨 {sig['bb_lower']}，"
-            f"信号强度 {sig['strength']}\n"
+            f"技术信号：\n"
+            f"  支撑位 {sig['support']}（现价下方最近的支撑，跌破视为转弱）\n"
+            f"  压力位 {sig['resistance']}（现价上方最近的压力，突破视为转强）\n"
+            f"  均线：MA5 {sig['ma5']}，MA20 {sig['ma20']}，MA60 {sig['ma60']}"
+            f"（现价 {price:.2f} 位于 MA20 {_pos_word(price, sig['ma20'])}、"
+            f"MA60 {_pos_word(price, sig['ma60'])}）\n"
+            f"  布林带(20,2)：下轨 {sig['bb_lower']}（支撑参考，非主支撑）、"
+            f"上轨 {sig['bb_upper']}（压力参考，非主压力）\n"
+            f"  信号强度 {sig['strength']}/10\n"
+        )
+    # RSI 与量比是**读数**不是打分项（见 regime_service._rule_regime）：这里如实给出数值，
+    # 并说明它们不参与方向分，避免模型把「超卖」当成看多理由去对抗证据分。
+    readings = regime.get("readings") or {}
+    if readings:
+        ctx += (
+            f"技术读数（仅作解释参考，不参与方向分）："
+            f"RSI(14) {readings.get('rsi14', '-')}，"
+            f"20日动量 {readings.get('ret20_pct', '-')}%，"
+            f"5日动量 {readings.get('ret5_pct', '-')}%，"
+            f"多窗口动量一致度 {readings.get('mom_agreement', '-')}"
+            f"（1.0=四个时间窗口一致看多，-1.0=一致看空，0=方向打架）\n"
         )
     ctx += f"近5日收盘：{', '.join(f'{c:.0f}' for c in closes[-5:])}\n"
     ctx += _quantitative_block(breadth, regime, evidence_score)

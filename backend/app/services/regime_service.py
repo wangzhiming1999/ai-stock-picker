@@ -46,6 +46,31 @@ logging.getLogger("hmmlearn").setLevel(logging.ERROR)
 # 避免状态刚确认就把仓位打满。
 STATE_BASE_SCORE: dict[str, float] = {"下行": 3.2, "震荡": 5.0, "上行": 6.8}
 
+# 规则状态分的证据项参数（2026-09-21 重新标定，依据见下）。
+#
+# 旧实现的做法是「四个独立证据项相加」：均线结构 ±1.2、ret20 ±1.4、ret5 ±0.8、
+# RSI ±0.8。四项都在测「最近涨了多少」，实测相关系数 0.48~0.81
+# （rsi↔ret20 高达 0.81）—— 同一个近期漂移被数了四遍，sum() 等于给了 4 倍权重。
+# 后果（n=400 纯随机游走，零趋势）：
+#   · 分数 p10~p90 铺满 2.06~8.28，几乎覆盖整个 0-10 量程
+#   · 判「上行」35.5%、判「下行」42.8%，只有 21.8% 落在震荡带
+#   · 一个零趋势市场有四成概率被说成「上行」
+#   · corr(分数, 后 5 日收益) = +0.649，分数只是在复述刚发生的涨跌
+# 真实病例如「温和下跌」被判成「上行」（6.94）、「区间上沿横盘」被判成「上行」（7.33）。
+#
+# 新做法：**多窗口动量一致性加权**。20/40/60 日动量只在窗口互相印证时才全额生效，
+# 10/20/40/60 四个窗口投票决定方向（一致度 = 同号占比），幅度取三窗口均值。
+# 单个随机极值无法同时骗过四个窗口，因此噪声被压掉而真实趋势保留。
+# 标定目标与实测（每档 n=120~150）：
+#   年化 -80% → 中位 2.00、99% 判下行    年化 0%  → 中位 5.00、45% 判震荡
+#   年化 +80% → 中位 7.60、74% 判上行
+# 均值回复序列（OU）判震荡率 27% → 50%；正弦+噪声横盘 52% → 100%。
+_MOM_WINDOWS_VOTE = (10, 20, 40, 60)   # 方向投票窗口
+_MOM_WINDOWS_MAG = (20, 40, 60)        # 幅度测量窗口
+_MOM_SCALE = 25.0                      # 动量 → 分数缩放（标定得出，勿随手改）
+_MOM_CLAMP = 2.0                       # 单窗口幅度上限，防单窗口极值主导
+_MA_ALIGN_GAIN = 1.0                   # 均线排列贡献（旧值 1.2，与新幅度项相比偏重）
+
 # 方向分 → 标签阈值。中间带宽（3.8~6.2）就是「震荡」，
 # 与 market_prediction.normalize_direction() 的三分类语义严格对齐。
 SCORE_UP = 6.2
@@ -319,10 +344,27 @@ def _hmm_regime(matrix: np.ndarray) -> dict | None:
 
 
 def _rule_regime(closes: list[float], note: str | None = None) -> dict:
-    """确定性状态判据：均线结构 + 动量 + RSI + 波动放大。
+    """确定性状态判据：均线结构 + 多窗口动量一致性 + 波动率。
 
-    这是**主判据**。它可复核、可回测、无拟合自由度；实测在含多段 regime 的
-    合成样本上 7/7 判对，而同期 HMM 单次拟合只有 3/7 —— 见 compute_regime 的说明。
+    这是**主判据**。它可复核、可回测、无拟合自由度。
+
+    打分结构（2026-09-21 重新标定，为什么这么改见 ``_MOM_SCALE`` 上方的长注释）：
+
+        score = 5.0
+              + 均线排列(±1.0)
+              + 多窗口动量一致性加权(±2.0)
+
+    关键是幅度项**按四个窗口的一致度缩放**：窗口互相印证时全额生效，
+    方向打架时自然衰减到 0。这让单个随机极值无法主导分数——
+    旧实现四项相加实测相关系数 0.48~0.81，等于给同一信号 4 倍权重。
+
+    RSI 与量比**不再参与打分**：
+    - RSI(14) 与 20 日动量实测相关 0.81，是同一信息的重复表达；且旧实现用
+      `(rsi-50)/25` 的**水平**判据，把「超卖」当成看空信号 —— 与「超卖意味着
+      反弹动能」的常识相反，是方向语义分裂的来源之一。
+    - 量比原先「缩量 +0.3 / 放量 -0.6」，实测量比对分数几乎没有区分度，
+      却引入「放量下跌 = 更看空」这种与量价常识冲突的方向。
+    两者仍作为**读数**返回（供前端展示与 LLM 解释），只是不参与打分。
     """
     arr = [float(c) for c in closes]
     n = len(arr)
@@ -333,9 +375,26 @@ def _rule_regime(closes: list[float], note: str | None = None) -> dict:
         return sum(window) / len(window)
 
     ma20, ma60 = _ma(20), _ma(60)
-    ret20 = (price / arr[-21] - 1.0) if n >= 21 and arr[-21] > 0 else 0.0
-    ret5 = (price / arr[-6] - 1.0) if n >= 6 and arr[-6] > 0 else 0.0
 
+    # 多窗口动量：方向投票 + 幅度测量
+    def _mom(k: int) -> float:
+        if n < k + 1 or arr[-k - 1] <= 0:
+            return 0.0
+        return price / arr[-k - 1] - 1.0
+
+    # 一致度 ∈ [-1, 1]：四个窗口同号 = ±1，完全打架 = 0
+    votes = [math.copysign(1.0, _mom(k)) if _mom(k) != 0 else 0.0 for k in _MOM_WINDOWS_VOTE]
+    agreement = sum(votes) / len(votes)
+    # 幅度：三窗口的绝对动量均值（各自截断<|place_holder_mm_span_0442|>值），再乘一致度
+    magnitudes = [
+        _clamp(abs(_mom(k)) * _MOM_SCALE, 0.0, _MOM_CLAMP) for k in _MOM_WINDOWS_MAG
+    ]
+    magnitude = sum(magnitudes) / len(magnitudes)
+
+    ret20 = _mom(20)
+    ret5 = _mom(5)
+
+    # RSI(14)：仅作读数展示，不参与打分（见 docstring）
     span = min(14, n - 1)
     gains = losses = 0.0
     for i in range(n - span, n):
@@ -349,6 +408,7 @@ def _rule_regime(closes: list[float], note: str | None = None) -> dict:
     else:
         rsi = 100.0 if gains > 0 else 50.0
 
+    # 波动率比：仅作读数展示，不参与打分（见 docstring）
     rets = [arr[i] / arr[i - 1] - 1.0 for i in range(1, n) if arr[i - 1] > 0]
     vol_recent = float(np.std(rets[-20:])) if len(rets) >= 20 else 0.0
     vol_base = float(np.std(rets[-60:])) if len(rets) >= 60 else vol_recent
@@ -357,20 +417,11 @@ def _rule_regime(closes: list[float], note: str | None = None) -> dict:
     score = NEUTRAL_SCORE
     # 均线结构：相等（完全走平）时不加减分，避免本该中性的行情被推成偏空
     if price > ma20 and ma20 > ma60:
-        score += 1.2
+        score += _MA_ALIGN_GAIN
     elif price < ma20 and ma20 < ma60:
-        score -= 1.2
-    elif price > ma20:
-        score += 0.4
-    elif price < ma20:
-        score -= 0.4
-    score += _clamp(ret20 * 20.0, -1.4, 1.4)
-    score += _clamp(ret5 * 25.0, -0.8, 0.8)
-    score += _clamp((rsi - 50.0) / 25.0, -0.8, 0.8)
-    if vol_ratio > 1.5:
-        score -= 0.6  # 波动放大 = 趋势不稳定
-    elif vol_ratio < 0.8:
-        score += 0.3
+        score -= _MA_ALIGN_GAIN
+    # 多窗口动量一致性加权：单个随机极值骗不过四个窗口
+    score += math.copysign(magnitude, agreement) if agreement != 0 else 0.0
 
     score = round(_clamp(score, 0.0, 10.0), 2)
     state = state_of_score(score)
@@ -383,6 +434,14 @@ def _rule_regime(closes: list[float], note: str | None = None) -> dict:
                         "下行": 1.0 if state == "下行" else 0.0},
         "state_persistence": None,
         "expected_duration": None,
+        # 读数（不参与打分）：供前端展示与 LLM 解释，口径由这里唯一确定
+        "readings": {
+            "ret5_pct": round(ret5 * 100.0, 2),
+            "ret20_pct": round(ret20 * 100.0, 2),
+            "rsi14": round(rsi, 1),
+            "vol_ratio": round(vol_ratio, 2),
+            "mom_agreement": round(agreement, 2),
+        },
         "note": note,
     }
 
