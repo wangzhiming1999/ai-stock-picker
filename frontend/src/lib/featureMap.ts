@@ -68,6 +68,7 @@ export type BlockId =
   | "scan_closing" // 扫描 · 收盘前异动
   | "scan_market" // 扫描 · 按条件筛选
   | "scan_tactics" // 形态 · 实战形态命中
+  | "sandu_scan" // 三度 · 三度打分扫描
   | "winrate" // 研究 · 胜率看板
   | "backtest" // 研究 · 策略回测
   | "tactic_backtest"; // 研究 · 形态回测验证
@@ -305,6 +306,18 @@ export const FEATURES: FeatureEntry[] = [
     domain: "opportunity",
     sub: "chip",
     keywords: ["筹码", "筹码峰", "单峰密集", "获利盘", "集中度", "筹码分布", "CYQ", "chip"],
+    isNew: true,
+  },
+
+  /* ── 选机会 · 三度 ───────────────────────────────────────── */
+  {
+    key: "op.sandu",
+    label: "三度打分扫描",
+    desc: "厚度（量形态）/ 力度（均线归位）/ 速度（放量异动）三度合成读数；结构观察，非买入信号",
+    domain: "opportunity",
+    sub: "sandu",
+    block: "sandu_scan",
+    keywords: ["三度", "厚度", "力度", "速度", "均线归位", "吸筹", "主力", "三阳控三阴", "sandu"],
     isNew: true,
   },
 

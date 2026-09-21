@@ -2121,3 +2121,43 @@ export interface LimitDownRepairResult {
   best: LimitDownBrief[];
   cached: boolean;
 }
+
+/** ── 三度交易理论（厚度·力度·速度）扫描 ── */
+export interface SanduCondition {
+  label: string;
+  passed: boolean;
+}
+
+export interface SanduDimension {
+  name: string;
+  score: number;
+  status: "passed" | "watch" | "failed";
+  conditions: SanduCondition[];
+}
+
+export type SanduZone = "a" | "b" | "risk" | "none";
+
+export interface SanduItem {
+  code: string;
+  name: string;
+  price: number | null;
+  change_pct: number | null;
+  thickness: number;
+  strength: number;
+  velocity: number;
+  overall: number;
+  status: "passed" | "watch" | "failed" | "insufficient_data";
+  /** 位置区：a区=低位启动带 / b区=洗盘回踩带 / risk=高位风险区 / none=数据不足 */
+  zone: SanduZone;
+  action: string;
+  reasons: string[];
+  dimensions: SanduDimension[];
+}
+
+export interface SanduScanResult {
+  results: SanduItem[];
+  /** 实际成功取到历史 K 的股票数 */
+  scanned: number;
+  /** 输入总数 */
+  total: number;
+}

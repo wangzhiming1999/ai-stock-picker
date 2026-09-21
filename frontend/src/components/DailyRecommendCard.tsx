@@ -136,9 +136,6 @@ export default function DailyRecommendCard({ onPick, collapsed = false }: Props)
 
       {data?.recommendations?.length ? (
         <div className="space-y-3">
-          <div className="rounded-lg bg-surface-inset/70 px-3 py-2 text-meta text-ink-soft">
-            以下标的已通过基础风控，但仍须满足卡片里的“触发”条件；未触发就不买。
-          </div>
           <div className="max-h-[480px] space-y-2 overflow-y-auto pr-1">
           {data.recommendations.map((r, idx) => (
             <div
@@ -230,9 +227,6 @@ export default function DailyRecommendCard({ onPick, collapsed = false }: Props)
               <div className="flex items-center gap-1.5 text-body font-semibold text-amber-200">
                 <Eye className="h-4 w-4" aria-hidden /> 先观察，别急着买
               </div>
-              <p className="mt-0.5 text-meta text-ink-soft">
-                下列标的都被门槛拦下，卡片写明拦住它的原因和解除条件；条件没满足就不要买
-              </p>
             </div>
             <span className="rounded-full border border-state-warn-line bg-amber-500/10 px-2.5 py-1 text-meta text-state-warn-soft">
               {data.watchlist.length} 只待解锁
@@ -319,7 +313,6 @@ export default function DailyRecommendCard({ onPick, collapsed = false }: Props)
     <CollapsiblePanel
       id="daily_recommend"
       title={data ? `今天有哪些可行动机会 · ${fmtDate(data.date)}` : "今天有哪些可行动机会"}
-      subtitle="通过基础风控后仍需等待触发条件，不是看到名单就直接买"
       action={
         <div className="flex items-center gap-2">
           {actions}

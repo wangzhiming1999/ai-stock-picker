@@ -439,7 +439,7 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
     # 2. 按策略分排序取 top 16，允许 LLM 精选但不强制凑满 10 只。
     ranked = sorted(qualified, key=lambda x: x["strategy_score"], reverse=True)[:16]
     if not ranked:
-        result = {"schema_version": _RECOMMENDATION_SCHEMA_VERSION, "date": today, "target_date": target_day, "source": "empty", "recommendations": [], "watchlist": watchlist, "candidates": 0, "watch_candidates": len(watchlist), "rejected": len(rejected), "message": "今天没有达到行动级别的标的。下列标的未过门槛，卡片写明拦截原因与解锁条件——条件未满足前不建议买入。"}
+        result = {"schema_version": _RECOMMENDATION_SCHEMA_VERSION, "date": today, "target_date": target_day, "source": "empty", "recommendations": [], "watchlist": watchlist, "candidates": 0, "watch_candidates": len(watchlist), "rejected": len(rejected), "message": "今天没有达到行动级别的标的。"}
         put_bounded(_recommendation_cache, today, (dt.datetime.now().isoformat(), result), max_entries=_RECOMMENDATION_CACHE_MAX)
         # 空结果同样落库：否则每次访问都要重扫全市场，且「拦截原因 + 解锁条件」
         # 这份修正过的文案无法跨实例复用。

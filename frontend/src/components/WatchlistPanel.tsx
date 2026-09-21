@@ -98,7 +98,6 @@ export default function WatchlistPanel({ onAnalyze }: Props) {
   return (
     <Panel
       title="我的自选"
-      desc="从推荐/扫描一键导入，跟踪自选股实时涨跌"
       actions={
         <>
           <button

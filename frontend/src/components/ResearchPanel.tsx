@@ -46,11 +46,7 @@ export default function ResearchPanel({ jump }: Props) {
 
   return (
     <div className={STACK}>
-      <PageHeader
-        icon={Microscope}
-        title="研究"
-        desc="这些方法到底靠不靠谱：每条口径的样本、证据档次与历史回测"
-      />
+      <PageHeader icon={Microscope} title="研究" />
 
       <SubNav id="research" items={items} value={sub} onChange={changeSub} />
 

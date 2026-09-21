@@ -100,7 +100,6 @@ export default function TodayPanel({ onPick, onOpenMap, jump }: Props) {
       <PageHeader
         icon={Zap}
         title="今日作战"
-        desc="今天该做什么：盘中盯盘给买卖点，简报给方向与复盘"
         meta={
           <span className="flex items-center justify-end gap-1.5">
             <span className="relative flex h-2 w-2">

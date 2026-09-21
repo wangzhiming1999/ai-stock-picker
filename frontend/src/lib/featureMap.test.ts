@@ -87,7 +87,10 @@ test("一级导航数量与子页宽度都受控 —— 深度超过 2 层就没
   assert.ok(tabs.length <= 4, `一级导航 ${tabs.length} 项，超过 4 项就回到"按功能类型切 tab"了`);
   for (const [tab, subs] of SUB_ENTRIES) {
     assert.ok(subs.length >= 1, `${tab} 没有任何子页`);
-    assert.ok(subs.length <= 5, `${tab} 有 ${subs.length} 个子页，二级导航会挤成一条看不清的带子`);
+    assert.ok(
+      subs.length <= 6,
+      `${tab} 有 ${subs.length} 个子页，二级导航会挤成一条看不清的带子`,
+    );
   }
 });
 

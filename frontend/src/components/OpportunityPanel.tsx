@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { Crosshair, Lightbulb, ScanSearch, Shapes, Layers } from "lucide-react";
+import { Crosshair, Lightbulb, ScanSearch, Shapes, Layers, Gauge } from "lucide-react";
 import { subNavFor } from "../lib/subnav";
 import { useSubPage } from "../lib/useSubPage";
 import type { NavJump } from "../lib/featureMap";
@@ -14,6 +14,7 @@ const ScanPanel = lazyRetry(() => import("./ScanPanel"));
 const TacticView = lazyRetry(() => import("./TacticView"));
 const VanguardPanel = lazyRetry(() => import("./VanguardPanel"));
 const ChipPanel = lazyRetry(() => import("./ChipPanel"));
+const SanduPanel = lazyRetry(() => import("./sandu/SanduPanel"));
 
 const SUB_ICON = {
   recommend: Lightbulb,
@@ -21,6 +22,7 @@ const SUB_ICON = {
   scan: ScanSearch,
   tactic: Shapes,
   chip: Layers,
+  sandu: Gauge,
 } as const;
 const SUB_KEYS = {
   recommend: "recommend",
@@ -28,6 +30,7 @@ const SUB_KEYS = {
   scan: "scan",
   tactic: "tactic",
   chip: "chip",
+  sandu: "sandu",
 } as const;
 
 interface Props {
@@ -64,11 +67,7 @@ export default function OpportunityPanel({ onPick, jump }: Props) {
 
   return (
     <div className={STACK}>
-      <PageHeader
-        icon={Lightbulb}
-        title="选机会"
-        desc="今天买什么：模型推荐、三维决策、规则扫描、形态命中 —— 四条票源，产出都是候选不是指令"
-      />
+      <PageHeader icon={Lightbulb} title="选机会" />
 
       <SubNav id="opportunity" items={items} value={sub} onChange={changeSub} />
 
@@ -106,6 +105,14 @@ export default function OpportunityPanel({ onPick, jump }: Props) {
         <div className={isVisible(SUB_KEYS.chip)}>
           <Suspense fallback={<PanelSkeleton label="正在加载筹码形态" />}>
             <ChipPanel onPick={onPick} />
+          </Suspense>
+        </div>
+      )}
+
+      {isMounted(SUB_KEYS.sandu) && (
+        <div className={isVisible(SUB_KEYS.sandu)}>
+          <Suspense fallback={<PanelSkeleton label="正在加载三度扫描" />}>
+            <SanduPanel onPick={onPick} />
           </Suspense>
         </div>
       )}

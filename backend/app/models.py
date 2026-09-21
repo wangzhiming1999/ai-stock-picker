@@ -115,6 +115,50 @@ class StrategyAssessment(BaseModel):
     conditions: list[dict] = []
 
 
+# ---------------------------------------------------------------------------
+# 三度交易理论选股（厚度 · 力度 · 速度）
+# ---------------------------------------------------------------------------
+
+class SanduDimension(BaseModel):
+    """单度打分块（厚度 / 力度 / 速度），逐条可复核。"""
+    name: str
+    score: float = Field(..., ge=0, le=10)
+    status: str
+    zone: str | None = None
+    conditions: list[dict] = []
+
+
+class SanduItem(BaseModel):
+    """单只票的三度综合结果。"""
+    code: str
+    name: str
+    price: float | None = None
+    change_pct: float | None = None
+    thickness: float = Field(..., ge=0, le=10)
+    strength: float = Field(..., ge=0, le=10)
+    velocity: float = Field(..., ge=0, le=10)
+    overall: float = Field(..., ge=0, le=10)
+    status: str  # passed | watch | failed | insufficient_data
+    zone: str | None = None  # a区 | b区 | None
+    action: str
+    reasons: list[str] = []
+    dimensions: list[SanduDimension] = []
+
+
+class SanduScanRequest(BaseModel):
+    """三度扫描请求：传入候选代码（≤30），后端逐只拉日线打分。"""
+    codes: list[str] = Field(..., min_length=1, max_length=30)
+    min_overall: float = Field(0.0, ge=0, le=10, description="综合分门槛，默认 0 返回全部")
+
+
+class SanduScanResult(BaseModel):
+    """三度扫描结果：按综合分降序。"""
+    count: int
+    scanned: int
+    items: list[SanduItem] = []
+    notice: str | None = None
+
+
 class DebateSide(BaseModel):
     """辩论中的一方（多头 / 空头研究员）。"""
     side: str = Field(..., description="bull | bear")

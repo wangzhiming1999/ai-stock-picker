@@ -42,6 +42,7 @@ export const SUB_NAV = {
     { key: "scan", label: "扫描", desc: "找候选 · 条件筛选 · 开盘前/收盘前异动" },
     { key: "tactic", label: "形态", desc: "K 线量价条件命中（条件成立 ≠ 已被验证）" },
     { key: "chip", label: "筹码", desc: "筹码峰形态：单峰密集 · 低位低获利 · 转移向上" },
+    { key: "sandu", label: "三度", desc: "厚度·力度·速度 三度打分（主力吸筹结构观察）" },
   ],
   holdings: [
     { key: "position", label: "持仓", desc: "成本 · 浮盈亏 · 预警规则" },

@@ -27,6 +27,7 @@ import type {
   PredictionRecord,
   PredictionStats,
   QuadRankResult,
+  SanduScanResult,
   ScanStock,
   SimAccount,
   SimPerformance,
@@ -755,6 +756,25 @@ export async function fetchClosingOpportunity(limit = 15, force = false): Promis
   const url = `${API}/market/opportunity/closing?limit=${limit}${force ? "&force=true" : ""}`;
   const res = await fetch(url);
   if (!res.ok) throw await errorFrom(res, "尾盘扫描失败");
+  return res.json();
+}
+
+// ---------- 三度交易理论（厚度·力度·速度）----------
+
+/**
+ * 三度扫描：对给定候选（≤30 只）逐只拉日 K 打分。
+ *
+ * 候选制扫描（类似 monitor/analysis），不碰全市场快照；逐只历史 K 由后端
+ * gather_limited 控并发，走既有缓存链路 —— 前端不需要 spotGuard 闸门，
+ * 但也不要轮询（每只都要一次腾讯 K 线请求）。
+ */
+export async function sanduScan(codes: string[], minOverall = 6.5): Promise<SanduScanResult> {
+  const res = await fetch(`${API}/sandu/scan`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ codes, min_overall: minOverall }),
+  });
+  if (!res.ok) throw await errorFrom(res, "三度扫描失败");
   return res.json();
 }
 

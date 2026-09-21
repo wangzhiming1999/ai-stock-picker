@@ -86,7 +86,6 @@ export default function VanguardPanel({ onPick }: Props) {
       <Panel
         icon={Crosshair}
         title="决策先锋"
-        desc="从暗盘资金 · 趋势 · 活跃度三维选股，并给出诊股、板块强度、主力抱团与买卖时机"
         actions={refreshBtn}
         meta={data ? `${data.date} 收盘 · ${data.headline}` : "每日更新"}
       >

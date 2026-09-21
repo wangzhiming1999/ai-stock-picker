@@ -51,7 +51,7 @@ export default function HoldingsPanel({ authed, onAnalyze, onRequestAuth, histor
   if (!authed) {
     return (
       <div className={STACK}>
-        <PageHeader icon={Wallet} title="持仓" desc="我手里有什么：持仓、模拟盘、自选与历史记录" />
+        <PageHeader icon={Wallet} title="持仓" />
         <EmptyState
           icon={Wallet}
           title="登录后管理你的持仓与历史记录"
@@ -73,11 +73,7 @@ export default function HoldingsPanel({ authed, onAnalyze, onRequestAuth, histor
 
   return (
     <div className={STACK}>
-      <PageHeader
-        icon={Wallet}
-        title="持仓"
-        desc="我手里有什么：真实持仓、模拟盘、自选与历史分析记录"
-      />
+      <PageHeader icon={Wallet} title="持仓" />
 
       <SubNav id="holdings" items={items} value={sub} onChange={changeSub} />
 

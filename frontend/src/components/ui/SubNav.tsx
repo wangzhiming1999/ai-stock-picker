@@ -6,8 +6,6 @@ type IconComp = ComponentType<SVGProps<SVGSVGElement>>;
 export interface SubNavItem<K extends string = string> {
   key: K;
   label: string;
-  /** 一句话说明这个子页装了什么。桌面端显示，移动端省略。 */
-  desc?: string;
   icon?: IconComp;
 }
 
@@ -35,10 +33,8 @@ interface Props<K extends string> {
  * 与语义色互不干扰。
  *
  * ## 为什么按钮按内容宽度排、放不下就横向滚动
- * 按钮曾经是 `flex-1`（等分整行）。子页少时看着整齐，但 `desc` 是长句，
- * 等分后每个按钮只有 1/N 宽度，文案在按钮内部折行、label 被挤成竖排单字，
- * 一排「标签」直接变成一堵墙。`desc` 又是用户判断「要不要点进去」的唯一依据，
- * 不能截断。所以改成：宽度由内容决定（`flex-auto` + `whitespace-nowrap`），
+ * 按钮曾经是 `flex-1`（等分整行）。子页少时看着整齐，但等分后每个按钮只有 1/N 宽度，
+ * label 会被挤成竖排单字。所以改成：宽度由内容决定（`flex-auto` + `whitespace-nowrap`），
  * 容器 `scroll-x` 兜底 —— 放得下就铺开，放不下就横向滚动，永不折行。
  */
 export default function SubNav<K extends string>({ id, items, value, onChange }: Props<K>) {
@@ -72,11 +68,6 @@ export default function SubNav<K extends string>({ id, items, value, onChange }:
                 {Icon && <Icon className="h-4 w-4" strokeWidth={2.2} aria-hidden />}
                 {it.label}
               </span>
-              {it.desc && (
-                <span className={`relative hidden text-meta font-normal lg:inline ${active ? "text-white/75" : "text-ink-muted"}`}>
-                  {it.desc}
-                </span>
-              )}
             </button>
           );
         })}
