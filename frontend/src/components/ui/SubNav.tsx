@@ -50,7 +50,7 @@ export default function SubNav<K extends string>({ id, items, value, onChange }:
               type="button"
               onClick={() => onChange(it.key)}
               aria-current={active ? "page" : undefined}
-              className={`relative flex min-w-0 flex-1 shrink-0 items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+              className={`relative flex min-w-0 flex-1 shrink-0 items-center justify-center gap-2 rounded-lg px-3 py-2 text-body font-medium transition-colors ${
                 active ? "text-white" : "text-ink-muted hover:text-ink"
               }`}
             >
@@ -66,7 +66,7 @@ export default function SubNav<K extends string>({ id, items, value, onChange }:
                 {it.label}
               </span>
               {it.desc && (
-                <span className={`relative hidden text-xs font-normal lg:inline ${active ? "text-white/75" : "text-ink-faint"}`}>
+                <span className={`relative hidden text-meta font-normal lg:inline ${active ? "text-white/75" : "text-ink-muted"}`}>
                   {it.desc}
                 </span>
               )}

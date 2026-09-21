@@ -79,10 +79,10 @@ function loadNotify(): boolean {
 
 /** 指令色调 */
 const toneClass: Record<string, string> = {
-  danger: "border-red-800/70 bg-red-950/50 text-red-300",
-  warn: "border-amber-800/60 bg-amber-950/40 text-amber-300",
+  danger: "border-state-danger-line bg-state-danger-surface text-state-danger-soft",
+  warn: "border-state-warn-line bg-state-warn-surface text-state-warn-soft",
   good: "border-green-800/60 bg-green-950/40 text-green-300",
-  neutral: "border-slate-700 bg-slate-800/70 text-ink-soft",
+  neutral: "border-surface-line bg-surface-inset/70 text-ink-soft",
   info: "border-sky-800/60 bg-sky-950/40 text-sky-300",
 };
 
@@ -90,7 +90,7 @@ const toneDot: Record<string, string> = {
   danger: "bg-red-400",
   warn: "bg-amber-400",
   good: "bg-green-400",
-  neutral: "bg-slate-500",
+  neutral: "bg-surface-line-strong",
   info: "bg-sky-400",
 };
 

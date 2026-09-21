@@ -20,17 +20,17 @@ export default function AnalysisStatus({ phase, status, total, doneCount, curren
   if (!(phase === "running" || phase === "done") || !status) return null;
 
   return (
-    <div className="mt-4 flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900 px-4 py-3 text-sm text-ink-soft">
+    <div className="mt-4 flex items-center gap-2 rounded-xl border border-surface-line bg-surface-panel px-4 py-3 text-body text-ink-soft">
       {phase === "running" ? (
         <>
           <RunningDot />
           <span>{status}</span>
           {total > 0 && (
-            <span className="ml-auto shrink-0 text-xs text-ink-faint tabular-nums">
+            <span className="ml-auto shrink-0 text-meta text-ink-muted tabular-nums">
               {doneCount}/{total}
             </span>
           )}
-          {currentCode && <span className="text-xs text-ink-faint">({currentCode})</span>}
+          {currentCode && <span className="text-meta text-ink-muted">({currentCode})</span>}
         </>
       ) : (
         <span className="text-brand-light">✓ {status}</span>

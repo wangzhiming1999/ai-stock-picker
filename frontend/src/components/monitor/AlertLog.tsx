@@ -12,24 +12,24 @@ interface Props {
 export default function AlertLog({ alerts, onClear }: Props) {
   if (alerts.length === 0) return null;
   return (
-    <div className="mb-3 rounded-xl border border-amber-900/50 bg-slate-900/60 p-3">
+    <div className="mb-3 rounded-xl border border-state-warn-line bg-surface-panel/60 p-3">
       <div className="flex flex-wrap items-center gap-2">
         <BellRing className="h-3.5 w-3.5 text-amber-300" aria-hidden />
-        <span className="text-xs font-semibold text-ink">盯盘提醒</span>
-        <span className="text-xs text-ink-faint">
+        <span className="text-meta font-semibold text-ink">盯盘提醒</span>
+        <span className="text-meta text-ink-muted">
           本次 <b className="text-ink-soft">{alerts.length}</b> 条 · 最近的在最前
         </span>
         <button
           onClick={onClear}
-          className="ml-auto rounded-lg border border-slate-700 px-2.5 py-1 text-xs text-ink-muted transition-colors hover:text-ink"
+          className="ml-auto rounded-lg border border-surface-line px-2.5 py-1 text-meta text-ink-muted transition-colors hover:text-ink"
         >
           清空
         </button>
       </div>
       <ul className="mt-2 space-y-1">
         {alerts.map((a) => (
-          <li key={a.id} className="flex flex-wrap items-center gap-2 text-xs">
-            <span className="tabular-nums text-ink-faint">{fmtTime(a.at)}</span>
+          <li key={a.id} className="flex flex-wrap items-center gap-2 text-meta">
+            <span className="tabular-nums text-ink-muted">{fmtTime(a.at)}</span>
             <span
               className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 ${
                 toneClass[a.tone] ?? toneClass.neutral

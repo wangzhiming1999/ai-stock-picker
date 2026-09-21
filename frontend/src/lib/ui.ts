@@ -23,6 +23,22 @@
  * 五档在四层表面上全部 >= 4.5:1，所以组件不必知道自己被放在哪一层上。
  * 历史教训：全站曾有 210 处用 text-slate-500/600 当提示文字，实测只有 3.07 / 1.93:1。
  *
+ * ## 字号（v3 新增，2026-09-21）
+ * 尺寸只认 tailwind.config.js 的 `fontSize` 阶梯（8 档，**每档自带行高**）：
+ *   micro 10 / meta 12 / label 12 / body 14 / head 16 / num 18 / h1 20 / hero 24
+ * 组件里**禁止**再写裸档位（text-xs / text-sm / text-base / text-lg / text-xl /
+ * text-2xl / text-[13px]）—— 它们已不参与构建，写了就是无样式，
+ * `designGuard.test.ts` 会报出来。
+ *
+ * 本次修的是**阶梯塌陷**：迁移前全站 557 处 text-xs、183 处 text-sm，
+ * 即八成文字是同一个 12px，而且全站 0 处 `leading-*` —— 中文 12px 的浏览器
+ * 默认行高只有 16px（1.33），字一多就糊成一坨灰。这不是配色问题，
+ * 是「一屏之内所有字一样大 + 行高过紧」的机械缺陷。
+ *
+ * ## 字体族
+ * 定义在 tailwind.config.js 的 `fontFamily.sans`：中文优先系统字体栈
+ * （PingFang SC / Microsoft YaHei / Noto Sans SC），不引 webfont。
+ *
  * ## 表面（底色 / 描边）
  * 用 `surface-*` 语义名（surface-panel / surface-inset / surface-line …），
  * 或等价的历史别名 `slate-800` / `slate-900`（已在 tailwind.config.js 重定向到同一套值）。
@@ -78,10 +94,10 @@ export const SUB = "rounded-xl bg-surface-inset";
 export const SUB_QUIET = "rounded-lg bg-surface-raised/60";
 
 /** ③ 分区：不套容器，只有标题 + 上方留白，用于切分主卡内部的不同主题。 */
-export const SECTION = "flex items-center gap-2 text-sm font-semibold text-ink";
+export const SECTION = "flex items-center gap-2 text-body font-semibold text-ink";
 
 /** ③ 分区（次级）：比 SECTION 弱一档，用于卡片内的次级小标题。 */
-export const SECTION_SUB = "text-xs font-semibold text-ink-muted";
+export const SECTION_SUB = "text-label font-semibold text-ink-muted";
 
 /** 分隔线：分区之间的细线，替代"再套一个框"。 */
 export const DIVIDER = "border-t border-surface-line-soft";
@@ -96,24 +112,64 @@ export const DIVIDER = "border-t border-surface-line-soft";
 export const CELL = "px-3 py-2";
 
 /**
- * 字号档位。全站只保留这几档，禁止再出现 text-[9px] / text-[10px] / text-[11px]。
- * 暗底 + 小字 + 11px 是此前可读性差的主要原因（全站曾有 130 处 <12px）。
+ * 排版档位（字号 + 字重 + 字色 的**语义组合**）。
+ *
+ * 尺寸本身定义在 tailwind.config.js 的 `fontSize` 阶梯里（8 档，每档自带行高），
+ * 这里只负责「这个位置该用哪一档、配什么字重和颜色」。
+ * 分开的理由：尺寸是全站唯一事实，组合方式却是有限的几种固定搭配。
+ *
+ * ⚠️ 组件里不要再手写 `className="text-meta text-ink-faint"` 这类组合，
+ *    直接用这里的一档 —— 否则「同一个位置两种写法」会重新长出来，
+ *    `designGuard.test.ts` 会拦。
+ *
+ * 字色用色纪律（这是「整屏发灰」的解药）：
+ *   ink-strong  标题 / 大数字          一屏只有少数几处
+ *   ink         面板标题 / 读数
+ *   ink-soft    正文                    ← 默认档，用得最多
+ *   ink-muted   字段名 / 表头
+ *   ink-faint   注释 / 口径 / 时间戳     **可以完全忽略也不影响判断**的内容才用
+ *
+ * ── 四类内容的分界（2026-09-21 按这条线把 375 处 ink-faint 重新分流）────
+ *   免责 / 合规声明            → faint   （页脚免责就是这个层级，不该和读数抢注意力）
+ *   口径 / 方法 / 证据 / 样本说明 → faint
+ *   空态 / 加载态               → soft    （此刻它是屏幕上唯一的内容，必须可读）
+ *   正文 / 列表项 / 读数 / 空态   → soft
+ *   字段名 / 表头 / 统计标签 / 股票代码 / 名次 / 单位 / 状态 → muted
+ *   控件（按钮 / 图标按钮）      → muted   （静止态压在 faint 上等于找不到可点）
+ *
+ * 分流之前：faint 375 处 > soft 141 处 —— 正文、读数、字段名全挤在最弱一档，
+ * 这就是「整屏发灰」的机械原因。分流之后 faint 69 / muted 437 / soft 253。
+ *
+ * ⚠️ 分流只解决了「用错档」，没解决「两档看着一样」：
+ *    `ink-muted`(#94a3b8) 与 `ink-faint`(#8fa0b8) 的相对亮度当时只差 **4.4%** ——
+ *    每档对背景都够亮，但两档**互相**分辨不出，五档名义存在、实际只有四档可用。
+ *    「标签」和「口径」这两层的区分因此形同虚设，混用久了还是发灰。
+ *
+ *    已修：`ink-faint` 压到 `#7f90a8`（对四层表面仍全部 >= 4.5:1，
+ *    与 `muted` 拉开 24.1%）。**注意 4.62:1 就是这条约束的上限** ——
+ *    再往下压就会在 `raised` 上跌破 AA，所以 `faint` 不可能更暗了。
+ *    判据已进 `tools/contrast.mjs` 断言 ⑥（相邻两档 >= 12%），
+ *    改任一档色值都会立刻被拦下。
  */
 export const TEXT = {
-  /** 页面级标题（PageHeader 用） */
-  h1: "text-xl font-semibold tracking-tight text-ink-strong sm:text-2xl",
-  /** 24px 主结论：一屏只有一处 */
-  hero: "text-2xl font-bold text-ink-strong",
-  /** 18px 关键数字 */
-  num: "text-lg font-semibold text-ink-strong",
-  /** 16px 区块标题 */
-  title: "text-base font-semibold text-ink-strong",
-  /** 14px 正文 / 列表主文本 */
-  body: "text-sm text-ink-soft",
-  /** 12px 标签（在子块内作字段名） */
-  label: "text-xs text-ink-muted",
-  /** 12px 次要信息 / 注释 */
-  meta: "text-xs text-ink-faint",
+  /** 页面级标题（PageHeader 用）20px */
+  h1: "text-h1 font-semibold text-ink-strong",
+  /** 主结论：一屏只有一处 24px */
+  hero: "text-hero font-bold text-ink-strong",
+  /** 关键数字 / 卡片主值 18px */
+  num: "text-num font-semibold text-ink-strong",
+  /** 区块标题 · 面板标题 16px */
+  head: "text-head font-semibold text-ink",
+  /** 卡内小标题 14px */
+  title: "text-body font-semibold text-ink",
+  /** 正文 / 列表主文本 / 表格 14px */
+  body: "text-body text-ink-soft",
+  /** 字段名 / 表头 12px（行高更紧，配 medium 与正文区分） */
+  label: "text-label font-medium text-ink-muted",
+  /** 注释 / 口径 / 脚注 12px */
+  meta: "text-meta text-ink-faint",
+  /** 角标 / 单位 / 图例 10px */
+  micro: "text-micro text-ink-faint",
 } as const;
 
 /* ── 面板骨架 ────────────────────────────────────────────────────────
@@ -128,11 +184,11 @@ export const PANEL_HEAD =
 /** 面板内容区。 */
 export const PANEL_BODY = "p-5";
 
-/** 面板标题行。 */
-export const PANEL_TITLE = "flex items-center gap-2 text-sm font-semibold text-ink";
+/** 面板标题行。16px —— 面板标题必须比面板内的正文大一档，否则「一块一块」看不出边界。 */
+export const PANEL_TITLE = "flex items-center gap-2 text-head font-semibold text-ink";
 
-/** 面板副标题（说明这个面板回答什么问题）。 */
-export const PANEL_DESC = "mt-0.5 text-xs text-ink-faint";
+/** 面板副标题（说明这个面板回答什么问题）。→ muted：它是字段位，不是正文 */
+export const PANEL_DESC = "mt-1 text-meta text-ink-muted";
 
 /** 面板头部右侧的操作区。 */
 export const PANEL_ACTIONS = "flex shrink-0 items-center gap-2";
@@ -173,7 +229,7 @@ export const BTN_VARIANT = {
   neutral: "bg-surface-raised text-ink hover:bg-surface-line",
   /** 描边：并列的次要动作（hover 有底色反馈） */
   outline:
-    "border border-surface-line-strong text-ink-soft hover:border-slate-400 hover:text-ink-strong",
+    "border border-surface-line-strong text-ink-soft hover:border-surface-line-hover hover:text-ink-strong",
   /** 描边（安静）：更弱的次要动作，hover 只提亮文字不加底 */
   outlineQuiet: "border border-surface-line-strong text-ink-muted hover:text-ink",
   /** 纯文字：最低优先级的动作（展开、切换、链接式） */
@@ -196,15 +252,15 @@ export type ButtonVariant = keyof typeof BTN_VARIANT;
  */
 export const BTN_SIZE = {
   /** 极小：标签行内的小动作 */
-  xs: "px-2.5 py-1 text-xs",
+  xs: "px-2.5 py-1 text-label",
   /** 小：表格操作列、卡片内动作（历史用量最大） */
-  sm: "px-3 py-1 text-xs",
+  sm: "px-3 py-1 text-label",
   /** 中：表单提交 */
-  md: "px-4 py-1.5 text-xs",
+  md: "px-4 py-1.5 text-label",
   /** 大：面板级主操作 */
-  lg: "px-5 py-2 text-sm",
+  lg: "px-5 py-2 text-body",
   /** 大 +：弹窗/空状态里的独立 CTA */
-  xl: "px-6 py-2.5 text-sm",
+  xl: "px-6 py-2.5 text-body",
 } as const;
 
 export type ButtonSize = keyof typeof BTN_SIZE;
@@ -246,10 +302,10 @@ export type InputTone = keyof typeof INPUT_TONE;
 export const STAT = "rounded-lg bg-surface-inset px-3 py-2 text-center";
 
 /** 统计格的数字行。基线不含颜色 —— 颜色由 StatTile 的 valueClass 决定。 */
-export const STAT_VALUE = "text-lg font-bold";
+export const STAT_VALUE = "text-num font-bold";
 
-/** 统计格的标签行 */
-export const STAT_LABEL = "text-xs text-ink-faint";
+/** 统计格的标签行。→ muted：标签与读数是两档，否则数字看不出是数 */
+export const STAT_LABEL = "text-label text-ink-muted";
 
 /* ── 节奏 ────────────────────────────────────────────────────────────
  * 垂直间距只有三档，用 `space-y-*` 的语义别名表达"这组东西有多强的关系"。

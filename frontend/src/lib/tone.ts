@@ -97,7 +97,7 @@ export function actionBadge(action: string | null | undefined): ActionBadge {
   const a = action ?? "";
   if (/减仓|卖出|清仓|sell/i.test(a)) return { label: "减仓", text: DOWN_TEXT[300], bg: "bg-green-500/10" };
   if (/加仓|买入|建仓|buy/i.test(a)) return { label: "可加仓", text: UP_TEXT[300], bg: "bg-red-500/10" };
-  return { label: "持有", text: NEUTRAL_TEXT[300], bg: "bg-slate-500/10" };
+  return { label: "持有", text: NEUTRAL_TEXT[300], bg: "bg-surface-line-strong/10" };
 }
 
 /**
@@ -145,21 +145,25 @@ export function playAdviceTone(level: string | null | undefined): string {
  * 所以不占红绿 —— 否则同一张卡里「强度 8」是绿、「今日涨 2%」是红，
  * 读者得为每个数字重新建立一次颜色映射。
  *
- * 高 = 主色浅档（达标）／ 中 = 琥珀（一般）／ 低 = 中性灰（不达标）
+ * 高 = 主色浅档（达标）／ 中 = 琥珀（一般）／ 低 = 中性正文色（不达标）
+ *
+ * ⚠️ 低档用 `ink-soft` 而不是 `ink-faint`：这两处返回的是**读数**（分数、倍率），
+ *    压到最弱档就等于把「3.2 分」和「没有数据」画成同一种灰。缺失值走的是
+ *    `ink-muted`（见上方各函数的第一行），两者必须能分辨。
  */
 export function scoreTone(v: number | null | undefined): string {
   if (v == null || Number.isNaN(v)) return "text-ink-muted";
   if (v >= 6) return "text-brand-light";
   if (v >= 4) return "text-amber-400";
-  return "text-ink-faint";
+  return "text-ink-soft";
 }
 
 /** 质量评分底色芯片（0–10 分制）。 */
 export function scoreChip(v: number | null | undefined): string {
-  if (v == null || Number.isNaN(v)) return "bg-slate-800/40 text-ink-muted";
+  if (v == null || Number.isNaN(v)) return "bg-surface-inset/40 text-ink-muted";
   if (v >= 6) return "bg-brand/15 text-brand-light";
   if (v >= 4) return "bg-amber-500/15 text-amber-300";
-  return "bg-slate-800/40 text-ink-muted";
+  return "bg-surface-inset/40 text-ink-muted";
 }
 
 /**
@@ -173,21 +177,21 @@ export function pctTone(v: number | null | undefined): string {
 
 /** 质量评分的纯底色（用于进度条填充等只需背景色的场景，0–10 分制）。 */
 export function scoreBg(v: number | null | undefined): string {
-  if (v == null || Number.isNaN(v)) return "bg-slate-600";
+  if (v == null || Number.isNaN(v)) return "bg-surface-line-strong";
   if (v >= 6) return "bg-brand";
   if (v >= 4) return "bg-amber-400";
-  return "bg-slate-600";
+  return "bg-surface-line-strong";
 }
 
 /**
  * 风报比配色（不是 0–10 分制，是倍率）。>=2 达标，>=1 一般，其余偏低。
- * 同样属于质量而非方向，所以不用红绿。
+ * 同样属于质量而非方向，所以不用红绿。低档同 scoreTone 用 `ink-soft`（是读数）。
  */
 export function rrTone(v: number | null | undefined): string {
   if (v == null || Number.isNaN(v)) return "text-ink-muted";
   if (v >= 2) return "text-brand-light";
   if (v >= 1) return "text-amber-400";
-  return "text-ink-faint";
+  return "text-ink-soft";
 }
 
 /**
@@ -208,7 +212,7 @@ export const CHIP = {
   /** 止损等风控阈值 */
   risk: { bg: "bg-amber-500/10", text: "text-amber-300" },
   /** 中性价位：支撑 / 压力 / 现价 */
-  neutral: { bg: "bg-slate-800/40", text: "text-ink" },
+  neutral: { bg: "bg-surface-inset/40", text: "text-ink" },
 } as const;
 
 /**

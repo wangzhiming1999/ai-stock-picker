@@ -24,30 +24,30 @@ export function LimitUpBlock({ limitup }: { limitup: NonNullable<Briefing["limit
       {advice && (
         <div className={`${SUB} px-3 py-2.5`}>
           <div className="flex items-center justify-between gap-2">
-            <span className={`text-base font-semibold ${levelTone}`}>{advice.title}</span>
+            <span className={`text-head font-semibold ${levelTone}`}>{advice.title}</span>
             <span className={TEXT.meta}>连板环境</span>
           </div>
           <ul className="mt-1 space-y-0.5">
             {advice.reasons.map((r, i) => (
-              <li key={i} className="text-xs leading-relaxed text-ink-soft">
+              <li key={i} className="text-meta leading-relaxed text-ink-soft">
                 · {r}
               </li>
             ))}
           </ul>
         </div>
       )}
-      {limitup.headline && <p className="text-xs leading-relaxed text-ink-muted">{limitup.headline}</p>}
+      {limitup.headline && <p className="text-meta leading-relaxed text-ink-muted">{limitup.headline}</p>}
       {limitup.top_tier && limitup.top_tier.names.length > 0 && (
         <div className={`${SUB_QUIET} px-2 py-1.5`}>
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className={`text-xs font-medium ${upTone(300)}`}>{limitup.top_tier.label}</span>
+            <span className={`text-meta font-medium ${upTone(300)}`}>{limitup.top_tier.label}</span>
             <span className={TEXT.meta}>
               历史同档晋级读数 {limitup.top_tier.rate}%（n={limitup.top_tier.rate_n}）
             </span>
           </div>
           <div className="mt-1 flex flex-wrap gap-1.5">
             {limitup.top_tier.names.map((n, i) => (
-              <span key={i} className={`rounded-md px-1.5 py-0.5 text-xs ${CHIP.neutral.bg} ${CHIP.neutral.text}`}>
+              <span key={i} className={`rounded-md px-1.5 py-0.5 text-meta ${CHIP.neutral.bg} ${CHIP.neutral.text}`}>
                 {n}
               </span>
             ))}
@@ -60,12 +60,12 @@ export function LimitUpBlock({ limitup }: { limitup: NonNullable<Briefing["limit
           {relays.map((r) => (
             <div key={r.code} className={`${SUB_QUIET} px-2 py-1.5`}>
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs font-medium text-ink-strong">{r.name}</span>
+                <span className="text-meta font-medium text-ink-strong">{r.name}</span>
                 <span className={TEXT.meta}>
                   {r.boards}板 · {r.tier_label ?? `${r.score}/3 分`}
                 </span>
               </div>
-              <div className="mt-0.5 text-xs leading-relaxed text-ink-soft">{r.hint}</div>
+              <div className="mt-0.5 text-meta leading-relaxed text-ink-soft">{r.hint}</div>
             </div>
           ))}
         </div>

@@ -7,11 +7,16 @@
  *
  * 跑法：`npm run contrast`（CI 也会跑）。
  *
- * 它守四件事：
+ * 它守六件事：
  *   ① 五档文字色 × 四层表面，全部 >= 4.5:1（WCAG AA 正文）
  *   ② 相邻表面之间相对亮度差 >= 12%（否则「层级看不清」这个历史缺陷会复发）
  *   ③ `line-strong`（交互描边）>= 3:1（WCAG 1.4.11 非文字对比）
  *   ④ 实底按钮上的白字 >= 4.5:1，红绿琥珀在四层表面上 >= 4.5:1
+ *   ⑤ 装饰性描边**不该** >= 3:1（反向断言：太抢眼会和交互边界混淆）
+ *   ⑥ 文字阶梯相邻两档相对亮度差 >= 12%
+ *      —— ① 只保证「每档对背景够亮」，不保证「两档互相能分辨」。
+ *         这条是补的：实测 ink-faint(#8fa0b8) 与 ink-muted(#94a3b8)
+ *         原本只差 4.4% 亮度，五档名义上存在、实际只有四档可用。
  */
 import cfg from "../tailwind.config.js";
 
@@ -131,7 +136,23 @@ for (const [name, hex] of Object.entries(FILL_WITH_WHITE)) {
   check(r >= AA, `white on ${name}`, `${r.toFixed(2)}:1  ${hex}`);
 }
 
-console.log("\n⑥ 反向断言：装饰性描边**不该**达到 3:1\n");
+console.log(`\n⑥ 文字阶梯互相可分度（需 >= ${MIN_SEPARATION}%，与表面阶梯同一条判据）\n`);
+console.log("    （① 只保证每档对背景够亮，不保证相邻两档**互相**能分辨 ——\n");
+console.log("      2026-09-21 实测 ink-faint 与 ink-muted 只差 4.4%，\n");
+console.log("      等于五档实际只有四档可用，这正是「整屏发灰」的成因之一）\n");
+{
+  /** `ink` 的 key 顺序即档位顺序（strong → faint），DEFAULT 在代码里读作 ink。 */
+  const LADDER = ["strong", "DEFAULT", "soft", "muted", "faint"];
+  const name = (k) => (k === "DEFAULT" ? "ink" : `ink-${k}`);
+  for (let i = 1; i < LADDER.length; i += 1) {
+    const a = LADDER[i - 1];
+    const b = LADDER[i];
+    const d = separation(INK[a], INK[b]);
+    check(d >= MIN_SEPARATION, `${name(a)} → ${name(b)}`, `${d.toFixed(1)}%`);
+  }
+}
+
+console.log("\n⑦ 反向断言：装饰性描边**不该**达到 3:1\n");
 console.log("    （达到就说明它太抢眼，会和真正的交互边界混淆）\n");
 {
   const r = ratio(C.surface.line, SURFACE.panel);

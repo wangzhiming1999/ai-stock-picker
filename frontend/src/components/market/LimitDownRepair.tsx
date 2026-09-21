@@ -18,8 +18,8 @@ import { extremeBuckets, tailSummary, winRateShortfall } from "../limitDownLogic
 function StatTile({ value, label, tone }: { value: string | number; label: string; tone?: string }) {
   return (
     <div className={SUB_QUIET + " px-3 py-2"}>
-      <div className={`text-lg font-bold ${tone ?? "text-ink"}`}>{value}</div>
-      <div className="text-xs text-ink-faint">{label}</div>
+      <div className={`text-num font-bold ${tone ?? "text-ink"}`}>{value}</div>
+      <div className="text-meta text-ink-muted">{label}</div>
     </div>
   );
 }
@@ -29,13 +29,13 @@ function BucketRow({ b }: { b: LimitDownBucket }) {
   if (!b.n) return null;
   const expect = b.expect_open ?? 0;
   return (
-    <div className="flex items-center justify-between gap-2 text-xs">
+    <div className="flex items-center justify-between gap-2 text-meta">
       <span className="w-24 shrink-0 truncate text-ink-muted" title={b.label}>
         {b.label}
       </span>
       <span className="text-ink-soft">
         n={b.n} · 胜率 <span className="text-ink">{b.win_rate_open ?? "—"}%</span>
-        <span className="text-ink-faint"> · 打平需 {b.breakeven_win_rate ?? "—"}%</span>
+        <span className="text-ink-soft"> · 打平需 {b.breakeven_win_rate ?? "—"}%</span>
       </span>
       <span className={`w-16 shrink-0 text-right font-semibold ${pnlTone(b.expect_open)}`}>
         {expect > 0 ? "+" : ""}
@@ -58,9 +58,9 @@ function RepairSection({
   error: string | null;
 }) {
   if (loading && !repair) {
-    return <p className="text-xs text-ink-faint">正在回溯修复收益…（需为每只跌停股拉取日 K，约数秒）</p>;
+    return <p className="text-meta text-ink-soft">正在回溯修复收益…（需为每只跌停股拉取日 K，约数秒）</p>;
   }
-  if (error && !repair) return <p className="text-xs text-amber-300">{error}</p>;
+  if (error && !repair) return <p className="text-meta text-amber-300">{error}</p>;
   if (!repair) return null;
 
   const o = repair.overall;
@@ -75,7 +75,7 @@ function RepairSection({
   return (
     <div>
       <h3 className={TEXT.label}>跌停次日修复收益（实测 · 非机会）</h3>
-      <p className="mt-1.5 rounded-lg bg-slate-800/50 px-3 py-2 text-xs leading-relaxed text-ink-soft">
+      <p className="mt-1.5 rounded-lg bg-surface-inset/50 px-3 py-2 text-meta leading-relaxed text-ink-soft">
         口径：D 日以跌停价（= 收盘价）买入，<span className="text-ink">D+1 集合竞价卖出</span>。
         {shortfall != null && (
           <>
@@ -93,39 +93,39 @@ function RepairSection({
         <StatTile value={o.n} label={`样本 n（${repair.effective_days} 个交易日）`} />
       </div>
 
-      <div className="mt-3 space-y-1 text-xs">
+      <div className="mt-3 space-y-1 text-meta">
         <div className="flex items-center justify-between gap-2">
           <span className="text-ink-muted">对照组：持有到 D+1 收盘才卖</span>
           <span className="text-ink-soft">
             期望{" "}
             <span className={`font-semibold ${pnlTone(o.expect_close)}`}>{o.expect_close ?? "—"}%</span>
-            <span className="text-ink-faint"> · 胜率 {o.win_rate_close ?? "—"}%</span>
+            <span className="text-ink-soft"> · 胜率 {o.win_rate_close ?? "—"}%</span>
           </span>
         </div>
         <div className="flex items-center justify-between gap-2">
           <span className="text-ink-muted">次日盘中最高价（反抽弹性）</span>
           <span className="text-ink-soft">
             平均 <span className={`font-semibold ${pnlTone(o.avg_high)}`}>{o.avg_high ?? "—"}%</span>
-            <span className="text-ink-faint"> · 盘中曾转正 {o.high_positive_rate ?? "—"}%</span>
+            <span className="text-ink-soft"> · 盘中曾转正 {o.high_positive_rate ?? "—"}%</span>
           </span>
         </div>
       </div>
 
-      <h4 className="mt-3 text-xs font-semibold text-ink-muted">按 D 日封板状态</h4>
+      <h4 className="mt-3 text-meta font-semibold text-ink-muted">按 D 日封板状态</h4>
       <div className="mt-1 space-y-1">
         {repair.by_sealed.map((b) => (
           <BucketRow key={b.key} b={b} />
         ))}
       </div>
 
-      <h4 className="mt-3 text-xs font-semibold text-ink-muted">按同一板块当天跌停家数</h4>
+      <h4 className="mt-3 text-meta font-semibold text-ink-muted">按同一板块当天跌停家数</h4>
       <div className="mt-1 space-y-1">
         {repair.by_cluster.map((b) => (
           <BucketRow key={b.key} b={b} />
         ))}
       </div>
 
-      <h4 className="mt-3 text-xs font-semibold text-ink-muted">按连续跌停天数</h4>
+      <h4 className="mt-3 text-meta font-semibold text-ink-muted">按连续跌停天数</h4>
       <div className="mt-1 space-y-1">
         {repair.by_down_days.map((b) => (
           <BucketRow key={b.key} b={b} />
@@ -133,7 +133,7 @@ function RepairSection({
       </div>
 
       {extremes.best && (
-        <p className="mt-2 text-xs leading-relaxed text-ink-faint">
+        <p className="mt-2 text-meta leading-relaxed text-ink-faint">
           n≥5 的切片里表现最好的一档是「{extremes.best.label}」（期望{" "}
           {extremes.best.expect_open ?? "—"}%、n={extremes.best.n}），最差是「
           {extremes.worst?.label ?? "—"}」（{extremes.worst?.expect_open ?? "—"}%）——
@@ -142,12 +142,12 @@ function RepairSection({
       )}
 
       {tail && (
-        <p className="mt-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs leading-relaxed text-amber-300">
+        <p className="mt-2 rounded-lg bg-amber-500/10 px-3 py-2 text-meta leading-relaxed text-amber-300">
           {tail} —— T+1 之下这一档没有任何止损手段，是这条路径最需要防范的地方。
         </p>
       )}
 
-      <p className="mt-2 text-xs leading-relaxed text-ink-faint">
+      <p className="mt-2 text-meta leading-relaxed text-ink-faint">
         数据窗口 {window}（{repair.effective_days} 个交易日）。
         {repair.truncated &&
           ` 候选 ${repair.candidate_size} 个超出样本上限，只统计了最近的 ${repair.sample_size} 个。`}

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, ChevronDown } from "lucide-react";
 import { CHIP, pnlTone, scoreChip } from "../../lib/tone";
 import type { VanguardEvidence, VanguardExpectedPrice, VanguardLevels } from "../../types";
 
@@ -30,7 +30,7 @@ export function DimChip({ v, title }: { v: number | null | undefined; title?: st
     return (
       <span
         title="该维本次未观测到（不是 0 分）"
-        className="inline-block min-w-[2.2rem] rounded bg-slate-800/40 px-1.5 py-0.5 text-center text-xs font-semibold text-ink-faint"
+        className="inline-block min-w-[2.2rem] rounded-md bg-surface-raised px-1.5 py-0.5 text-center text-meta font-semibold text-ink-muted"
       >
         —
       </span>
@@ -39,7 +39,7 @@ export function DimChip({ v, title }: { v: number | null | undefined; title?: st
   return (
     <span
       title={title}
-      className={`inline-block min-w-[2.2rem] rounded px-1.5 py-0.5 text-center text-xs font-semibold ${scoreChip(v)}`}
+      className={`inline-block min-w-[2.2rem] rounded-md px-1.5 py-0.5 text-center text-meta font-semibold ${scoreChip(v)}`}
     >
       {v.toFixed(1)}
     </span>
@@ -83,7 +83,7 @@ export function herdingTone(level: string | null | undefined): string {
   if (level === "high") return "text-brand-light";
   if (level === "mid") return "text-amber-300";
   if (level === "low") return "text-ink-muted";
-  return "text-ink-faint";
+  return "text-ink-muted";
 }
 
 export const HERDING_LABEL: Record<string, string> = {
@@ -106,7 +106,7 @@ export function EvidenceBadge({
   return (
     <span
       title={evidence.summary}
-      className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs leading-none ${
+      className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-meta leading-none ${
         actionable ? "bg-brand/15 text-brand-light" : "bg-amber-500/15 text-amber-300"
       } ${className}`}
     >
@@ -121,39 +121,69 @@ export function EvidenceBadge({
  *
  * 这个块**不是装饰**。三维榜与买卖时机都是在给读数，不写清楚「这份读数凭什么」，
  * 界面就会把猜测包装成结论 —— 本项目对可信度的唯一解就是把它显式打出来。
+ *
+ * ## 2026-09-21 视觉降级（外观改了，⚠️ 文案一个字都没删）
+ * 原实现是一整块 `border-state-warn-line bg-state-warn-surface` 的高饱和大色块，
+ * 三行文字全部铺开，**比页面上的真实数字还抢眼**。问题是：
+ *
+ *   · 琥珀在全站承担「警戒 / 需要留意」的语义（见 tone.ts），而这块是**免责说明** ——
+ *     它不是风险提示，只是「这个读数的可信度到哪」。用警戒色描述免责，
+ *     等于每页都在喊狼来了；
+ *   · 首页第一屏被它吃掉约 90px，而真正要看的数字被推到很下面。
+ *
+ * 所以改成：**一行摘要（中性色）+ 可展开的详情**。默认只给「档位 + 一句话」，
+ * 出处与补充口径收进 `<details>`。这样合规信息一条不少，但视觉权重降到
+ * 与「页脚注释」同级 —— 需要复核的人点开就能看到全部。
+ *
+ * ⚠️ 不要因为「不好看」把 `note` / `summary` / `provenance` 删掉任何一句。
+ *    它们是这个项目可信度的载体，降级的是**字号与底色**，不是信息量。
  */
 export function EvidenceNote({
   evidence,
   extra,
-  tone = "warn",
+  tone = "quiet",
 }: {
   evidence?: VanguardEvidence | null;
   extra?: ReactNode;
   tone?: "warn" | "quiet";
 }) {
   if (!evidence) return null;
-  const box =
-    tone === "warn"
-      ? "border-amber-900/50 bg-amber-950/25 text-amber-200/90"
-      : "border-surface-line-soft bg-surface-inset/60 text-ink-soft";
-  const sub = tone === "warn" ? "text-amber-200/60" : "text-ink-faint";
+
+  // warn 档保留琥珀，但只用于「不可执行」这个事实本身；quiet 档走纯中性
+  const dot = evidence.actionable
+    ? "bg-brand-light"
+    : tone === "warn"
+      ? "bg-amber-400"
+      : "bg-ink-muted";
+
   return (
-    <div className={`rounded-lg border px-3 py-2 text-xs leading-relaxed ${box}`}>
-      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-        <span className="font-medium">证据档位：{evidence.label}</span>
-        {evidence.key && <span className={sub}>{evidence.key}</span>}
-        {!evidence.actionable && <span className={sub}>不进入买点位置</span>}
+    <details className="group rounded-lg border border-surface-line-soft bg-surface-inset/50 text-meta">
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-1.5 text-ink-muted transition-colors hover:text-ink-soft">
+        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} aria-hidden />
+        <span className="font-medium text-ink-soft">证据档位 {evidence.label}</span>
+        <span className="min-w-0 flex-1 truncate text-ink-soft">{evidence.summary}</span>
+        <ChevronDown
+          className="h-3.5 w-3.5 shrink-0 text-ink-muted transition-transform group-open:rotate-180"
+          aria-hidden
+        />
+      </summary>
+      <div className="space-y-1 border-t border-surface-line-soft px-3 py-2 leading-relaxed text-ink-soft">
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+          {evidence.key && <span>{evidence.key}</span>}
+          {!evidence.actionable && <span>不进入买点位置</span>}
+          {evidence.registered === false && <span>未登记进证据台账</span>}
+        </div>
+        <p className="text-ink-soft">{evidence.summary}</p>
+        <p>出处：{evidence.provenance}</p>
+        {extra && <p>{extra}</p>}
       </div>
-      <p className="mt-1">{evidence.summary}</p>
-      <p className={`mt-1 ${sub}`}>出处：{evidence.provenance}</p>
-      {extra && <p className="mt-1">{extra}</p>}
-    </div>
+    </details>
   );
 }
 
 function LevelChip({ label, value, tone }: { label: string; value: number; tone: { bg: string; text: string } }) {
   return (
-    <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-medium ${tone.bg} ${tone.text}`}>
+    <span className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-medium ${tone.bg} ${tone.text}`}>
       <span className="text-ink-muted">{label}</span>
       {value.toFixed(2)}
     </span>
@@ -168,16 +198,16 @@ function LevelChip({ label, value, tone }: { label: string; value: number; tone:
  */
 export function LevelChips({ levels }: { levels: VanguardLevels | null }) {
   if (!levels) {
-    return <span className="text-xs text-ink-faint">K 线不足 60 根，结构位不可用</span>;
+    return <span className="text-meta text-ink-soft">K 线不足 60 根，结构位不可用</span>;
   }
   return (
-    <div className="flex flex-wrap items-center gap-1.5 text-xs">
+    <div className="flex flex-wrap items-center gap-1.5 text-meta">
       <LevelChip label="支撑" value={levels.support} tone={CHIP.neutral} />
       <LevelChip label="压力" value={levels.resistance} tone={CHIP.neutral} />
       <LevelChip label="买点区" value={levels.buy_point} tone={CHIP.buy} />
       <LevelChip label="卖出区" value={levels.sell_point} tone={CHIP.sell} />
       <LevelChip label="止损" value={levels.stop_loss} tone={CHIP.risk} />
-      <span className="text-ink-faint">
+      <span className="text-ink-soft">
         风报比 <b className="text-ink-soft">{levels.rr_ratio.toFixed(2)}</b> · 信号强度{" "}
         <b className="text-ink-soft">{levels.strength.toFixed(1)}</b>
       </span>
@@ -206,7 +236,7 @@ export function ExpectedPriceChip({
 }) {
   if (ep === undefined) {
     return (
-      <span className={`text-xs text-ink-faint ${className}`}>
+      <span className={`text-meta text-ink-muted ${className}`}>
         预期价格 <b className="text-ink-muted">—</b>
         <span className="ml-1">（当日榜单生成于本功能上线前，下一个交易日重算后可见）</span>
       </span>
@@ -214,7 +244,7 @@ export function ExpectedPriceChip({
   }
   if (ep === null) {
     return (
-      <span className={`text-xs text-ink-faint ${className}`}>
+      <span className={`text-meta text-ink-muted ${className}`}>
         预期价格 <b className="text-ink-muted">—</b>
         <span className="ml-1">（K 线不足 60 根，结构位算不出）</span>
       </span>
@@ -222,12 +252,12 @@ export function ExpectedPriceChip({
   }
   const gap = ep.gap_pct;
   return (
-    <span className={`inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs ${className}`}>
-      <span className="text-ink-faint">预期价格</span>
-      <span className="rounded bg-slate-800/60 px-1.5 py-0.5 font-semibold text-ink" title={ep.note}>
+    <span className={`inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-meta ${className}`}>
+      <span className="text-ink-muted">预期价格</span>
+      <span className="rounded-md bg-surface-raised px-1.5 py-0.5 font-semibold text-ink" title={ep.note}>
         {ep.price.toFixed(2)}
       </span>
-      <span className="text-ink-faint">（{ep.setup === "breakout" ? "突破位" : "回踩位"}）</span>
+      <span className="text-ink-muted">（{ep.setup === "breakout" ? "突破位" : "回踩位"}）</span>
       {gap != null && Number.isFinite(gap) && (
         <span className="text-ink-muted">
           距现价 {gap >= 0 ? "+" : ""}
@@ -248,19 +278,23 @@ export function FundFlowNotice({
   covered: number;
   note?: string | null;
 }) {
-  if (status === "cooldown" || status === "unavailable") {
+  // 正常态：一行低调口径说明，不占视觉权重
+  if (status !== "cooldown" && status !== "unavailable") {
     return (
-      <p className="rounded-lg border border-amber-900/50 bg-amber-950/25 px-3 py-1.5 text-xs text-amber-200/90">
-        <AlertTriangle className="mr-1 inline h-3 w-3" aria-hidden />
-        资金维本次不可用（{status}
-        {note ? `：${note}` : ""}）—— 综合分已按剩余维度重新归一化，
-        <b>缺失维不是 0 分</b>。板块强度中的资金分位同样受影响。
+      <p className="text-meta text-ink-soft">
+        资金维数据源：东财批量资金流排行 · 一次请求覆盖 {covered} 只（非逐股请求）
       </p>
     );
   }
+  // 异常态：必须显眼，因为「资金维整体为 0 分」和「资金维不可用」是两回事
   return (
-    <p className="text-xs text-ink-faint">
-      资金维数据源：东财批量资金流排行（一次请求覆盖 {covered} 只，非逐股请求）
+    <p className="flex items-start gap-1.5 rounded-lg border border-state-warn-line bg-state-warn-surface px-3 py-1.5 text-meta text-state-warn-soft">
+      <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
+      <span>
+        资金维本次不可用（{status}
+        {note ? `：${note}` : ""}）—— 综合分已按剩余维度重新归一化，
+        <b>缺失维不是 0 分</b>。板块强度中的资金分位同样受影响。
+      </span>
     </p>
   );
 }

@@ -27,7 +27,7 @@ export default function AnalysisPill({ phase, pillTitle, pillMeta, onExpand }: P
       transition={{ duration: 0.18 }}
       onClick={onExpand}
       aria-label="展开深度分析面板"
-      className="fixed bottom-16 right-3 z-50 flex max-w-[86vw] items-center gap-2.5 rounded-full border border-slate-700 bg-slate-900/95 py-2 pl-3 pr-4 text-left shadow-2xl backdrop-blur sm:bottom-6 sm:right-6"
+      className="fixed bottom-16 right-3 z-50 flex max-w-[86vw] items-center gap-2.5 rounded-full border border-surface-line bg-surface-panel/95 py-2 pl-3 pr-4 text-left shadow-2xl backdrop-blur sm:bottom-6 sm:right-6"
     >
       {phase === "running" ? (
         <RunningDot />
@@ -35,8 +35,8 @@ export default function AnalysisPill({ phase, pillTitle, pillMeta, onExpand }: P
         <BarChart3 className="h-4 w-4 shrink-0 text-brand-light" aria-hidden />
       )}
       <span className="min-w-0">
-        <span className="block truncate text-xs font-medium text-ink">{pillTitle}</span>
-        <span className="block truncate text-xs text-ink-faint">{pillMeta}</span>
+        <span className="block truncate text-meta font-medium text-ink">{pillTitle}</span>
+        <span className="block truncate text-meta text-ink-muted">{pillMeta}</span>
       </span>
     </motion.button>
   );

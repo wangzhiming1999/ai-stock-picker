@@ -4,10 +4,11 @@ import { ClipboardPaste, ImageUp, Loader2, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { importHoldingsBatch, parseHoldingImport } from "../api/client";
 import { compressImage } from "../lib/image";
-import { INPUT_BASE } from "../lib/ui";
+import { CARD, INPUT_BASE, CELL } from "../lib/ui";
 import type { ParsedHolding } from "../types";
 import Input from "./ui/Input";
 import Button from "./ui/Button";
+import Table, { Th } from "./ui/Table";
 
 interface Props {
   open: boolean;
@@ -140,7 +141,7 @@ export default function ImportHoldingsModal({ open, onClose, onImported }: Props
           transition={{ duration: 0.18 }}
         >
           <motion.div
-            className="flex max-h-[88vh] w-full max-w-2xl flex-col rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-2xl"
+            className={`${CARD} flex max-h-[88vh] w-full max-w-2xl flex-col shadow-2xl`}
             onClick={(e) => e.stopPropagation()}
             initial={{ opacity: 0, scale: 0.94, y: 16 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -149,12 +150,12 @@ export default function ImportHoldingsModal({ open, onClose, onImported }: Props
           >
             {/* 头部 */}
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-bold text-white">导入持仓</h2>
+              <h2 className="text-num font-bold text-white">导入持仓</h2>
               <motion.button
                 onClick={onClose}
                 whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.9 }}
-                className="text-ink-faint hover:text-ink-soft"
+                className="text-ink-muted hover:text-ink-soft"
                 aria-label="关闭"
               >
                 <X className="h-5 w-5" />
@@ -162,7 +163,7 @@ export default function ImportHoldingsModal({ open, onClose, onImported }: Props
             </div>
 
             {/* 模式切换 */}
-            <div className="mb-4 flex rounded-lg border border-slate-700 bg-slate-800/70 p-1">
+            <div className="mb-4 flex rounded-lg border border-surface-line bg-surface-inset/70 p-1">
               {(
                 [
                   { key: "image", label: "截图识别", icon: ImageUp },
@@ -172,7 +173,7 @@ export default function ImportHoldingsModal({ open, onClose, onImported }: Props
                 <button
                   key={key}
                   onClick={() => setMode(key)}
-                  className={`flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors ${
+                  className={`flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-body transition-colors ${
                     mode === key ? "bg-brand text-white" : "text-ink-muted hover:text-ink"
                   }`}
                 >
@@ -185,7 +186,7 @@ export default function ImportHoldingsModal({ open, onClose, onImported }: Props
             {/* 输入区 */}
             {mode === "image" ? (
               <div
-                className="mb-4 rounded-xl border-2 border-dashed border-slate-700 p-5 text-center transition-colors hover:border-slate-500"
+                className="mb-4 rounded-xl border-2 border-dashed border-surface-line p-5 text-center transition-colors hover:border-surface-line-hover"
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={(e) => {
                   e.preventDefault();
@@ -205,14 +206,14 @@ export default function ImportHoldingsModal({ open, onClose, onImported }: Props
                   }}
                 />
                 {parsing ? (
-                  <div className="flex flex-col items-center gap-2 py-2 text-sm text-ink-soft">
+                  <div className="flex flex-col items-center gap-2 py-2 text-body text-ink-soft">
                     <Loader2 className="h-6 w-6 animate-spin text-brand-light" aria-hidden />
                     正在识别截图（约 5~15 秒）...
                   </div>
                 ) : (
                   <>
                     <ImageUp className="mx-auto mb-2 h-8 w-8 text-ink-faint" aria-hidden />
-                    <p className="text-sm text-ink-soft">
+                    <p className="text-body text-ink-soft">
                       {fileName ? (
                         <>
                           已识别 <b className="text-ink-strong">{fileName}</b>，可重新上传
@@ -221,7 +222,7 @@ export default function ImportHoldingsModal({ open, onClose, onImported }: Props
                         "上传券商 App 持仓页截图"
                       )}
                     </p>
-                    <p className="mt-1 text-xs text-ink-faint">点击选择 / 拖入 / 直接 Ctrl+V 粘贴截图</p>
+                    <p className="mt-1 text-meta text-ink-soft">点击选择 / 拖入 / 直接 Ctrl+V 粘贴截图</p>
                     <Button variant="primary" size="md"
                       onClick={() => fileRef.current?.click()}
                       className="mt-3">
@@ -237,9 +238,9 @@ export default function ImportHoldingsModal({ open, onClose, onImported }: Props
                   onChange={(e) => setText(e.target.value)}
                   rows={5}
                   placeholder={"从券商 App 复制持仓文本后粘贴到这里，每行一只，例如：\n贵州茅台 600519 1224.50 100\n五粮液 000858 成本128.5 数量200"}
-                  className={`${INPUT_BASE} w-full resize-y bg-slate-950 px-3 py-2 text-xs`} />
+                  className={`${INPUT_BASE} w-full resize-y bg-surface-canvas px-3 py-2 text-meta`} />
                 <div className="mt-2 flex items-center justify-between">
-                  <span className="text-xs text-ink-faint">支持 名称+代码+成本+数量 的任意组合顺序</span>
+                  <span className="text-meta text-ink-soft">支持 名称+代码+成本+数量 的任意组合顺序</span>
                   <Button variant="primary" size="md"
                     onClick={() => void parseText()}
                     disabled={parsing || !text.trim()}
@@ -252,9 +253,9 @@ export default function ImportHoldingsModal({ open, onClose, onImported }: Props
 
             {/* 警告 */}
             {warnings.length > 0 && (
-              <div className="mb-3 space-y-1 rounded-lg border border-amber-800/60 bg-amber-950/30 px-3 py-2">
+              <div className="mb-3 space-y-1 rounded-lg border border-state-warn-line bg-state-warn-surface px-3 py-2">
                 {warnings.slice(0, 5).map((w, i) => (
-                  <p key={i} className="text-xs text-amber-300">
+                  <p key={i} className="text-meta text-amber-300">
                     ⚠ {w}
                   </p>
                 ))}
@@ -263,84 +264,85 @@ export default function ImportHoldingsModal({ open, onClose, onImported }: Props
 
             {/* 预览编辑表 */}
             {rows.length > 0 && (
-              <div className="mb-4 min-h-0 flex-1 overflow-auto rounded-xl border border-slate-800">
-                <table className="w-full text-sm" style={{ minWidth: 520 }}>
-                  <thead className="sticky top-0 z-10 bg-slate-900 text-left text-xs text-ink-muted">
-                    <tr>
-                      <th scope="col" className="px-3 py-2"></th>
-                      <th scope="col" className="px-3 py-2">代码</th>
-                      <th scope="col" className="px-3 py-2">名称</th>
-                      <th scope="col" className="px-3 py-2 text-right">成本价</th>
-                      <th scope="col" className="px-3 py-2 text-right">数量(股)</th>
-                      <th scope="col" className="px-3 py-2 text-right">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((r, idx) => (
-                      <tr key={`${r.code}-${idx}`} className={`border-t border-slate-800/60 ${!rowValid(r) ? "bg-red-950/20" : ""}`}>
-                        <td className="px-3 py-2">
-                          <input
-                            type="checkbox"
-                            checked={r.selected}
-                            onChange={(e) => updateRow(idx, { selected: e.target.checked })}
-                            className="accent-brand"
-                          />
-                        </td>
-                        <td className="px-3 py-2">
-                          <Input
-                            value={r.code}
-                            onChange={(e) => updateRow(idx, { code: e.target.value.replace(/\D/g, "").slice(0, 6) })}
-                            tone={/^\d{6}$/.test(r.code) ? "default" : "danger"}
-                            className="w-20 bg-slate-950 px-1.5 py-1 text-xs"
-                          />
-                        </td>
-                        <td className="px-3 py-2 text-xs text-ink-soft">{r.name || "-"}</td>
-                        <td className="px-3 py-2 text-right">
-                          <Input
-                            type="number"
-                            step="any"
-                            min="0"
-                            value={r.cost_price ?? ""}
-                            onChange={(e) =>
-                              updateRow(idx, { cost_price: e.target.value === "" ? null : parseFloat(e.target.value) })
-                            }
-                            placeholder="必填"
-                            tone={(r.cost_price ?? 0) > 0 ? "default" : "danger"}
-                            className="w-20 bg-slate-950 px-1.5 py-1 text-right text-xs"
-                          />
-                        </td>
-                        <td className="px-3 py-2 text-right">
-                          <Input
-                            type="number"
-                            min="0"
-                            value={r.shares ?? ""}
-                            onChange={(e) =>
-                              updateRow(idx, { shares: e.target.value === "" ? null : parseInt(e.target.value, 10) })
-                            }
-                            placeholder="必填"
-                            tone={(r.shares ?? 0) > 0 ? "default" : "danger"}
-                            className="w-20 bg-slate-950 px-1.5 py-1 text-right text-xs"
-                          />
-                        </td>
-                        <td className="px-3 py-2 text-right">
-                          <button
-                            onClick={() => removeRow(idx)}
-                            className="rounded p-1 text-ink-faint hover:bg-red-950/40 hover:text-red-400"
-                            title="移除此行"
-                          >
-                            <Trash2 className="h-4 w-4" aria-hidden />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <Table
+                label="导入持仓预览"
+                minWidth={520}
+                maxHeight="none"
+                className="mb-4 min-h-0 flex-1"
+                head={
+                  <tr>
+                    <Th />
+                    <Th>代码</Th>
+                    <Th>名称</Th>
+                    <Th align="right">成本价</Th>
+                    <Th align="right">数量(股)</Th>
+                    <Th align="right">操作</Th>
+                  </tr>
+                }
+              >
+                {rows.map((r, idx) => (
+                  <tr key={`${r.code}-${idx}`} className={`border-t border-surface-line-soft ${!rowValid(r) ? "bg-state-danger-surface" : ""}`}>
+                    <td className={CELL}>
+                      <input
+                        type="checkbox"
+                        checked={r.selected}
+                        onChange={(e) => updateRow(idx, { selected: e.target.checked })}
+                        className="accent-brand"
+                      />
+                    </td>
+                    <td className={CELL}>
+                      <Input
+                        value={r.code}
+                        onChange={(e) => updateRow(idx, { code: e.target.value.replace(/\D/g, "").slice(0, 6) })}
+                        tone={/^\d{6}$/.test(r.code) ? "default" : "danger"}
+                        className="w-20 bg-surface-canvas px-1.5 py-1 text-meta"
+                      />
+                    </td>
+                    <td className={`${CELL} text-meta text-ink-soft`}>{r.name || "-"}</td>
+                    <td className={`${CELL} text-right`}>
+                      <Input
+                        type="number"
+                        step="any"
+                        min="0"
+                        value={r.cost_price ?? ""}
+                        onChange={(e) =>
+                          updateRow(idx, { cost_price: e.target.value === "" ? null : parseFloat(e.target.value) })
+                        }
+                        placeholder="必填"
+                        tone={(r.cost_price ?? 0) > 0 ? "default" : "danger"}
+                        className="w-20 bg-surface-canvas px-1.5 py-1 text-right text-meta"
+                      />
+                    </td>
+                    <td className={`${CELL} text-right`}>
+                      <Input
+                        type="number"
+                        min="0"
+                        value={r.shares ?? ""}
+                        onChange={(e) =>
+                          updateRow(idx, { shares: e.target.value === "" ? null : parseInt(e.target.value, 10) })
+                        }
+                        placeholder="必填"
+                        tone={(r.shares ?? 0) > 0 ? "default" : "danger"}
+                        className="w-20 bg-surface-canvas px-1.5 py-1 text-right text-meta"
+                      />
+                    </td>
+                    <td className={`${CELL} text-right`}>
+                      <button
+                        onClick={() => removeRow(idx)}
+                        className="rounded-md p-1 text-ink-muted hover:bg-state-danger-surface hover:text-state-danger"
+                        title="移除此行"
+                      >
+                        <Trash2 className="h-4 w-4" aria-hidden />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </Table>
             )}
 
             {/* 底部动作 */}
             <div className="flex items-center justify-between gap-3">
-              <button onClick={reset} disabled={rows.length === 0} className="text-xs text-ink-faint hover:text-ink-soft">
+              <button onClick={reset} disabled={rows.length === 0} className="text-meta text-ink-muted hover:text-ink-soft">
                 清空重来
               </button>
               <Button variant="primary" size="lg"

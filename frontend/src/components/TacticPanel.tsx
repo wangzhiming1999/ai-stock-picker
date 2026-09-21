@@ -7,6 +7,8 @@ import CollapsiblePanel from "./ui/CollapsiblePanel";
 import { TacticChip, TacticEvidenceLegend, tacticEvidence } from "./TacticHit";
 import type { TacticDef, TacticResult, TacticScanResult } from "../types";
 import Button from "./ui/Button";
+import Table, { Th } from "./ui/Table";
+import { CELL } from "../lib/ui";
 
 interface Props {
   onPick: (codes: string[]) => void;
@@ -18,15 +20,15 @@ const DIRECTION_LABEL: Record<TacticDef["direction"], string> = { buy: "买点",
 
 function buttonClass(direction: TacticDef["direction"], active: boolean): string {
   if (direction === "buy") {
-    return active ? "border-red-500 bg-red-600/15" : "border-slate-700 hover:border-red-600/70";
+    return active ? "border-red-500 bg-red-600/15" : "border-surface-line hover:border-red-600/70";
   }
-  return active ? "border-green-500 bg-green-600/15" : "border-slate-700 hover:border-green-600/70";
+  return active ? "border-green-500 bg-green-600/15" : "border-surface-line hover:border-green-600/70";
 }
 
 /** 未通过回测验证的技巧按钮用中性边框：它不该看起来和已验证的买点一样硬。 */
 function tileClass(t: TacticDef, active: boolean): string {
   if (!t.actionable) {
-    return active ? "border-brand bg-brand/10" : "border-slate-700 hover:border-slate-500";
+    return active ? "border-brand bg-brand/10" : "border-surface-line hover:border-surface-line-hover";
   }
   return buttonClass(t.direction, active);
 }
@@ -34,7 +36,7 @@ function tileClass(t: TacticDef, active: boolean): string {
 function DirectionTag({ direction }: { direction: TacticDef["direction"] }) {
   return (
     <span
-      className={`rounded px-1.5 py-0.5 text-xs ${
+      className={`rounded-md px-1.5 py-0.5 text-meta ${
         direction === "buy" ? "bg-red-600/20 text-red-300" : "bg-green-600/20 text-green-300"
       }`}
     >
@@ -50,11 +52,11 @@ function EvidenceTag({ evidence }: { evidence: TacticDef["evidence"] }) {
       ? "bg-brand/20 text-brand-light"
       : evidence.tier === "preliminary"
         ? "bg-amber-500/15 text-amber-300"
-        : "bg-slate-700/70 text-ink-muted";
+        : "bg-surface-line/70 text-ink-muted";
   return (
     <span
       title={`${evidence.label} · ${evidence.summary}\n依据：${evidence.provenance}`}
-      className={`rounded px-1.5 py-0.5 text-xs ${tone}`}
+      className={`rounded-md px-1.5 py-0.5 text-meta ${tone}`}
     >
       {evidence.label}
     </span>
@@ -152,7 +154,7 @@ export default function TacticPanel({ onPick, onImport }: Props) {
             <>
               <button
                 onClick={() => onImport(items.map((s) => s.code))}
-                className="rounded-lg border border-slate-600 px-3 py-1 text-xs text-ink-soft hover:border-slate-400 hover:text-white"
+                className="rounded-lg border border-surface-line-strong px-3 py-1 text-meta text-ink-soft hover:border-surface-line-hover hover:text-white"
               >
                 全部加自选
               </button>
@@ -172,12 +174,12 @@ export default function TacticPanel({ onPick, onImport }: Props) {
           onClick={() => void run("all")}
           disabled={running}
           aria-pressed={active === "all"}
-          className={`rounded-lg border px-3 py-2 text-left text-sm transition ${
-            active === "all" ? "border-brand bg-brand/10 text-white" : "border-slate-700 text-ink hover:border-slate-500"
+          className={`rounded-lg border px-3 py-2 text-left text-body transition ${
+            active === "all" ? "border-brand bg-brand/10 text-white" : "border-surface-line text-ink hover:border-surface-line-hover"
           }`}
         >
           全部技巧
-          <span className="ml-2 text-xs text-ink-faint">
+          <span className="ml-2 text-meta text-ink-muted">
             {tactics.length > 0 ? `${tactics.length} 条一起查` : "一起查"}
           </span>
         </button>
@@ -185,7 +187,7 @@ export default function TacticPanel({ onPick, onImport }: Props) {
 
       {categories.map((cat) => (
         <div key={cat} className="mb-3">
-          <p className="mb-1 text-xs font-semibold tracking-wide text-ink-faint">{cat}</p>
+          <p className="mb-1 text-meta font-semibold tracking-wide text-ink-muted">{cat}</p>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {tactics
               .filter((t) => t.category === cat)
@@ -199,10 +201,10 @@ export default function TacticPanel({ onPick, onImport }: Props) {
                   className={`rounded-lg border p-3 text-left transition ${tileClass(t, active === t.key)}`}
                 >
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-medium text-ink-strong">{t.name}</span>
+                    <span className="text-body font-medium text-ink-strong">{t.name}</span>
                     {t.actionable ? <DirectionTag direction={t.direction} /> : <EvidenceTag evidence={t.evidence} />}
                   </div>
-                  <div className="mt-0.5 text-xs text-ink-faint">{t.desc}</div>
+                  <div className="mt-0.5 text-meta text-ink-soft">{t.desc}</div>
                 </button>
               ))}
           </div>
@@ -212,13 +214,13 @@ export default function TacticPanel({ onPick, onImport }: Props) {
       <TacticEvidenceLegend />
 
       {running && (
-        <div role="status" className="mt-3 rounded-lg bg-slate-800/70 px-3 py-2 text-sm text-ink-muted">
+        <div role="status" className="mt-3 rounded-lg bg-surface-inset/70 px-3 py-2 text-body text-ink-muted">
           形态扫描中（拉取行情与 K 线；多周期共振额外取周线/月线，首次较慢，之后走 6h/24h 缓存）...
         </div>
       )}
 
       {!running && error && (
-        <div role="alert" className="rounded-lg border border-red-800 bg-red-950/40 px-3 py-2 text-sm text-red-300">
+        <div role="alert" className="rounded-lg border border-state-danger-line bg-state-danger-surface px-3 py-2 text-body text-state-danger-soft">
           {error}
           <button onClick={() => void run(active)} className="ml-3 cursor-pointer font-medium text-red-200 underline">
             重试
@@ -227,35 +229,31 @@ export default function TacticPanel({ onPick, onImport }: Props) {
       )}
 
       {!running && result && items.length === 0 && (
-        <div role="status" className="rounded-lg border border-slate-700 bg-slate-800/40 px-3 py-3 text-sm text-ink-soft">
+        <div role="status" className="rounded-lg border border-surface-line bg-surface-inset/40 px-3 py-3 text-body text-ink-soft">
           已检查 {result.checked} 只候选，当前没有「全部条件成立」的形态。形态识别宁缺毋滥，未命中属正常。
         </div>
       )}
 
       {!running && items.length > 0 && (
-        <div className="max-h-[28rem] overflow-y-auto rounded-xl border border-slate-800">
-          <table className="w-full text-sm">
-            <caption className="sr-only">实战形态扫描结果</caption>
-            <thead className="sticky top-0 bg-slate-900 text-left text-xs text-ink-muted">
-              <tr>
-                <th scope="col" className="px-3 py-2">勾选</th>
-                <th scope="col" className="px-3 py-2">名称</th>
-                <th scope="col" className="px-3 py-2">代码</th>
-                <th scope="col" className="px-3 py-2 text-right">涨跌幅</th>
-                <th scope="col" className="px-3 py-2">命中形态</th>
-                <th scope="col" className="px-3 py-2">结论</th>
-              </tr>
-            </thead>
-            <tbody>
+        <Table label="实战形态扫描结果" maxHeight="sm" head={
+          <tr>
+            <Th>勾选</Th>
+            <Th>名称</Th>
+            <Th>代码</Th>
+            <Th align="right">涨跌幅</Th>
+            <Th>命中形态</Th>
+            <Th>结论</Th>
+          </tr>
+        }>
               {items.map((s) => (
                 <Fragment key={s.code}>
                   <tr
                     onClick={() => toggle(s.code)}
-                    className={`cursor-pointer border-t border-slate-800/60 hover:bg-slate-800/40 ${
-                      selected.has(s.code) ? "bg-slate-800/70" : ""
+                    className={`cursor-pointer border-t border-surface-line-soft hover:bg-surface-inset/40 ${
+                      selected.has(s.code) ? "bg-surface-inset/70" : ""
                     }`}
                   >
-                    <td className="px-3 py-2">
+                    <td className={CELL}>
                       <input
                         type="checkbox"
                         readOnly
@@ -264,15 +262,15 @@ export default function TacticPanel({ onPick, onImport }: Props) {
                         className="accent-brand"
                       />
                     </td>
-                    <td className="px-3 py-2 text-ink">{s.name}</td>
-                    <td className="px-3 py-2 text-ink-faint">{s.code}</td>
+                    <td className={`${CELL} text-ink`}>{s.name}</td>
+                    <td className={`${CELL} text-ink-muted`}>{s.code}</td>
                     <td
-                      className={`px-3 py-1.5 text-right ${pnlTone(s.change_pct)}`}
+                      className={`${CELL} text-right ${pnlTone(s.change_pct)}`}
                     >
                       {(s.change_pct ?? 0) >= 0 ? "+" : ""}
                       {fmtNum(s.change_pct ?? 0)}%
                     </td>
-                    <td className="px-3 py-2">
+                    <td className={CELL}>
                       <div className="flex flex-wrap items-center gap-1">
                         {(s.tactics as TacticResult[]).map((t) => (
                           <TacticChip key={t.key} t={t} />
@@ -283,13 +281,13 @@ export default function TacticPanel({ onPick, onImport }: Props) {
                             toggleExpand(s.code);
                           }}
                           aria-expanded={expanded.has(s.code)}
-                          className="cursor-pointer text-xs text-ink-muted underline hover:text-ink"
+                          className="cursor-pointer text-meta text-ink-muted underline hover:text-ink"
                         >
                           {expanded.has(s.code) ? "收起条件" : "看条件"}
                         </button>
                       </div>
                     </td>
-                    <td className="px-3 py-2 text-ink-soft">
+                    <td className={`${CELL} text-ink-soft`}>
                       {s.best_action ? (
                         s.best_action
                       ) : (
@@ -300,35 +298,35 @@ export default function TacticPanel({ onPick, onImport }: Props) {
                     </td>
                   </tr>
                   {expanded.has(s.code) && (
-                    <tr className="border-t border-slate-800/60 bg-slate-900">
-                      <td colSpan={6} className="px-3 py-2">
+                    <tr className="border-t border-surface-line-soft bg-surface-panel">
+                      <td colSpan={6} className={CELL}>
                         <div className="space-y-2">
                           {s.tactics.map((t: TacticResult) => (
                             <div key={t.key}>
                               <div className="flex flex-wrap items-center gap-2">
-                                <span className="text-xs font-semibold text-ink">{t.name}</span>
+                                <span className="text-meta font-semibold text-ink">{t.name}</span>
                                 <TacticChip t={t} />
-                                <span className="text-xs text-ink-faint">
+                                <span className="text-meta text-ink-faint">
                                   {t.passed}/{t.total} 条件成立
                                 </span>
-                                <span className="text-xs text-ink-faint">
+                                <span className="text-meta text-ink-soft">
                                   证据：{tacticEvidence(t).label} · {tacticEvidence(t).provenance}
                                 </span>
                               </div>
                               {t.gate_note && (
-                                <p className="mt-1 rounded bg-slate-800/60 px-2 py-1 text-xs leading-relaxed text-ink-muted">
+                                <p className="mt-1 rounded-md bg-surface-inset/60 px-2 py-1 text-meta leading-relaxed text-ink-muted">
                                   {t.gate_note}
                                 </p>
                               )}
                               <ul className="mt-1 space-y-0.5">
                                 {t.conditions.map((cond, i) => (
-                                  <li key={i} className="flex items-start gap-2 text-xs">
+                                  <li key={i} className="flex items-start gap-2 text-meta">
                                     {/* ✓/✗ 是「通过项」，属质量语义，不得占用红绿（红绿只表达方向） */}
-                                    <span className={cond.passed ? "text-brand-light" : "text-ink-faint"}>
+                                    <span className={cond.passed ? "text-brand-light" : "text-ink-muted"}>
                                       {cond.passed ? "✓" : "✗"}
                                     </span>
                                     <span className="text-ink-soft">{cond.name}</span>
-                                    <span className="text-ink-faint">{cond.detail}</span>
+                                    <span className="text-ink-soft">{cond.detail}</span>
                                   </li>
                                 ))}
                               </ul>
@@ -340,12 +338,10 @@ export default function TacticPanel({ onPick, onImport }: Props) {
                   )}
                 </Fragment>
               ))}
-            </tbody>
-          </table>
-        </div>
+        </Table>
       )}
 
-      <p className="mt-3 text-xs text-ink-faint">
+      <p className="mt-3 text-meta text-ink-muted">
         形态由 K 线量价条件确定性推导，标注「算法推导」，不构成投资建议；命中不代表必然上涨，
         实盘请自行判断。
       </p>

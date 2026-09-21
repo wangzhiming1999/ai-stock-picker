@@ -44,5 +44,5 @@ export default function PerfChart({ data }: { data: SimPerformance }) {
       };
     })();
   }, [data]);
-  return <div ref={ref} className="mt-4 rounded-xl border border-slate-800 bg-slate-900 p-2" />;
+  return <div ref={ref} className="mt-4 rounded-xl border border-surface-line bg-surface-panel p-2" />;
 }

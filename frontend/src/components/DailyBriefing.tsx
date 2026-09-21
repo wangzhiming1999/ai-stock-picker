@@ -61,7 +61,7 @@ export default function DailyBriefing({ onPick, onSettled }: Props) {
         <button
           onClick={() => void load()}
           disabled={loading}
-          className="flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1 text-xs text-ink-muted transition-colors hover:text-ink"
+          className="flex items-center gap-1 rounded-lg border border-surface-line px-2.5 py-1 text-meta text-ink-muted transition-colors hover:text-ink"
         >
           <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} aria-hidden />
           刷新
@@ -69,24 +69,24 @@ export default function DailyBriefing({ onPick, onSettled }: Props) {
       </div>
 
       {err && (
-        <div className="mt-3 rounded-xl border border-red-800/70 bg-red-950/40 px-3 py-2 text-xs text-red-300">{err}</div>
+        <div className="mt-3 rounded-xl border border-state-danger-line bg-state-danger-surface px-3 py-2 text-meta text-state-danger-soft">{err}</div>
       )}
 
       {!data ? (
-        <div className="mt-4 text-sm text-ink-faint">加载中…</div>
+        <div className="mt-4 text-body text-ink-soft">加载中…</div>
       ) : (
         <>
           {/* ① 主结论：全屏唯一一处 24px，视线第一落点 */}
           <div className={`mt-4 ${TEXT.hero} ${hasPicks ? upTone(300) : "text-amber-300"}`}>{mainAction}</div>
           {m?.trading_advice && (
-            <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-ink-muted">{m.trading_advice}</p>
+            <p className="mt-1 line-clamp-2 text-meta leading-relaxed text-ink-muted">{m.trading_advice}</p>
           )}
 
           {/* ② 三格关键数：方向 / 资金 / 持仓动作 */}
           <div className="mt-4 grid gap-2 sm:grid-cols-3">
             <div className={`${SUB} px-3 py-2.5`}>
               <div className={TEXT.meta}>大盘方向</div>
-              <div className={`mt-0.5 text-lg font-semibold ${tone.text}`}>{m?.direction || "等待数据"}</div>
+              <div className={`mt-0.5 text-num font-semibold ${tone.text}`}>{m?.direction || "等待数据"}</div>
             </div>
             <div className={`${SUB} px-3 py-2.5`}>
               <div className={TEXT.meta}>资金安排</div>
@@ -100,13 +100,13 @@ export default function DailyBriefing({ onPick, onSettled }: Props) {
 
           {/* 时段性提示：只在真的需要动手时出现 */}
           {data.is_tail_urgent && (
-            <div className="mt-3 flex items-center gap-2 rounded-xl border border-red-800/50 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-200">
+            <div className="mt-3 flex items-center gap-2 rounded-xl border border-state-danger-line bg-red-500/10 px-3 py-2 text-meta font-medium text-state-danger-soft">
               <Bell className="h-4 w-4 animate-pulse" aria-hidden />
               尾盘窗口（14:45–15:00）：收盘前必须完成挂单，否则今日无法操作
             </div>
           )}
           {phase === "closed" && (
-            <div className="mt-3 rounded-xl border border-amber-800/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-200/90">
+            <div className="mt-3 rounded-xl border border-state-warn-line bg-amber-500/5 px-3 py-2 text-meta text-state-warn-soft">
               今日非交易日，下方为下一交易日关注池，开盘前可据此准备。
             </div>
           )}
@@ -161,7 +161,7 @@ export default function DailyBriefing({ onPick, onSettled }: Props) {
             </Section>
           )}
 
-          <p className={`mt-4 ${DIVIDER} pt-3 text-center text-xs leading-relaxed text-ink-faint`}>
+          <p className={`mt-4 ${DIVIDER} pt-3 text-center text-meta leading-relaxed text-ink-faint`}>
             买点 / 止损 / 手数均为算法推导，仅供参考，不构成投资建议；据此操作风险自担。
           </p>
         </>

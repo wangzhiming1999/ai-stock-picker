@@ -102,9 +102,9 @@ export default function LimitDownBar() {
           {snapError && !snapshot ? (
             <span className="text-amber-300">跌停池暂不可用：{snapError}</span>
           ) : !s ? (
-            <span className="text-ink-faint">加载跌停池…</span>
+            <span className="text-ink-soft">加载跌停池…</span>
           ) : s.limit_down_count === 0 ? (
-            <span className="text-ink-faint">当前无跌停（未开盘或非交易日）</span>
+            <span className="text-ink-soft">当前无跌停（未开盘或非交易日）</span>
           ) : (
             <>
               <span className="text-ink-muted">
@@ -121,7 +121,7 @@ export default function LimitDownBar() {
               {topSector && (
                 <span className="text-ink-muted">
                   最集中 <span className="font-semibold text-ink">{topSector.sector}</span>
-                  <span className="text-ink-faint">（{topSector.count} 家）</span>
+                  <span className="text-ink-muted">（{topSector.count} 家）</span>
                 </span>
               )}
               <span className="text-ink-muted">
@@ -129,7 +129,7 @@ export default function LimitDownBar() {
                 <span className="font-semibold text-ink">{fmtDownUpRatio(s.down_up_ratio)}</span>
               </span>
               <span
-                className="rounded bg-slate-800/70 px-1.5 py-0.5 text-ink-muted"
+                className="rounded-md bg-surface-inset/70 px-1.5 py-0.5 text-ink-muted"
                 title="证据等级：收益口径可回测，结论为负期望（n=133、−4.47%/次），因此不构成买点"
               >
                 {snapshot.evidence.badge} · 非抄底信号
@@ -141,10 +141,10 @@ export default function LimitDownBar() {
     >
       {snapshot && s && (
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className={`text-sm ${sentimentTone(snapshot.sentiment_note.tone)}`}>
+          <p className={`text-body ${sentimentTone(snapshot.sentiment_note.tone)}`}>
             {snapshot.sentiment_note.text}
           </p>
-          <div className="flex items-center gap-2 text-xs text-ink-faint">
+          <div className="flex items-center gap-2 text-meta text-ink-muted">
             <span>
               {snapshot.trade_date} · {snapshot.session}
             </span>
@@ -165,7 +165,7 @@ export default function LimitDownBar() {
       )}
 
       {snapshot && !snapshot.limit_up_ok && (
-        <p className="text-xs text-amber-300">
+        <p className="text-meta text-amber-300">
           涨停池拉取失败，跌停/涨停家数比显示为「—」而不是 0 —— 数据缺失不等于抛压为零。
         </p>
       )}
@@ -181,12 +181,12 @@ export default function LimitDownBar() {
           <div className={DIVIDER} />
           <div>
             <h3 className={TEXT.label}>为什么这里不给抄底信号</h3>
-            <p className="mt-1 text-xs leading-relaxed text-ink-soft">
+            <p className="mt-1 text-meta leading-relaxed text-ink-soft">
               <span className="text-ink">{snapshot.evidence.label}</span>
               {" · "}
               {snapshot.evidence.summary}
             </p>
-            <p className="mt-1 text-xs text-ink-faint">依据：{snapshot.evidence.provenance}</p>
+            <p className="mt-1 text-meta text-ink-faint">依据：{snapshot.evidence.provenance}</p>
           </div>
           <CaliberLine caliber={snapshot.caliber} />
         </>

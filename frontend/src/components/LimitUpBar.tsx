@@ -110,9 +110,9 @@ export default function LimitUpBar() {
           {snapError && !snapshot ? (
             <span className="text-amber-300">连板梯队暂不可用：{snapError}</span>
           ) : !s ? (
-            <span className="text-ink-faint">加载连板梯队…</span>
+            <span className="text-ink-soft">加载连板梯队…</span>
           ) : s.limit_up_count === 0 ? (
-            <span className="text-ink-faint">当前无涨停（未开盘或非交易日）</span>
+            <span className="text-ink-soft">当前无涨停（未开盘或非交易日）</span>
           ) : (
             <>
               <span className="text-ink-muted">
@@ -131,12 +131,12 @@ export default function LimitUpBar() {
               {topSector && (
                 <span className="text-ink-muted">
                   主线 <span className="font-semibold text-ink">{topSector.sector}</span>
-                  <span className="text-ink-faint">（{topSector.count} 家）</span>
+                  <span className="text-ink-muted">（{topSector.count} 家）</span>
                 </span>
               )}
               {snapshot.play_advice && <AdviceBadge advice={snapshot.play_advice} />}
               <span
-                className="rounded bg-slate-800/70 px-1.5 py-0.5 text-ink-muted"
+                className="rounded-md bg-surface-inset/70 px-1.5 py-0.5 text-ink-muted"
                 title="证据等级：只有「能否继续封板」这一个中间指标有正向线索，缺收益口径，因此不构成买点"
               >
                 {snapshot.evidence.badge} · 非买点
@@ -148,10 +148,10 @@ export default function LimitUpBar() {
     >
       {snapshot && s && (
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className={`text-sm ${sentimentTone(snapshot.sentiment_note.tone)}`}>
+          <p className={`text-body ${sentimentTone(snapshot.sentiment_note.tone)}`}>
             {snapshot.sentiment_note.text}
           </p>
-          <div className="flex items-center gap-2 text-xs text-ink-faint">
+          <div className="flex items-center gap-2 text-meta text-ink-muted">
             <span>
               {snapshot.trade_date} · {snapshot.session}
             </span>
@@ -172,7 +172,7 @@ export default function LimitUpBar() {
       )}
 
       {snapshot && !snapshot.broken_ok && (
-        <p className="text-xs text-amber-300">
+        <p className="text-meta text-amber-300">
           炸板池拉取失败，本次炸板率只反映部分信息，请勿据此判断分歧大小。
         </p>
       )}
@@ -196,12 +196,12 @@ export default function LimitUpBar() {
           <div className={DIVIDER} />
           <div>
             <h3 className={TEXT.label}>为什么这里不给买点</h3>
-            <p className="mt-1 text-xs leading-relaxed text-ink-soft">
+            <p className="mt-1 text-meta leading-relaxed text-ink-soft">
               <span className="text-ink">{snapshot.evidence.label}</span>
               {" · "}
               {snapshot.evidence.summary}
             </p>
-            <p className="mt-1 text-xs text-ink-faint">依据：{snapshot.evidence.provenance}</p>
+            <p className="mt-1 text-meta text-ink-faint">依据：{snapshot.evidence.provenance}</p>
           </div>
           <CaliberLine caliber={snapshot.caliber} />
         </>

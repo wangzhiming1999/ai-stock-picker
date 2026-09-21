@@ -27,11 +27,11 @@ function PremiumSection({ summary }: { summary?: LimitUpPremiumSummary }) {
   return (
     <div>
       <h3 className={TEXT.label}>次日溢价读数（涨停价买入 → 次日竞价卖出 · 非买入指令）</h3>
-      <p className="mt-1.5 rounded-lg bg-slate-800/50 px-3 py-2 text-xs leading-relaxed text-ink-soft">
+      <p className="mt-1.5 rounded-lg bg-surface-inset/50 px-3 py-2 text-meta leading-relaxed text-ink-soft">
         {summary.headline}
       </p>
 
-      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-faint">
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-meta text-ink-muted">
         <span>今日涨停 {summary.total} 只</span>
         {summary.tradable && (
           <span className="text-ink-soft">
@@ -52,22 +52,22 @@ function PremiumSection({ summary }: { summary?: LimitUpPremiumSummary }) {
               type="button"
               onClick={() => setOpen(open === b.label ? null : b.label)}
               disabled={b.count === 0}
-              className="flex w-full items-center gap-2 rounded-lg bg-slate-800/40 px-3 py-1.5 text-left transition-colors hover:bg-slate-800/70 disabled:cursor-default disabled:opacity-40"
+              className="flex w-full items-center gap-2 rounded-lg bg-surface-inset/40 px-3 py-1.5 text-left transition-colors hover:bg-surface-inset/70 disabled:cursor-default disabled:opacity-40"
             >
-              <span className="w-20 shrink-0 text-xs text-ink-soft">换手 {b.label}</span>
-              <span className={`w-16 shrink-0 text-xs font-semibold ${b.expect_pct > 0 ? "text-ink" : "text-amber-300"}`}>
+              <span className="w-20 shrink-0 text-meta text-ink-soft">换手 {b.label}</span>
+              <span className={`w-16 shrink-0 text-meta font-semibold ${b.expect_pct > 0 ? "text-ink" : "text-amber-300"}`}>
                 {signedPct(b.expect_pct)}
               </span>
-              <span className="w-12 shrink-0 text-xs text-ink-faint">{b.count} 只</span>
-              <span className="h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-slate-700/60" aria-hidden>
+              <span className="w-12 shrink-0 text-meta text-ink-muted">{b.count} 只</span>
+              <span className="h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-surface-line/60" aria-hidden>
                 <span
-                  className="block h-full rounded-full bg-slate-500"
+                  className="block h-full rounded-full bg-surface-line-strong"
                   style={{ width: `${(b.count / maxCount) * 100}%` }}
                 />
               </span>
-              <span className="flex-1 truncate text-xs text-ink-faint">{b.note}</span>
+              <span className="flex-1 truncate text-meta text-ink-soft">{b.note}</span>
               {!b.tradable && (
-                <span className="shrink-0 rounded bg-amber-500/10 px-1.5 py-0.5 text-xs text-amber-300">
+                <span className="shrink-0 rounded-md bg-amber-500/10 px-1.5 py-0.5 text-meta text-amber-300">
                   挂不上单
                 </span>
               )}
@@ -75,7 +75,7 @@ function PremiumSection({ summary }: { summary?: LimitUpPremiumSummary }) {
             {open === b.label && b.names.length > 0 && (
               <div className="mt-1 flex flex-wrap gap-1 px-3">
                 {b.names.map((n, i) => (
-                  <span key={b.codes[i]} className="rounded bg-slate-800/70 px-1.5 py-0.5 text-xs text-ink-soft">
+                  <span key={b.codes[i]} className="rounded-md bg-surface-inset/70 px-1.5 py-0.5 text-meta text-ink-soft">
                     {n}
                   </span>
                 ))}

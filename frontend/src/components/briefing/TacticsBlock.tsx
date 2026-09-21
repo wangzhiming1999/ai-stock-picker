@@ -13,7 +13,7 @@ export function TacticsBlock({ tactics, onPick }: { tactics: BriefingTactics; on
 
   return (
     <>
-      {tactics.summary && <p className="text-xs leading-relaxed text-ink-muted">{tactics.summary}</p>}
+      {tactics.summary && <p className="text-meta leading-relaxed text-ink-muted">{tactics.summary}</p>}
       <div className="mt-2 space-y-2">
         {groups.map((g) => (
           <div key={g.key}>
@@ -25,14 +25,14 @@ export function TacticsBlock({ tactics, onPick }: { tactics: BriefingTactics; on
                 <button
                   key={it.code}
                   onClick={() => onPick([it.code])}
-                  className={`${SUB_QUIET} w-full px-2 py-1.5 text-left transition-colors hover:bg-slate-800/70`}
+                  className={`${SUB_QUIET} w-full px-2 py-1.5 text-left transition-colors hover:bg-surface-inset/70`}
                 >
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs font-medium text-ink-strong">{it.name}</span>
+                    <span className="text-meta font-medium text-ink-strong">{it.name}</span>
                     <span className={TEXT.meta}>{it.code}</span>
                     <TacticChips tactics={it.tactics} />
                   </div>
-                  <div className="mt-0.5 text-xs leading-relaxed text-ink-muted">
+                  <div className="mt-0.5 text-meta leading-relaxed text-ink-muted">
                     <TacticTakeaway tactics={it.tactics} />
                   </div>
                 </button>

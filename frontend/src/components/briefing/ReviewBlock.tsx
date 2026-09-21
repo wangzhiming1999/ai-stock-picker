@@ -13,25 +13,25 @@ export function ReviewBlock({ review }: { review: NonNullable<Briefing["review"]
   };
   return (
     <>
-      {review.summary && <p className="text-xs leading-relaxed text-ink-soft">{review.summary}</p>}
+      {review.summary && <p className="text-meta leading-relaxed text-ink-soft">{review.summary}</p>}
       {hp && (hp.total_pnl != null || hp.count) && (
         <div className="mt-2 grid grid-cols-3 gap-2">
           <div className={`${SUB_QUIET} px-2 py-1.5`}>
             <div className={TEXT.meta}>持仓总盈亏</div>
-            <div className={`text-sm font-semibold ${pnlTone(hp.total_pnl, 300)}`}>
+            <div className={`text-body font-semibold ${pnlTone(hp.total_pnl, 300)}`}>
               {fmt(hp.total_pnl)}
-              {hp.total_pnl_pct != null && <span className="ml-1 text-xs font-normal">({fmt(hp.total_pnl_pct, true)})</span>}
+              {hp.total_pnl_pct != null && <span className="ml-1 text-meta font-normal">({fmt(hp.total_pnl_pct, true)})</span>}
             </div>
           </div>
           <div className={`${SUB_QUIET} px-2 py-1.5`}>
             <div className={TEXT.meta}>最强</div>
-            <div className={`truncate text-sm font-semibold ${upTone(300)}`}>
+            <div className={`truncate text-body font-semibold ${upTone(300)}`}>
               {hp.best?.name ?? "—"} {hp.best?.pnl_pct != null && fmt(hp.best.pnl_pct, true)}
             </div>
           </div>
           <div className={`${SUB_QUIET} px-2 py-1.5`}>
             <div className={TEXT.meta}>最弱</div>
-            <div className={`truncate text-sm font-semibold ${downTone(300)}`}>
+            <div className={`truncate text-body font-semibold ${downTone(300)}`}>
               {hp.worst?.name ?? "—"} {hp.worst?.pnl_pct != null && fmt(hp.worst.pnl_pct, true)}
             </div>
           </div>
@@ -40,7 +40,7 @@ export function ReviewBlock({ review }: { review: NonNullable<Briefing["review"]
       {review.alerts_today && review.alerts_today.length > 0 && (
         <div className="mt-2 space-y-1">
           {review.alerts_today.map((a, i) => (
-            <div key={i} className="flex items-center gap-2 text-xs text-ink-soft">
+            <div key={i} className="flex items-center gap-2 text-meta text-ink-soft">
               <Bell
                 className={`h-3 w-3 shrink-0 ${a.severity === "danger" ? "text-red-400" : "text-amber-400"}`} aria-hidden />
               <span className="truncate">

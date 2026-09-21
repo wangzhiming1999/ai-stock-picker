@@ -7,6 +7,8 @@ import { confirmForceRefresh, useSpotCooldown } from "../lib/spotGuard";
 import { pnlTone, scoreChip } from "../lib/tone";
 import type { QuadRankResult, QuadStock } from "../types";
 import Button from "./ui/Button";
+import Table, { Th } from "./ui/Table";
+import { CELL } from "../lib/ui";
 
 interface Props {
   onPick: (codes: string[]) => void;
@@ -18,8 +20,8 @@ function fmtScore(v: number | undefined): string {
 
 function ScoreCell({ v, title }: { v: number | undefined; title: string }) {
   return (
-    <td className="px-3 py-2">
-      <span title={title} className={`inline-block min-w-[2.2rem] rounded px-1.5 py-0.5 text-center text-xs font-semibold ${scoreChip(v ?? 0)}`}>
+    <td className={CELL}>
+      <span title={title} className={`inline-block min-w-[2.2rem] rounded-md px-1.5 py-0.5 text-center text-meta font-semibold ${scoreChip(v ?? 0)}`}>
         {fmtScore(v)}
       </span>
     </td>
@@ -98,15 +100,15 @@ export default function QuadRankTable({ onPick }: Props) {
         </div>
       }
     >
-      {err && <div className="rounded-lg border border-red-800 bg-red-950/40 px-3 py-2 text-sm text-red-300">{err}</div>}
+      {err && <div className="rounded-lg border border-state-danger-line bg-state-danger-surface px-3 py-2 text-body text-state-danger-soft">{err}</div>}
       {!data && !err && (
-        <div className="p-3 text-sm text-ink-faint">正在计算四维评分，首次生成约 1~2 分钟，之后整日秒回...</div>
+        <div className="p-3 text-body text-ink-soft">正在计算四维评分，首次生成约 1~2 分钟，之后整日秒回...</div>
       )}
-      {data && items.length === 0 && !err && <div className="p-3 text-sm text-ink-faint">今日暂无符合四维条件的标的</div>}
+      {data && items.length === 0 && !err && <div className="p-3 text-body text-ink-soft">今日暂无符合四维条件的标的</div>}
 
       {data && items.length > 0 && (
         <div>
-          <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-faint">
+          <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-meta text-ink-muted">
             <span>
               候选池 <b className="text-ink-soft">{data.pool_size}</b> 只
             </span>
@@ -116,84 +118,84 @@ export default function QuadRankTable({ onPick }: Props) {
             <span className="text-ink-faint">评分口径：估值+趋势+量能+消息情绪，规则模型每日更新</span>
           </div>
 
-          <div className="max-h-[560px] overflow-auto rounded-xl border border-slate-800">
-            <table className="w-full text-sm" style={{ minWidth: 760 }}>
-              <thead className="sticky top-0 z-10 bg-slate-900 text-left text-xs text-ink-muted">
-                <tr>
-                  <th scope="col" className="px-3 py-2"></th>
-                  <th scope="col" className="px-3 py-2">#</th>
-                  <th scope="col" className="px-3 py-2">股票</th>
-                  <th scope="col" className="px-3 py-2 text-right">现价</th>
-                  <th scope="col" className="px-3 py-2 text-center">基本面</th>
-                  <th scope="col" className="px-3 py-2 text-center">技术面</th>
-                  <th scope="col" className="px-3 py-2 text-center">资金面</th>
-                  <th scope="col" className="px-3 py-2 text-center">消息面</th>
-                  <th scope="col" className="px-3 py-2 text-center">综合</th>
-                  <th scope="col" className="px-3 py-2 text-right">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((it) => {
-                  const isSel = selected.has(it.code);
-                  const up = it.change_pct >= 0;
-                  return (
-                    <tr
-                      key={it.code}
-                      onClick={() => toggle(it.code)}
-                      className={`cursor-pointer border-t border-slate-800/60 transition-colors ${
-                        isSel ? "bg-brand/10" : "hover:bg-slate-800/40"
-                      }`}
-                    >
-                      <td className="px-3 py-2">
-                        <input
-                          type="checkbox"
-                          readOnly
-                          checked={isSel}
-                          onClick={(e) => e.stopPropagation()}
-                          onChange={() => toggle(it.code)}
-                          className="accent-green-500"
-                        />
-                      </td>
-                      <td className="px-3 py-2 text-xs text-ink-faint">{it.rank}</td>
-                      <td className="px-3 py-2">
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-medium text-ink-strong">{it.name}</span>
-                          {it.tags.map((t) => (
-                            <span
-                              key={t}
-                              className="rounded bg-purple-900/40 px-1 py-0.5 text-xs leading-none text-purple-300"
-                            >
-                              {t}
-                            </span>
-                          ))}
-                        </div>
-                        <div className="text-xs text-ink-faint">{it.code}</div>
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        <div className="text-ink">{it.price.toFixed(2)}</div>
-                        <div className={`text-xs ${pnlTone(it.change_pct)}`}>
-                          {up ? "+" : ""}
-                          {it.change_pct.toFixed(2)}%
-                        </div>
-                      </td>
-                      <ScoreCell v={it.scores?.fundamental} title={it.comments?.fundamental} />
-                      <ScoreCell v={it.scores?.technical} title={it.comments?.technical} />
-                      <ScoreCell v={it.scores?.capital} title={it.comments?.capital} />
-                      <ScoreCell v={it.scores?.news} title={it.comments?.news} />
-                      <td className="px-3 py-2 text-center">
-                        <span className={`text-base font-bold ${it.overall_score >= 7 ? "text-brand-light" : "text-ink-soft"}`}>
-                          {it.overall_score.toFixed(1)}
+          <Table
+            label="四维选股榜"
+            minWidth={760}
+            maxHeight="md"
+            head={
+              <tr>
+                <Th />
+                <Th>#</Th>
+                <Th>股票</Th>
+                <Th align="right">现价</Th>
+                <Th align="center">基本面</Th>
+                <Th align="center">技术面</Th>
+                <Th align="center">资金面</Th>
+                <Th align="center">消息面</Th>
+                <Th align="center">综合</Th>
+                <Th align="right">操作</Th>
+              </tr>
+            }
+          >
+            {items.map((it) => {
+              const isSel = selected.has(it.code);
+              const up = it.change_pct >= 0;
+              return (
+                <tr
+                  key={it.code}
+                  onClick={() => toggle(it.code)}
+                  className={`cursor-pointer border-t border-surface-line-soft transition-colors ${
+                    isSel ? "bg-brand/10" : "hover:bg-surface-inset/40"
+                  }`}
+                >
+                  <td className={CELL}>
+                    <input
+                      type="checkbox"
+                      readOnly
+                      checked={isSel}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={() => toggle(it.code)}
+                      className="accent-green-500"
+                    />
+                  </td>
+                  <td className={`${CELL} text-meta text-ink-muted`}>{it.rank}</td>
+                  <td className={CELL}>
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-medium text-ink-strong">{it.name}</span>
+                      {it.tags.map((t) => (
+                        <span
+                          key={t}
+                          className="rounded-md bg-purple-900/40 px-1 py-0.5 text-meta leading-none text-purple-300"
+                        >
+                          {t}
                         </span>
-                      </td>
-                      <td className="px-3 py-2 text-right" onClick={(e) => e.stopPropagation()}>
-                        <WatchStar code={it.code} />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                      ))}
+                    </div>
+                    <div className="text-meta text-ink-muted">{it.code}</div>
+                  </td>
+                  <td className={`${CELL} text-right`}>
+                    <div className="text-ink">{it.price.toFixed(2)}</div>
+                    <div className={`text-meta ${pnlTone(it.change_pct)}`}>
+                      {up ? "+" : ""}
+                      {it.change_pct.toFixed(2)}%
+                    </div>
+                  </td>
+                  <ScoreCell v={it.scores?.fundamental} title={it.comments?.fundamental} />
+                  <ScoreCell v={it.scores?.technical} title={it.comments?.technical} />
+                  <ScoreCell v={it.scores?.capital} title={it.comments?.capital} />
+                  <ScoreCell v={it.scores?.news} title={it.comments?.news} />
+                  <td className={`${CELL} text-center`}>
+                    <span className={`text-head font-bold ${it.overall_score >= 7 ? "text-brand-light" : "text-ink-soft"}`}>
+                      {it.overall_score.toFixed(1)}
+                    </span>
+                  </td>
+                  <td className={`${CELL} text-right`} onClick={(e) => e.stopPropagation()}>
+                    <WatchStar code={it.code} />
+                  </td>
+                </tr>
+              );
+            })}
+          </Table>
         </div>
       )}
     </CollapsiblePanel>

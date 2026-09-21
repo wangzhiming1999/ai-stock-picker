@@ -108,7 +108,7 @@ export default function TodayPanel({ onPick, onOpenMap, jump }: Props) {
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand-light opacity-75" />
               )}
               <span
-                className={`relative inline-flex h-2 w-2 rounded-full ${info.trading ? "bg-brand" : "bg-slate-600"}`}
+                className={`relative inline-flex h-2 w-2 rounded-full ${info.trading ? "bg-brand" : "bg-surface-line-strong"}`}
               />
             </span>
             <span className="font-medium text-ink-soft">{info.label}</span>
@@ -117,7 +117,7 @@ export default function TodayPanel({ onPick, onOpenMap, jump }: Props) {
       />
 
       {/* 时段说明：这一屏现在在看什么 */}
-      <p className="-mt-2 text-xs text-ink-faint">{HINT[info.key]}</p>
+      <p className="-mt-2 text-meta text-ink-soft">{HINT[info.key]}</p>
 
       {/* 功能地图入口：一行高，说明这个工具一共有多少东西，并能按域直达 */}
       <FeatureMapBar onOpen={onOpenMap} />

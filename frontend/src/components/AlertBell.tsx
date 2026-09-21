@@ -98,13 +98,13 @@ export default function AlertBell() {
     <div className="relative">
       <button
         onClick={toggle}
-        className="relative rounded-lg p-2 text-ink-soft hover:bg-slate-800 hover:text-white"
+        className="relative rounded-lg p-2 text-ink-soft hover:bg-surface-inset hover:text-white"
         title="价格预警"
         aria-label="预警通知"
       >
         {unread > 0 ? <BellRing className="h-5 w-5 text-amber-400" aria-hidden /> : <Bell className="h-5 w-5" aria-hidden />}
         {unread > 0 && (
-          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-xs font-bold text-white">
+          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-meta font-bold text-white">
             {unread > 99 ? "99+" : unread}
           </span>
         )}
@@ -119,39 +119,39 @@ export default function AlertBell() {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -8, scale: 0.97 }}
               transition={{ duration: 0.16 }}
-              className="absolute right-0 z-50 mt-2 w-80 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl"
+              className="absolute right-0 z-50 mt-2 w-80 rounded-xl border border-surface-line bg-surface-panel shadow-2xl"
             >
-              <div className="flex items-center justify-between border-b border-slate-800 px-4 py-2.5">
-                <span className="text-sm font-semibold text-ink-strong">价格预警</span>
-                <button onClick={readAll} className="flex items-center gap-1 text-xs text-ink-muted hover:text-brand-light">
+              <div className="flex items-center justify-between border-b border-surface-line px-4 py-2.5">
+                <span className="text-body font-semibold text-ink-strong">价格预警</span>
+                <button onClick={readAll} className="flex items-center gap-1 text-meta text-ink-muted hover:text-brand-light">
                   <CheckCheck className="h-3.5 w-3.5" aria-hidden />
                   全部已读
                 </button>
               </div>
               <div className="max-h-80 overflow-auto">
                 {loading && events.length === 0 ? (
-                  <div className="px-4 py-6 text-center text-xs text-ink-faint">加载中...</div>
+                  <div className="px-4 py-6 text-center text-meta text-ink-soft">加载中...</div>
                 ) : events.length === 0 ? (
-                  <div className="px-4 py-6 text-center text-xs text-ink-faint">暂无预警事件。在「持仓」页添加止损/目标价规则。</div>
+                  <div className="px-4 py-6 text-center text-meta text-ink-soft">暂无预警事件。在「持仓」页添加止损/目标价规则。</div>
                 ) : (
                   events.map((e) => (
                     <div
                       key={e.id}
-                      className={`flex items-start justify-between gap-2 border-b border-slate-800/60 px-4 py-2.5 ${e.is_read ? "" : "bg-amber-950/10"}`}
+                      className={`flex items-start justify-between gap-2 border-b border-surface-line-soft px-4 py-2.5 ${e.is_read ? "" : "bg-state-warn-surface"}`}
                     >
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-2">
-                          <span className={`text-xs font-semibold ${sevStyle[e.severity] ?? "text-ink"}`}>{e.title}</span>
-                          <span className="shrink-0 text-xs text-ink-faint">{timeAgo(e.created_at)}</span>
+                          <span className={`text-meta font-semibold ${sevStyle[e.severity] ?? "text-ink"}`}>{e.title}</span>
+                          <span className="shrink-0 text-meta text-ink-muted">{timeAgo(e.created_at)}</span>
                         </div>
-                        <p className="mt-0.5 text-xs text-ink-muted">{e.message}</p>
+                        <p className="mt-0.5 text-meta text-ink-muted">{e.message}</p>
                       </div>
                       {!e.is_read && (
                         <button
                           onClick={() => void markOne(e.id)}
                           title="标为已读"
                           aria-label="标为已读"
-                          className="shrink-0 rounded-md p-1 text-ink-faint transition-colors hover:bg-slate-700 hover:text-brand-light"
+                          className="shrink-0 rounded-md p-1 text-ink-muted transition-colors hover:bg-surface-line hover:text-brand-light"
                         >
                           <Check className="h-3.5 w-3.5" aria-hidden />
                         </button>

@@ -12,7 +12,7 @@ export function PreMarketBlock({ data }: { data: Briefing }) {
       <div className="flex flex-wrap items-end gap-x-5 gap-y-1">
         <div className="flex items-baseline gap-2">
           <span className={TEXT.meta}>大方向</span>
-          <span className={`text-xl font-bold ${tone.text}`}>{m.direction || "—"}</span>
+          <span className={`text-h1 font-bold ${tone.text}`}>{m.direction || "—"}</span>
         </div>
         <div className="flex items-baseline gap-2">
           <span className={TEXT.meta}>建议仓位</span>
@@ -25,8 +25,8 @@ export function PreMarketBlock({ data }: { data: Briefing }) {
           <div className="mt-1.5 grid grid-cols-3 gap-2">
             {overseas.map((o) => (
               <div key={o.name} className={`${SUB_QUIET} px-2 py-1.5`}>
-                <div className="truncate text-xs text-ink-muted">{o.name}</div>
-                <div className={`text-sm font-semibold ${pnlTone(o.change_pct, 300)}`}>
+                <div className="truncate text-meta text-ink-muted">{o.name}</div>
+                <div className={`text-body font-semibold ${pnlTone(o.change_pct, 300)}`}>
                   {o.change_pct >= 0 ? "+" : ""}
                   {o.change_pct.toFixed(2)}%
                 </div>

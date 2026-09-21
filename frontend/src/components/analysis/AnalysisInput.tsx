@@ -2,6 +2,7 @@ import type { Dispatch, SetStateAction } from "react";
 import StockSearchInput from "../StockSearchInput";
 import Button from "../ui/Button";
 import { parseCodesFromText, type Phase } from "./shared";
+import { CARD_FLUSH } from "../../lib/ui";
 
 interface Props {
   input: string;
@@ -34,9 +35,9 @@ export default function AnalysisInput({
   onDebateChange,
 }: Props) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
-      <label className="mb-2 block text-sm font-medium text-ink-soft">
-        股票搜索 <span className="ml-1 text-xs font-normal text-ink-faint">（代码/名称 · 支持多只）</span>
+    <div className={`${CARD_FLUSH} p-4`}>
+      <label className="mb-2 block text-body font-medium text-ink-soft">
+        股票搜索 <span className="ml-1 text-meta font-normal text-ink-muted">（代码/名称 · 支持多只）</span>
       </label>
       <div className="flex flex-col gap-3 sm:flex-row">
         <StockSearchInput
@@ -54,7 +55,7 @@ export default function AnalysisInput({
         {phase === "running" ? (
           <button
             onClick={onStop}
-            className="rounded-lg border border-slate-600 bg-slate-800 px-6 py-2.5 text-sm font-medium text-ink hover:bg-slate-700"
+            className="rounded-lg border border-surface-line-strong bg-surface-inset px-6 py-2.5 text-body font-medium text-ink hover:bg-surface-line"
           >
             停止
           </button>
@@ -64,10 +65,10 @@ export default function AnalysisInput({
           </Button>
         )}
       </div>
-      <p className="mt-2 text-xs text-ink-faint">
+      <p className="mt-2 text-meta text-ink-soft">
         提示：Ctrl + Enter 触发分析 · Esc 收起 · 分析期间主界面可继续操作
       </p>
-      <label className="mt-2 flex cursor-pointer items-start gap-2 text-xs text-ink-muted">
+      <label className="mt-2 flex cursor-pointer items-start gap-2 text-meta text-ink-muted">
         <input
           type="checkbox"
           checked={debate}
@@ -77,7 +78,7 @@ export default function AnalysisInput({
         />
         <span>
           多空研究员对辩
-          <span className="ml-1 text-ink-faint">
+          <span className="ml-1 text-ink-muted">
             （每只票额外 2 轮 LLM 调用，更慢；结论仅为分歧与风险提示，不构成买卖依据）
           </span>
         </span>

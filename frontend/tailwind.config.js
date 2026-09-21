@@ -1,29 +1,21 @@
 /** @type {import('tailwindcss').Config} */
 
 /**
- * ⚠️ 这里的颜色**不是随手挑的**，每个值都经过 WCAG 2.1 实测
- * （脚本 `tools/contrast.mjs`，改色值后必须重跑）。改之前先读下面的分层约定。
+ * 设计系统 · 单一来源
  *
- * ── 两套色，两种职责，不要混用 ────────────────────────────────────────
- *   1. `surface` / `slate`（**表面**）—— 底色与描边，表达「这块在界面里的层级」。
- *   2. `ink` / `brand` / 红绿琥珀（**语义**）—— 文字与状态，表达「这是什么意思」。
+ * ⚠️ 本文件是**唯一**能定义视觉规范的地方。组件里出现的任何「临时数值」
+ * （`text-[13px]` / `rounded-[5px]` / 手写色号）都是本文件的漏网之鱼，
+ * 会被 `src/lib/designGuard.test.ts` 拦下。
  *
- * ── 表面阶梯：四层，靠**亮度差**建立层级 ──────────────────────────────
- * 历史缺陷：内嵌块曾用 7 档几乎同色的灰，亮度差只有 2~4%，人眼分辨不出，
- * 结果「所有块看起来一样重」，界面没有落点。这不是审美问题，是**机械性缺陷**。
- * 现在收敛为四层，相邻层相对亮度差 37%~70%：
+ * ── 四组 token，对应界面语言的四个维度 ──────────────────────────────
+ *   字体 fontFamily      中文优先字体栈（此前**完全没有定义**，中文渲染靠系统默认）
+ *   字号 fontSize        8 档语义阶梯，**每档自带行高**（此前全站 0 个 leading-*）
+ *   边距 borderRadius / 节奏   圆角 5 档；垂直节奏 3 档（见 lib/ui.ts 的 STACK*）
+ *   字色 colors          表面阶梯（surface）+ 文字阶梯（ink）+ 状态色（state）
  *
- *   canvas   页面底       #05070e
- *   panel    主面板       #0d1424   与 canvas 差 69.7%
- *   inset    面板内分区   #141d30   与 panel  差 42.5%
- *   raised   芯片/输入框  #1b2640   与 inset  差 37.6%
- *
- * ── 描边三分 ──────────────────────────────────────────────────────────
- *   line        装饰性描边（卡片外框）。纯装饰不受 WCAG 约束，1.49~1.78:1 足够。
- *   line-soft   表内分隔线，比 line 更弱，避免表格看起来像格子墙。
- *   line-strong 交互元素描边（输入框 / 描边按钮）—— **它就是这个控件唯一的边界
- *               标识**，按 WCAG 1.4.11 需 >= 3:1。实测 4.23 / 3.86 / 3.54。
- *               反面：别用 line / slate-700 描输入框（1.4~1.7:1，等于看不见框）。
+ * ── 改动前的硬约束 ──────────────────────────────────────────────────
+ *   改 `surface` / `ink` / `state` 的任何色值 → 必须重跑 `npm run contrast`。
+ *   那套值全部有 WCAG 实测支撑，不是审美选择。
  */
 
 /**
@@ -54,7 +46,133 @@ const SLATE = {
 export default {
   content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
   theme: {
+    /* ── 字号阶梯（**覆盖**默认，不是 extend）─────────────────────────
+     * 8 档，语义命名。**每档自带行高** —— 这是本次修复的核心。
+     *
+     * 此前全站 0 处 `leading-*`，行高全靠浏览器默认：中文 12px 的默认行高只有
+     * 16px（1.33），而中文方块字的舒适行高需要 1.5~1.7。字一多就糊成一坨灰，
+     * 这是「界面看起来一般」最主要的机械原因，不是配色问题。
+     *
+     * ⚠️ px 值与旧档位**一一对应，刻意不改** ——
+     *    改尺寸会让所有卡片高度、表格行高同时变化，是无法逐个回归的改动。
+     *    本次提升全部来自行高与语义化，布局零风险。
+     *
+     *   旧           新            用途
+     *   text-xs   →  text-meta     注释 · 口径 · 脚注
+     *   text-xs   →  text-label    字段名 · 表头（同尺寸，行高更紧）
+     *   text-sm   →  text-body     正文 · 表格主文本   ← 默认档
+     *   text-base →  text-head     区块 / 面板标题
+     *   text-lg   →  text-num      关键数字 · 卡片主值
+     *   text-xl   →  text-h1       页面标题
+     *   text-2xl  →  text-hero     一屏一处的主结论
+     *   text-[10px] → text-micro   角标 · 单位 · 图例
+     *
+     * 行高怎么定的：小字给更大比例（12px/18px = 1.5），大字给更小比例
+     * （24px/32px = 1.33）。字越大，同样的行高比例看起来越松。
+     *
+     * ⚠️ 为什么写在这里而不是 `extend` —— 这一条踩过坑：
+     *    `extend` 是**合并**，Tailwind 的 xs/sm/base/lg/xl/2xl 会继续存在。
+     *    后果有两个，都很隐蔽：
+     *      1. 写了旧档位**依然会生效**，只是没人用 —— 于是"迁移完成"没法验证；
+     *      2. 守卫的注释里出现 `text-xs` 这类词，会被 content 扫描当成候选项，
+     *         产出用不到的死 CSS（实测确实产出了 7 条）。
+     *    改成覆盖后，旧档位**不再生成任何 CSS**：写了就是无样式（静默继承父级
+     *    字号），而 `designGuard.test.ts` 是唯一的防线 —— 这正是它存在的意义。
+     */
+    fontSize: {
+      micro: ["10px", { lineHeight: "14px", letterSpacing: "0.01em" }],
+      meta: ["12px", { lineHeight: "18px" }],
+      label: ["12px", { lineHeight: "16px" }],
+      body: ["14px", { lineHeight: "22px" }],
+      head: ["16px", { lineHeight: "24px", letterSpacing: "-0.005em" }],
+      num: ["18px", { lineHeight: "26px", letterSpacing: "-0.01em" }],
+      // 汉字在 20px 以上会显得比同尺寸拉丁文更大，所以大字收紧字距
+      h1: ["20px", { lineHeight: "28px", letterSpacing: "-0.015em" }],
+      hero: ["24px", { lineHeight: "32px", letterSpacing: "-0.02em" }],
+      // 单卡片内的超大读数（如个股综合评分）。比 hero 更大，一屏最多一处
+      display: ["32px", { lineHeight: "38px", letterSpacing: "-0.02em" }],
+    },
+
+    /* ── 圆角（**覆盖**默认）───────────────────────────────────────────
+     * 收敛为 4 档 + full。层级与半径绑定（面越大、圆角越大），
+     * 此前 6 档混用（rounded / md / lg / xl / 2xl / full）导致
+     * 同一屏里出现 4px、6px、8px 三种「小圆角」，肉眼看得出不齐。
+     *
+     *   徽章 · chip           → rounded-md   6px
+     *   按钮 · 输入框 · 小控件 → rounded-lg   8px   ← 默认档
+     *   面板内分区            → rounded-xl   12px
+     *   页面级面板            → rounded-2xl  16px
+     *   胶囊 / 头像           → rounded-full
+     *
+     * 同上：覆盖而非 extend，`rounded`（裸，4px）与 `rounded-sm`（2px）
+     * 从此不再生成 CSS。存量 63 处裸 `rounded` 已全部迁到 `rounded-md` ——
+     * 裸值存在一天就会有人继续用。
+     */
+    borderRadius: {
+      none: "0px",
+      md: "6px",
+      lg: "8px",
+      xl: "12px",
+      "2xl": "16px",
+      full: "9999px",
+    },
+
     extend: {
+      /* ── 字体 ────────────────────────────────────────────────────────
+       * 此前 fontFamily 未定义 → 吃 Tailwind 默认栈（ui-sans-serif / system-ui），
+       * 中文实际落到浏览器默认：Windows 上是宋体或雅黑、macOS 上是苹方，
+       * 同一份代码在两台机器上排版宽度不同（中文行折行位置不同 → 卡片高度不同）。
+       *
+       * 现在显式声明中文优先栈，且**只用系统字体**：
+       * 不引 webfont —— 中文字体动辄 3~8MB，行情页首屏加载不起；
+       * 且国内网络访问 Google Fonts 不稳定，会拖出 2s 的空白期。
+       *
+       * 顺序即优先级：拉丁字符先命中 Inter/系统 UI 字体，中文回退到下方三款。
+       */
+      fontFamily: {
+        sans: [
+          "Inter",
+          "system-ui",
+          "-apple-system",
+          "BlinkMacSystemFont",
+          "Segoe UI",
+          "PingFang SC", // macOS / iOS
+          "Hiragino Sans GB", // 旧 macOS
+          "Microsoft YaHei", // Windows
+          "Noto Sans SC", // Android / Linux
+          "sans-serif",
+        ],
+        // 代码 / 股票代码 / 需要严格等宽的场合
+        mono: [
+          "ui-monospace",
+          "SFMono-Regular",
+          "Menlo",
+          "Consolas",
+          "Liberation Mono",
+          "monospace",
+        ],
+      },
+
+      /* ── 边距 ────────────────────────────────────────────────────────
+       * ⚠️ 刻意**不覆盖** Tailwind 的 spacing 阶梯 —— 那一套同时被
+       *    width / height / inset 复用，覆盖它会波及所有布局尺寸。
+       *
+       * 边距的纪律靠**语义槽位 token** 落地（定义在 lib/ui.ts）：
+       *
+       *   表格单元格   CELL              px-3 py-2
+       *   面板头部     PANEL_HEAD        px-5 py-4
+       *   面板内容     PANEL_BODY        p-5
+       *   主卡         CARD              p-5
+       *   浮层         CARD_MODAL        p-6
+       *   垂直节奏     STACK_TIGHT / STACK / STACK_LOOSE     space-y-2 / 4 / 8
+       *
+       * 实测全站 0 处任意值（没有 `p-[13px]` 这种写法），说明**数值本身是干净的**。
+       * 此前的问题不是"数值乱写"，而是**同一个语义槽位在不同页面用了不同档位**
+       * （表格单元格有过 px-2 py-2 与 px-3 py-1.5 两套，卡片内边距有过 p-4/p-5/p-6 三种）。
+       * 所以收敛的正确做法是把**槽位命名**，而不是把数值统一改小 ——
+       * 「所有卡片都是 p-5」这种全局替换会同时改掉弹窗与常驻条，那不是统一，是破坏。
+       */
+
       colors: {
         slate: SLATE,
 
@@ -70,6 +188,8 @@ export default {
           line: SLATE[700],
           "line-soft": "#1a2438",
           "line-strong": SLATE[500],
+          /** 交互元素 hover 时的描边。比 line-strong 再亮一档，让 hover 有可见反馈。 */
+          "line-hover": "#94a3b8",
         },
 
         /**
@@ -98,21 +218,79 @@ export default {
          * 五档全部在**四层表面**上实测 >= 4.5:1，所以任意层级组合都安全 ——
          * 组件不必知道自己被放在了哪一层上。改表面色或改这五个值都要重跑实测。
          *
-         *   ink-faint   #8fa0b8   canvas 7.56 / panel 6.90 / inset 6.32 / raised 5.64
+         *   ink-faint   #7f90a8   canvas 6.19 / panel 5.65 / inset 5.17 / raised 4.62
          *   ink-muted   #94a3b8   7.85 / 7.17 / 6.56 / 5.86   标签、表头
          *   ink-soft    #cbd5e1  13.56 / 12.38 / 11.33 / 10.12  正文
          *   ink         #e2e8f0  16.33 / 14.91 / 13.65 / 12.19  标题
          *   ink-strong  #f8fafc  19.24 / 17.57 / 16.08 / 14.36  页面级标题、大数字
          *
+         * ⚠️ **相邻两档必须拉开 >= 12% 相对亮度**（`tools/contrast.mjs` 断言 ⑥）。
+         *    这不是审美要求：faint 原本是 #8fa0b8，与 muted(#94a3b8) 只差 **4.4%** ——
+         *    「每档对背景都够亮」是满足的，但两档**互相**分辨不出，
+         *    于是名义上五档、实际只有四档可用，混用久了就是「整屏发灰」。
+         *    压低到 #7f90a8 后与 muted 差 24.1%，同时四层表面仍全部 >= 4.5:1。
+         *    （raised 4.62:1 是这条约束的上限所在，不能再往下压。）
+         *
          * 反面：不要再用 `text-slate-500` / `text-slate-600` 当文字色 ——
          * 实测只有 3.07 / 1.93:1，暗底上读不清。它们的旧位置已迁到 `ink-faint`。
+         *
+         * ⚠️ 用色纪律：`ink-faint` 是**最弱**一档，只给「可以完全忽略也不影响判断」
+         *    的内容（口径出处、时间戳）。它的历史用量一度超过 `ink-soft`，
+         *    结果整屏发灰 —— 正文该用 `ink-soft`，读数该用 `ink`。
          */
         ink: {
           strong: "#f8fafc",
           DEFAULT: "#e2e8f0",
           soft: "#cbd5e1",
           muted: "#94a3b8",
-          faint: "#8fa0b8",
+          faint: "#7f90a8",
+        },
+
+        /**
+         * 状态色（**非行情语义**）。
+         *
+         * ⚠️ 这个分组与 `lib/tone.ts` 的红绿是两套东西，不要混用：
+         *   tone.ts  红/绿 = 价格往哪走、买卖动作     ← 行情语义，不可挪用
+         *   state    琥珀/红/蓝 = 这块功能的状态     ← 接口失败、数据缺失、信息提示
+         *
+         * 历史问题：全站散着 19 种手写状态色（amber-100/200/300/400/500、
+         * red-200/300/400、sky-300/400、purple-300…），同一个「数据缺失」提示
+         * 在不同页面深浅不一。这里收敛为四个状态 × 四个部位。
+         *
+         *   状态    用途                          可用部位
+         *   warn    数据缺失 / 口径不全 / 风控阈值  text / soft / surface / line
+         *   danger  接口失败 / 校验错误 / 破坏性操作 text / soft / surface / line
+         *   info    中性说明 / 操作提示 / 链接      text / soft / surface / line
+         *   ok      达标 / 已完成 / 校验通过        text / soft / surface / line
+         *
+         * `text` 用于普通暗底，`soft` 用于带色底的芯片内（底色已抬亮背景，
+         * 文字要更亮才压得住）—— 与 tone.ts 的 300/400 双档是同一个道理。
+         */
+        state: {
+          warn: {
+            DEFAULT: "#fbbf24", // amber-400
+            soft: "#fcd34d", // amber-300
+            surface: "rgba(120, 53, 15, 0.18)", // amber-900 低透明底
+            line: "rgba(120, 53, 15, 0.45)",
+          },
+          danger: {
+            DEFAULT: "#f87171", // red-400
+            soft: "#fca5a5", // red-300
+            surface: "rgba(127, 29, 29, 0.30)", // red-900 低透明底
+            line: "rgba(153, 27, 27, 0.55)",
+          },
+          info: {
+            DEFAULT: "#7dd3fc", // sky-300
+            soft: "#bae6fd", // sky-200
+            surface: "rgba(12, 74, 110, 0.25)",
+            line: "rgba(3, 105, 161, 0.45)",
+          },
+          ok: {
+            DEFAULT: "#60a5fa", // brand-light
+            soft: "#93c5fd", // brand-soft
+            surface: "rgba(30, 64, 175, 0.18)",
+            line: "rgba(29, 78, 216, 0.40)",
+          },
         },
       },
     },

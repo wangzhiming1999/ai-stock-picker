@@ -7,6 +7,8 @@ import PanelSkeleton from "./ui/PanelSkeleton";
 import type { Industry } from "../types";
 import { pnlTone } from "../lib/tone";
 import Button from "./ui/Button";
+import Table, { Th } from "./ui/Table";
+import { CELL } from "../lib/ui";
 import { lazyRetry } from "../lib/lazyRetry";
 
 const PredictionCard = lazyRetry(() => import("./PredictionCard"));
@@ -53,9 +55,9 @@ export default function RecommendPanel({ onPick }: Props) {
         </div>
       </div>
 
-      <div className="flex items-center gap-2 pt-1 text-sm font-semibold text-ink-soft">
+      <div className="flex items-center gap-2 pt-1 text-body font-semibold text-ink-soft">
         <Radar className="h-4 w-4 text-brand-light" aria-hidden /> 想继续找机会？
-        <span className="text-xs font-normal text-ink-faint">下面是模型筛出的备选股票，可进一步分析，但不等于建议买入</span>
+        <span className="text-meta font-normal text-ink-faint">下面是模型筛出的备选股票，可进一步分析，但不等于建议买入</span>
       </div>
 
       <Suspense fallback={<PanelSkeleton label="正在加载候选验证区" />}>
@@ -79,37 +81,36 @@ export default function RecommendPanel({ onPick }: Props) {
           </Button>
         }
       >
-        <div className="max-h-80 overflow-y-auto rounded-xl border border-slate-800">
-          {err && <div className="p-3 text-xs text-red-300">{err}</div>}
-          {!indLoading && industries.length === 0 && !err && (
-            <div className="p-4 text-sm text-ink-faint">暂无数据，点击"刷新"重试</div>
-          )}
-          {industries.length > 0 && (
-            <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-slate-900 text-left text-xs text-ink-muted">
-                <tr>
-                  <th scope="col" className="px-3 py-2">板块</th>
-                  <th scope="col" className="px-3 py-2 text-right">家数</th>
-                  <th scope="col" className="px-3 py-2 text-right">涨跌幅</th>
-                  <th scope="col" className="px-3 py-2 text-right">平均价</th>
-                </tr>
-              </thead>
-              <tbody>
-                {industries.map((ind) => (
-                  <tr key={ind.label} className="border-t border-slate-800/60 hover:bg-slate-800/40">
-                    <td className="px-3 py-2 text-ink">{ind.name}</td>
-                    <td className="px-3 py-2 text-right text-ink-muted">{ind.company_count}</td>
-                    <td className={`px-3 py-1.5 text-right tabular-nums ${pnlTone(ind.change_pct)}`}>
-                      {ind.change_pct >= 0 ? "+" : ""}
-                      {ind.change_pct.toFixed(2)}%
-                    </td>
-                    <td className="px-3 py-2 text-right text-ink-muted tabular-nums">{ind.avg_price.toFixed(2)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+        {err && <div className="p-3 text-meta text-red-300">{err}</div>}
+        {!indLoading && industries.length === 0 && !err && (
+          <div className="p-4 text-body text-ink-soft">暂无数据，点击"刷新"重试</div>
+        )}
+        {industries.length > 0 && (
+          <Table
+            label="行业板块热榜"
+            maxHeight="xs"
+            head={
+              <tr>
+                <Th>板块</Th>
+                <Th align="right">家数</Th>
+                <Th align="right">涨跌幅</Th>
+                <Th align="right">平均价</Th>
+              </tr>
+            }
+          >
+            {industries.map((ind) => (
+              <tr key={ind.label} className="border-t border-surface-line-soft hover:bg-surface-inset/40">
+                <td className={`${CELL} text-ink`}>{ind.name}</td>
+                <td className={`${CELL} text-right text-ink-muted`}>{ind.company_count}</td>
+                <td className={`${CELL} text-right tabular-nums ${pnlTone(ind.change_pct)}`}>
+                  {ind.change_pct >= 0 ? "+" : ""}
+                  {ind.change_pct.toFixed(2)}%
+                </td>
+                <td className={`${CELL} text-right text-ink-muted tabular-nums`}>{ind.avg_price.toFixed(2)}</td>
+              </tr>
+            ))}
+          </Table>
+        )}
       </CollapsiblePanel>
     </div>
   );

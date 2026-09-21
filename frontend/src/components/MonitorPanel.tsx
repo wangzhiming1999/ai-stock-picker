@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { addAlertRule, fetchHoldings, fetchLimitUpSnapshot, fetchMonitor, fetchWatchlist } from "../api/client";
 import CollapsiblePanel from "./ui/CollapsiblePanel";
+import Table, { Th } from "./ui/Table";
 import { useAuth } from "../auth/AuthContext";
 import type { LimitUpRelayStock, MonitorInterval, MonitorResult, MonitorStock } from "../types";
 import { ensureNotCooling } from "../lib/spotGuard";
@@ -368,7 +369,7 @@ export default function MonitorPanel() {
       />
 
       {interval !== "1d" && (
-        <div className="mb-2 rounded-lg border border-amber-800/50 bg-amber-950/30 px-3 py-1.5 text-xs text-amber-300">
+        <div className="mb-2 rounded-lg border border-state-warn-line bg-state-warn-surface px-3 py-1.5 text-meta text-state-warn-soft">
           日内模式：信号基于当日 VWAP 与 {interval} 均线，止损 1% 上下（最宽 1.5%），<b>仅当日有效</b>，收盘前需了结或改按日线持有。
           {data?.degraded && <span className="text-red-300"> 分钟数据暂不可用，已自动降级为日线决策。</span>}
         </div>
@@ -376,7 +377,7 @@ export default function MonitorPanel() {
 
       {/* 部分失败必须显式提示：只让列表变短，用户会把行情源故障读成「今天没什么可操作的」 */}
       {data?.partial && data.notice && (
-        <div className="mb-2 rounded-lg border border-amber-800/50 bg-amber-950/30 px-3 py-1.5 text-xs text-amber-300">
+        <div className="mb-2 rounded-lg border border-state-warn-line bg-state-warn-surface px-3 py-1.5 text-meta text-state-warn-soft">
           {data.notice}
           {data.missed?.length > 0 && (
             <span className="text-amber-200/70">　未出结果：{data.missed.join(" ")}</span>
@@ -385,30 +386,30 @@ export default function MonitorPanel() {
       )}
       {/* 周/月线未加载 ≠ 形态未命中：不说清楚，多周期共振不显示会被读成「没命中」 */}
       {data?.periods && !data.periods.loaded && (
-        <div className="mb-2 text-xs text-ink-faint">
+        <div className="mb-2 text-meta text-ink-muted">
           多周期形态（周/月线）本轮未加载，点「立即刷新」可补上。
         </div>
       )}
 
-      <div className="mb-3 text-xs text-ink-faint">
+      <div className="mb-3 text-meta text-ink-muted">
         {data && (
           <>
             行情时间 <b className="text-ink-soft">{fmtTime(data.quote_at || data.updated_at)}</b> ·{" "}
-            <span className={data.freshness === "stale" ? "text-amber-400" : data.freshness === "live" ? "text-green-400" : "text-ink-faint"}>
+            <span className={data.freshness === "stale" ? "text-amber-400" : data.freshness === "live" ? "text-green-400" : "text-ink-muted"}>
               {data.freshness === "stale" ? "行情可能延迟" : data.freshness === "live" ? "实时" : data.freshness === "closed" ? "收盘数据" : "时间未知"}
             </span>{" · "}
           </>
         )}
         {data?.market_open ? `每 ${data.poll_interval_seconds ?? 20} 秒刷新` : "休市低频刷新"} · {codes.length}/{MAX_CODES}
-        {Object.keys(costs).length > 0 && <span className="text-ink-faint"> · 已加载 {Object.keys(costs).length} 只持仓成本</span>}
+        {Object.keys(costs).length > 0 && <span className="text-ink-muted"> · 已加载 {Object.keys(costs).length} 只持仓成本</span>}
       </div>
 
-      {err && <div className="mb-2 rounded-lg border border-red-800 bg-red-950/40 px-3 py-2 text-xs text-red-300">{err}</div>}
+      {err && <div className="mb-2 rounded-lg border border-state-danger-line bg-state-danger-surface px-3 py-2 text-meta text-state-danger-soft">{err}</div>}
 
       {codes.length === 0 && !data && (
-        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-slate-700 py-8 text-center">
-          <p className="text-sm text-ink-soft">还没有监控的股票</p>
-          <p className="mt-1 max-w-sm text-xs text-ink-faint">
+        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-surface-line py-8 text-center">
+          <p className="text-body text-ink-soft">还没有监控的股票</p>
+          <p className="mt-1 max-w-sm text-meta text-ink-soft">
             输入代码或一键导入自选/持仓。每只票会给出「挂多少买、挂多少卖、跌到哪里止损」，
             到价可一键设提醒
           </p>
@@ -416,44 +417,44 @@ export default function MonitorPanel() {
       )}
 
       {codes.length > 0 && data && visibleCodes.length === 0 && (
-        <div className="rounded-lg border border-dashed border-slate-700 py-6 text-center text-xs text-ink-faint">
+        <div className="rounded-lg border border-dashed border-surface-line py-6 text-center text-meta text-ink-soft">
           当前没有需要操作的标的（全部观望）
         </div>
       )}
 
       {visibleCodes.length > 0 && (
-        <div className="max-h-[520px] overflow-auto rounded-xl border border-slate-800">
-          <table className="w-full text-sm" style={{ minWidth: 940 }}>
-            <thead className="sticky top-0 z-10 bg-slate-900 text-left text-xs text-ink-muted">
-              <tr>
-                <th scope="col" className="px-3 py-2">#</th>
-                <th scope="col" className="px-3 py-2">股票</th>
-                <th scope="col" className="px-3 py-2 text-right">现价</th>
-                <th scope="col" className="px-3 py-2 text-right">{interval === "1d" ? "支撑/压力" : "VWAP / 日内高低"}</th>
-                <th scope="col" className="px-3 py-2">指令</th>
-                <th scope="col" className="px-3 py-2">挂单计划</th>
-                <th scope="col" className="px-3 py-2 text-right">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visibleCodes.map((code, idx) => (
-                <MonitorRow
-                  key={code}
-                  code={code}
-                  idx={idx}
-                  it={byCode.get(code)}
-                  hasData={!!data}
-                  alertBusy={alertBusy}
-                  onQuickAlert={quickAlert}
-                  onRemove={remove}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <Table
+          label="盯盘表"
+          minWidth={940}
+          maxHeight="md"
+          head={
+            <tr>
+              <Th>#</Th>
+              <Th>股票</Th>
+              <Th align="right">现价</Th>
+              <Th align="right">{interval === "1d" ? "支撑/压力" : "VWAP / 日内高低"}</Th>
+              <Th>指令</Th>
+              <Th>挂单计划</Th>
+              <Th align="right">操作</Th>
+            </tr>
+          }
+        >
+          {visibleCodes.map((code, idx) => (
+            <MonitorRow
+              key={code}
+              code={code}
+              idx={idx}
+              it={byCode.get(code)}
+              hasData={!!data}
+              alertBusy={alertBusy}
+              onQuickAlert={quickAlert}
+              onRemove={remove}
+            />
+          ))}
+        </Table>
       )}
 
-      <p className="mt-2 text-xs text-ink-faint">
+      <p className="mt-2 text-meta text-ink-soft">
         {interval === "1d" ? (
           <>
             日线档：挂单计划由日 K 布林带/均线/斐波那契回撤推导（买入=回踩支撑、卖出=压力位、止损=支撑下方 3%），

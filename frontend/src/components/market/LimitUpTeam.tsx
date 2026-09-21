@@ -53,16 +53,16 @@ function FocusRow({ r }: { r: LimitUpFocusRow }) {
     <div className={`${SUB_QUIET} px-3 py-2`}>
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <span className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-          <span className="text-sm font-semibold text-ink">{r.name}</span>
-          <span className="text-xs text-ink-faint">{r.code}</span>
-          <span className="text-xs text-ink-muted">
+          <span className="text-body font-semibold text-ink">{r.name}</span>
+          <span className="text-meta text-ink-muted">{r.code}</span>
+          <span className="text-meta text-ink-muted">
             {r.boards} 板 · {r.sector}
           </span>
           {r.tier_label && (
-            <span className={`text-xs ${r.tier === 1 ? "text-brand-light" : "text-ink-soft"}`}>{r.tier_label}</span>
+            <span className={`text-meta ${r.tier === 1 ? "text-brand-light" : "text-ink-soft"}`}>{r.tier_label}</span>
           )}
         </span>
-        <span className="text-xs text-ink-muted" title={r.expected_price_note}>
+        <span className="text-meta text-ink-muted" title={r.expected_price_note}>
           打板价 <span className="font-semibold text-ink">{r.expected_price.toFixed(2)}</span>
           {r.next_limit_price != null && (
             <>
@@ -76,7 +76,7 @@ function FocusRow({ r }: { r: LimitUpFocusRow }) {
           )}
         </span>
       </div>
-      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-ink-faint">
+      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-meta text-ink-soft">
         <span>换手 {r.turnover}%</span>
         <span>封单/流通 {r.seal_ratio}%</span>
         <span>首封 {r.seal_time || "--"}</span>
@@ -97,7 +97,7 @@ function FocusRow({ r }: { r: LimitUpFocusRow }) {
       {r.basis.length > 0 && (
         <ul className="mt-1 space-y-0.5">
           {r.basis.map((b) => (
-            <li key={b} className="flex gap-1.5 text-xs leading-relaxed text-ink-faint">
+            <li key={b} className="flex gap-1.5 text-meta leading-relaxed text-ink-soft">
               <span>✓</span>
               {b}
             </li>
@@ -113,8 +113,8 @@ function FocusGroup({ title, rows, desc }: { title: string; rows: LimitUpFocusRo
   return (
     <div>
       <div className="mb-1.5 flex flex-wrap items-baseline gap-x-2">
-        <span className="text-xs font-semibold text-ink-muted">{title}</span>
-        <span className="text-xs text-ink-faint">
+        <span className="text-meta font-semibold text-ink-muted">{title}</span>
+        <span className="text-meta text-ink-muted">
           {rows.length} 只 · {desc}
         </span>
       </div>
@@ -145,16 +145,16 @@ function FocusSection({ advice }: { advice: LimitUpPlayAdvice }) {
   return (
     <div className={`${SUB_QUIET} px-3 py-2.5`}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="text-sm font-semibold text-ink">打板候选（可执行性筛选 · 非买入指令）</h3>
-        <span className="text-xs text-ink-faint">
+        <h3 className="text-body font-semibold text-ink">打板候选（可执行性筛选 · 非买入指令）</h3>
+        <span className="text-meta text-ink-muted">
           涨停池 {focus.total} 只
           {focus.cut > 0 && ` · ${focus.cut} 只达标但未进前列`}
         </span>
       </div>
-      <p className="mt-1 text-xs leading-relaxed text-ink-soft">{focus.note}</p>
+      <p className="mt-1 text-meta leading-relaxed text-ink-soft">{focus.note}</p>
 
       {empty ? (
-        <p className="mt-2 text-xs leading-relaxed text-ink-faint">
+        <p className="mt-2 text-meta leading-relaxed text-ink-faint">
           没有可执行标的不是「今天不能打板」，而是这批涨停股在**可成交性**上不成立：
           缩量一字/秒板挂不上单，尾盘封板是唯一负期望档。这类日子里环境读数再好看也没有落点。
         </p>
@@ -174,7 +174,7 @@ function FocusSection({ advice }: { advice: LimitUpPlayAdvice }) {
       )}
 
       {Object.entries(focus.rejected).length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-ink-faint">
+        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-0.5 text-meta text-ink-muted">
           {Object.entries(focus.rejected).map(([key, n]) => (
             <span key={key}>
               剔除 {focus.rejected_labels[key] ?? key} <span className="text-ink-soft">{n}</span> 只
@@ -192,20 +192,20 @@ function AdviceSection({ advice }: { advice: LimitUpPlayAdvice }) {
     <>
       <div className={`${SUB_QUIET} px-3 py-2.5`}>
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h3 className={`text-sm font-semibold ${playAdviceTone(advice.level)}`}>
+          <h3 className={`text-body font-semibold ${playAdviceTone(advice.level)}`}>
             {adviceBadgeText(advice)}
           </h3>
-          <span className="text-xs text-ink-faint">主线 {advice.mainline}</span>
+          <span className="text-meta text-ink-soft">主线 {advice.mainline}</span>
         </div>
         <ul className="mt-1.5 space-y-1">
           {advice.reasons.map((r) => (
-            <li key={r} className="flex gap-1.5 text-xs leading-relaxed text-ink-soft">
+            <li key={r} className="flex gap-1.5 text-meta leading-relaxed text-ink-soft">
               <span className="text-ink-faint">·</span>
               {r}
             </li>
           ))}
         </ul>
-        <p className="mt-1.5 text-xs leading-relaxed text-ink-faint">
+        <p className="mt-1.5 text-meta leading-relaxed text-ink-faint">
           判定依据是已回测的口径（炸板率当日横截面、板块聚集度对晋级率的影响、梯队断层结构）。
           连板接力整体仍是初步证据等级，所以这里的档位说的是**环境**；环境过关时下面才给候选与价位。
         </p>
@@ -215,18 +215,18 @@ function AdviceSection({ advice }: { advice: LimitUpPlayAdvice }) {
 
       {!advice.focus && advice.focus_note && (
         <div className={`${SUB_QUIET} px-3 py-2.5`}>
-          <h3 className="text-sm font-semibold text-ink-muted">这次为什么没有候选清单</h3>
-          <p className="mt-1 text-xs leading-relaxed text-ink-soft">{advice.focus_note}</p>
+          <h3 className="text-body font-semibold text-ink-muted">这次为什么没有候选清单</h3>
+          <p className="mt-1 text-meta leading-relaxed text-ink-soft">{advice.focus_note}</p>
         </div>
       )}
 
       {advice.playbook && advice.playbook.length > 0 && (
         <div className={`${SUB_QUIET} px-3 py-2.5`}>
-          <h3 className="text-sm font-semibold text-ink">怎么执行（按顺序看）</h3>
+          <h3 className="text-body font-semibold text-ink">怎么执行（按顺序看）</h3>
           <ol className="mt-1.5 space-y-1">
             {advice.playbook.map((step, i) => (
-              <li key={step} className="flex gap-2 text-xs leading-relaxed text-ink-soft">
-                <span className="shrink-0 font-semibold text-ink-faint">{i + 1}.</span>
+              <li key={step} className="flex gap-2 text-meta leading-relaxed text-ink-soft">
+                <span className="shrink-0 font-semibold text-ink-muted">{i + 1}.</span>
                 {step}
               </li>
             ))}
@@ -251,21 +251,21 @@ function RelayStockRow({ r }: { r: LimitUpRelayStock }) {
     <div className={`${SUB_QUIET} px-3 py-2`}>
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
         <span className="flex flex-wrap items-center gap-2">
-          <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-semibold ${tc.chip}`}>
+          <span className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-meta font-semibold ${tc.chip}`}>
             <span className={`h-1.5 w-1.5 rounded-full ${tc.dot}`} aria-hidden />
             {r.tier_label ?? "未分层"}
           </span>
-          <span className="text-sm font-semibold text-ink">{r.name}</span>
-          <span className="text-xs text-ink-faint">{r.code}</span>
-          <span className="text-xs text-ink-muted">{r.boards} 板 · {r.sector}</span>
+          <span className="text-body font-semibold text-ink">{r.name}</span>
+          <span className="text-meta text-ink-muted">{r.code}</span>
+          <span className="text-meta text-ink-muted">{r.boards} 板 · {r.sector}</span>
         </span>
-        <span className="text-xs text-ink-muted">
+        <span className="text-meta text-ink-muted">
           明日晋级读数 <span className="font-semibold text-ink">{r.rate}%</span>
           <span className="text-ink-faint">（回测 n={r.rate_n}）</span>
         </span>
       </div>
-      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs">
-        <span className="text-ink-faint" title={r.tier_note}>
+      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-meta">
+        <span className="text-ink-muted" title={r.tier_note}>
           {r.tier_note ?? `${r.score}/${r.max_score} 分`}
         </span>
         {r.factors.map((f) => (
@@ -274,7 +274,7 @@ function RelayStockRow({ r }: { r: LimitUpRelayStock }) {
             {f.name === "炸板次数" ? ` ${f.value} 次` : ` ${f.value}%`}
           </span>
         ))}
-        <span className="text-ink-faint">封单 {r.seal_fund_yi} 亿 · 首封 {r.seal_time || "--"}</span>
+        <span className="text-ink-soft">封单 {r.seal_fund_yi} 亿 · 首封 {r.seal_time || "--"}</span>
       </div>
     </div>
   );
@@ -310,7 +310,7 @@ function RelayStocksSection({ stocks, summary }: { stocks: LimitUpRelayStock[]; 
     <div>
       <h3 className={TEXT.label}>连板资金面持续性（相对强弱分组 · 非买点）</h3>
       {summary && (
-        <p className="mt-1.5 rounded-lg bg-slate-800/50 px-3 py-2 text-xs leading-relaxed text-ink-soft">
+        <p className="mt-1.5 rounded-lg bg-surface-inset/50 px-3 py-2 text-meta leading-relaxed text-ink-soft">
           {summary.headline}
         </p>
       )}
@@ -324,14 +324,14 @@ function RelayStocksSection({ stocks, summary }: { stocks: LimitUpRelayStock[]; 
                 return (
                   <div key={tier}>
                     <div className="mb-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                      <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-semibold ${tc.chip}`}>
+                      <span className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-meta font-semibold ${tc.chip}`}>
                         <span className={`h-1.5 w-1.5 rounded-full ${tc.dot}`} aria-hidden />
                         {g?.label ?? members[0].tier_label ?? `第 ${tier} 梯队`}
                       </span>
-                      <span className="text-xs text-ink-faint">
+                      <span className="text-meta text-ink-muted">
                         {members.length} 只 · 明日晋级读数 {g?.rate ?? members[0].rate}%（n={g?.rate_n ?? members[0].rate_n}）
                       </span>
-                      {g?.desc && <span className="text-xs text-ink-faint">· {g.desc}</span>}
+                      {g?.desc && <span className="text-meta text-ink-muted">· {g.desc}</span>}
                     </div>
                     <div className="space-y-1.5">
                       {members.map((r) => (
@@ -343,7 +343,7 @@ function RelayStocksSection({ stocks, summary }: { stocks: LimitUpRelayStock[]; 
               })
           : stocks.map((r) => <RelayStockRow key={r.code} r={r} />)}
       </div>
-      <p className="mt-2 text-xs leading-relaxed text-ink-faint">
+      <p className="mt-2 text-meta leading-relaxed text-ink-faint">
         概率读数 = 回测窗口内同得分档连板股的次日晋级率（08-28~09-16，共 164 个连板样本）。
         三因子在控制连板高度后区分度仍在（2 板：低分 17.4% vs 高分 41.8%）。
         但窗口只有 ~13 个交易日，且晋级率 ≠ 收益率（一字板开盘买不进），只作相对强弱参考，不构成买点。
@@ -358,14 +358,14 @@ function StockChip({ t }: { t: LimitUpStock }) {
   const position = t.position ?? { tag: "未知", reason: "位置标注缺失" };
   return (
     <span
-      className="inline-flex items-center gap-1.5 rounded-lg bg-slate-800/60 px-2 py-1 text-xs"
+      className="inline-flex items-center gap-1.5 rounded-lg bg-surface-inset/60 px-2 py-1 text-meta"
       title={`${position.reason}｜封单 ${t.seal_fund_yi} 亿｜流通 ${t.float_mv_yi} 亿｜封单比 ${t.seal_ratio}%`}
     >
       <span className="text-ink">{t.name}</span>
-      <span className="text-ink-faint">{t.code}</span>
+      <span className="text-ink-muted">{t.code}</span>
       <span className="text-ink-muted">首封 {t.seal_time || "--"}</span>
       {t.break_count > 0 && <span className="text-amber-300">开板 {t.break_count} 次</span>}
-      <span className={`rounded px-1 text-xs ${upPositionChip(position.tag)}`}>{position.tag}</span>
+      <span className={`rounded-md px-1 text-meta ${upPositionChip(position.tag)}`}>{position.tag}</span>
     </span>
   );
 }
@@ -379,7 +379,7 @@ function LadderSection({ ladder }: { ladder: LimitUpLadderGroup[] }) {
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h3 className={TEXT.label}>连板梯队（位置描述 · 非买点）</h3>
         {gaps.length > 0 && (
-          <span className="text-xs text-amber-300">
+          <span className="text-meta text-amber-300">
             梯队断层：{gaps.map((g) => `${g}板`).join(" / ")} 空缺
           </span>
         )}
@@ -387,8 +387,8 @@ function LadderSection({ ladder }: { ladder: LimitUpLadderGroup[] }) {
       <div className="mt-2 space-y-1.5">
         {ladder.map((g) => (
           <div key={g.key} className="flex items-center gap-2">
-            <span className="w-12 shrink-0 text-xs text-ink-muted">{g.label}</span>
-            <span className="w-10 shrink-0 text-right text-xs font-semibold text-ink">{g.count}</span>
+            <span className="w-12 shrink-0 text-meta text-ink-muted">{g.label}</span>
+            <span className="w-10 shrink-0 text-right text-meta font-semibold text-ink">{g.count}</span>
             <span className="h-2 shrink-0 rounded-full bg-brand/70" style={{ width: `${Math.max((g.count / max) * 100, 3)}%` }} />
           </div>
         ))}
@@ -396,7 +396,7 @@ function LadderSection({ ladder }: { ladder: LimitUpLadderGroup[] }) {
       <div className="mt-3 space-y-2">
         {ladder.map((g) => (
           <div key={g.key}>
-            <div className="mb-1 text-xs text-ink-faint">
+            <div className="mb-1 text-meta text-ink-muted">
               {g.label} · {g.count} 只
             </div>
             <div className="flex flex-wrap gap-1.5">
@@ -418,7 +418,7 @@ function SectorSection({ snapshot }: { snapshot: LimitUpSnapshot }) {
       <h3 className={TEXT.label}>板块聚集度（当日涨停家数排序）</h3>
       <div className="mt-2 space-y-1">
         {snapshot.sectors.slice(0, 6).map((s) => (
-          <div key={s.sector} className="flex items-center justify-between gap-2 text-xs">
+          <div key={s.sector} className="flex items-center justify-between gap-2 text-meta">
             <span className="truncate text-ink-soft">{s.sector}</span>
             <span className="shrink-0 text-ink-muted">
               涨停 <span className="text-ink">{s.count}</span> 家 · 连板{" "}
@@ -429,7 +429,7 @@ function SectorSection({ snapshot }: { snapshot: LimitUpSnapshot }) {
           </div>
         ))}
       </div>
-      <p className="mt-2 text-xs leading-relaxed text-ink-faint">
+      <p className="mt-2 text-meta leading-relaxed text-ink-faint">
         按家数排序而非封单金额 —— 家数更能反映资金是否在这个板块里抱团。
         但下面对照表显示：**聚集度越高，首板晋级率反而越低**，所以它只能当情绪读，不能当买点。
       </p>
@@ -438,8 +438,8 @@ function SectorSection({ snapshot }: { snapshot: LimitUpSnapshot }) {
 }
 
 function RelaySection({ relay, loading, error }: { relay: LimitUpRelayResult | null; loading: boolean; error: string | null }) {
-  if (loading && !relay) return <p className="text-xs text-ink-faint">正在回溯晋级率…</p>;
-  if (error && !relay) return <p className="text-xs text-amber-300">{error}</p>;
+  if (loading && !relay) return <p className="text-meta text-ink-soft">正在回溯晋级率…</p>;
+  if (error && !relay) return <p className="text-meta text-amber-300">{error}</p>;
   if (!relay) return null;
 
   const window = relay.data_window.length === 2 ? `${relay.data_window[0]} ~ ${relay.data_window[1]}` : "无";
@@ -449,26 +449,26 @@ function RelaySection({ relay, loading, error }: { relay: LimitUpRelayResult | n
       <h3 className={TEXT.label}>连板晋级率回溯（N 板 → 次日 N+1 板）</h3>
       <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
         <div className={SUB_QUIET + " px-3 py-2"}>
-          <div className="text-lg font-bold text-ink">{relay.overall_rate}%</div>
-          <div className="text-xs text-ink-faint">整体晋级率</div>
+          <div className="text-num font-bold text-ink">{relay.overall_rate}%</div>
+          <div className="text-meta text-ink-muted">整体晋级率</div>
         </div>
         <div className={SUB_QUIET + " px-3 py-2"}>
-          <div className="text-lg font-bold text-ink">{relay.total_samples}</div>
-          <div className="text-xs text-ink-faint">样本数 n</div>
+          <div className="text-num font-bold text-ink">{relay.total_samples}</div>
+          <div className="text-meta text-ink-faint">样本数 n</div>
         </div>
         <div className={SUB_QUIET + " px-3 py-2"}>
-          <div className="text-lg font-bold text-ink">{relay.sessions}</div>
-          <div className="text-xs text-ink-faint">交易日对</div>
+          <div className="text-num font-bold text-ink">{relay.sessions}</div>
+          <div className="text-meta text-ink-muted">交易日对</div>
         </div>
         <div className={SUB_QUIET + " px-3 py-2"}>
-          <div className="text-lg font-bold text-ink-muted">{relay.baseline_rate}%</div>
-          <div className="text-xs text-ink-faint">随机水平参照</div>
+          <div className="text-num font-bold text-ink-muted">{relay.baseline_rate}%</div>
+          <div className="text-meta text-ink-muted">随机水平参照</div>
         </div>
       </div>
 
       <div className="mt-3 space-y-1">
         {relay.by_boards.map((b) => (
-          <div key={b.key} className="flex items-center justify-between gap-2 text-xs">
+          <div key={b.key} className="flex items-center justify-between gap-2 text-meta">
             <span className="w-14 shrink-0 text-ink-muted">{b.label}</span>
             <span className="text-ink-soft">
               晋级 <span className="text-ink">{b.promoted}</span> / {b.total}（n={b.total}）
@@ -478,10 +478,10 @@ function RelaySection({ relay, loading, error }: { relay: LimitUpRelayResult | n
         ))}
       </div>
 
-      <h4 className="mt-3 text-xs font-semibold text-ink-muted">分层：控制连板高度后，再看板块聚集度</h4>
+      <h4 className="mt-3 text-meta font-semibold text-ink-muted">分层：控制连板高度后，再看板块聚集度</h4>
       <div className="mt-1 space-y-1">
         {relay.by_boards_cluster.map((row) => (
-          <div key={row.boards} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+          <div key={row.boards} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-meta">
             <span className="w-14 shrink-0 text-ink-muted">{row.label}</span>
             {row.clusters.map((c) => (
               <span key={c.cluster} className="text-ink-soft">
@@ -493,7 +493,7 @@ function RelaySection({ relay, loading, error }: { relay: LimitUpRelayResult | n
         ))}
       </div>
 
-      <p className="mt-2 text-xs leading-relaxed text-ink-faint">
+      <p className="mt-2 text-meta leading-relaxed text-ink-faint">
         数据窗口 {window}（{relay.effective_days} 个交易日）。
         {relay.empty_dates.length > 0 && ` 更早的 ${relay.empty_dates.length} 天接口返回空池，已识别为「无数据」并排除出样本。`}
         {relay.skipped_dates.length > 0 && ` 另有 ${relay.skipped_dates.length} 天拉取失败被跳过。`}

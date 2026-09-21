@@ -27,7 +27,7 @@ export default function AccountOverview({
         />
         <StatTile value={fmtPct(account.total_pnl_pct)} label="盈亏率" valueClass={pnlTone(account.total_pnl_pct)} />
       </div>
-      <div className="mb-3 flex gap-4 text-xs text-ink-faint">
+      <div className="mb-3 flex gap-4 text-meta text-ink-muted">
         <span>已实现盈亏 <span className={pnlTone(account.realized_pnl)}>{account.realized_pnl >= 0 ? "+" : ""}{safeNumber(account.realized_pnl)}</span></span>
         <span>未实现盈亏 <span className={pnlTone(account.unrealized_pnl)}>{account.unrealized_pnl >= 0 ? "+" : ""}{safeNumber(account.unrealized_pnl)}</span></span>
         <span>持仓市值 <span className="text-ink-soft">{safeNumber(marketValue).toLocaleString()}</span></span>

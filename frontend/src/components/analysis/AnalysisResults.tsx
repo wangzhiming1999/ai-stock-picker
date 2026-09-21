@@ -25,17 +25,17 @@ export default function AnalysisResults({ items, infos, avgScore, totalScore }: 
   return (
     <div className="mt-6">
       <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-base font-semibold text-white">分析结果</h3>
-        <div className="flex items-center gap-2 text-sm">
+        <h3 className="text-head font-semibold text-white">分析结果</h3>
+        <div className="flex items-center gap-2 text-body">
           <span className="text-ink-muted">平均分</span>
-          <span className="text-lg font-bold text-brand-light tabular-nums">{avgScore.toFixed(1)}</span>
+          <span className="text-num font-bold text-brand-light tabular-nums">{avgScore.toFixed(1)}</span>
         </div>
       </div>
-      <div className="mb-5 flex h-7 w-full overflow-hidden rounded-xl border border-slate-800 bg-slate-900">
+      <div className="mb-5 flex h-7 w-full overflow-hidden rounded-xl border border-surface-line bg-surface-panel">
         {items.map((item, idx) => (
           <div
             key={item.analysis.code + idx}
-            className="flex items-center justify-center overflow-hidden border-r border-slate-900 text-xs font-medium text-white/90 last:border-r-0"
+            className="flex items-center justify-center overflow-hidden border-r border-surface-panel text-meta font-medium text-white/90 last:border-r-0"
             style={{
               width: `${(Math.max(item.analysis.overall_score, 0) / totalScore) * 100}%`,
               background: "linear-gradient(to top, rgba(37,99,235,0.85), rgba(37,99,235,0.45))",

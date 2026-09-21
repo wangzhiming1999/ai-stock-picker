@@ -52,7 +52,7 @@ export default function FeatureDirectory({ onGo, focusDomain }: Props) {
           onChange={(e) => setQ(e.target.value)}
           placeholder="搜功能：溢价 / 炸板 / 回测 / 模拟盘 / 盯盘…"
           aria-label="搜索功能"
-          className={`${INPUT_BASE} ${INPUT_TONE.default} w-full bg-slate-800/70 py-2.5 pl-9 pr-3 text-sm`}
+          className={`${INPUT_BASE} ${INPUT_TONE.default} w-full bg-surface-inset/70 py-2.5 pl-9 pr-3 text-body`}
         />
       </div>
 
@@ -72,7 +72,7 @@ export default function FeatureDirectory({ onGo, focusDomain }: Props) {
           <section key={d.key} id={`feature-group-${d.key}`} className="scroll-mt-4">
             <div className="mb-1.5 flex flex-wrap items-baseline gap-x-2">
               <h3 className={TEXT.label}>{d.label}</h3>
-              <span className="text-xs text-ink-faint">
+              <span className="text-meta text-ink-muted">
                 {d.desc} · {items.length} 项
               </span>
             </div>
@@ -82,21 +82,21 @@ export default function FeatureDirectory({ onGo, focusDomain }: Props) {
                   key={f.key}
                   type="button"
                   onClick={() => onGo(f)}
-                  className="group flex w-full items-start gap-2 rounded-lg bg-slate-800/40 px-3 py-2 text-left transition-colors hover:bg-slate-800/70"
+                  className="group flex w-full items-start gap-2 rounded-lg bg-surface-inset/40 px-3 py-2 text-left transition-colors hover:bg-surface-inset/70"
                 >
                   <span className="min-w-0 flex-1">
                     <span className="flex flex-wrap items-center gap-1.5">
-                      <span className="text-sm text-ink">{f.label}</span>
+                      <span className="text-body text-ink">{f.label}</span>
                       {f.isNew && (
-                        <span className="shrink-0 rounded bg-brand/15 px-1.5 py-0.5 text-xs font-semibold text-brand-light">
+                        <span className="shrink-0 rounded-md bg-brand/15 px-1.5 py-0.5 text-meta font-semibold text-brand-light">
                           新
                         </span>
                       )}
                     </span>
-                    <span className="mt-0.5 block text-xs leading-relaxed text-ink-muted">{f.desc}</span>
+                    <span className="mt-0.5 block text-meta leading-relaxed text-ink-muted">{f.desc}</span>
                   </span>
                   <ArrowRight
-                    className="mt-1 h-3.5 w-3.5 shrink-0 text-ink-faint transition-colors group-hover:text-ink"
+                    className="mt-1 h-3.5 w-3.5 shrink-0 text-ink-muted transition-colors group-hover:text-ink"
                     aria-hidden
                   />
                 </button>

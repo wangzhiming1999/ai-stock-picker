@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Compass, X } from "lucide-react";
 import { FEATURES, type Domain, type FeatureEntry } from "../lib/featureMap";
 import FeatureDirectory from "./FeatureDirectory";
+import { CARD_FLUSH } from "../lib/ui";
 
 interface Props {
   open: boolean;
@@ -33,20 +34,20 @@ export default function FeatureMapModal({ open, onClose, onGo, focusDomain }: Pr
           transition={{ duration: 0.18 }}
         >
           <motion.div
-            className="w-full max-w-2xl rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl"
+            className={`${CARD_FLUSH} w-full max-w-2xl shadow-2xl`}
             onClick={(e) => e.stopPropagation()}
             initial={{ opacity: 0, scale: 0.96, y: -12 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.97, y: -8 }}
             transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
           >
-            <div className="flex items-start justify-between gap-3 border-b border-slate-800 px-5 py-4">
+            <div className="flex items-start justify-between gap-3 border-b border-surface-line px-5 py-4">
               <div className="min-w-0">
-                <h2 className="flex items-center gap-2 text-base font-bold text-white">
+                <h2 className="flex items-center gap-2 text-head font-bold text-white">
                   <Compass className="h-4 w-4 text-brand-light" aria-hidden />
                   功能地图
                 </h2>
-                <p className="mt-0.5 text-xs text-ink-faint">
+                <p className="mt-0.5 text-meta text-ink-soft">
                   共 {FEATURES.length} 项 · 点任意一项直接跳过去，不用先在三个 tab 里翻
                 </p>
               </div>
@@ -54,7 +55,7 @@ export default function FeatureMapModal({ open, onClose, onGo, focusDomain }: Pr
                 type="button"
                 onClick={onClose}
                 aria-label="关闭"
-                className="shrink-0 rounded-lg p-1 text-ink-faint transition-colors hover:text-ink-soft"
+                className="shrink-0 rounded-lg p-1 text-ink-muted transition-colors hover:text-ink-soft"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -63,7 +64,7 @@ export default function FeatureMapModal({ open, onClose, onGo, focusDomain }: Pr
             <div className="max-h-[70vh] overflow-y-auto px-5 py-4">
               <FeatureDirectory onGo={onGo} focusDomain={focusDomain} />
 
-              <p className="mt-4 border-t border-slate-800/60 pt-3 text-xs leading-relaxed text-ink-faint">
+              <p className="mt-4 border-t border-surface-line-soft pt-3 text-meta leading-relaxed text-ink-soft">
                 深度分析不在这张表里 —— 它在任意列表勾选股票，或直接用顶部搜索框输入代码打开，
                 所以没有单独的入口可以点。
               </p>

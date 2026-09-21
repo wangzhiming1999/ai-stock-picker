@@ -24,7 +24,7 @@ function VerdictBadge({ verdict }: { verdict: FundManagerVerdict }) {
   } as const;
   const { icon: Icon, cls, label } = map[verdict.decision] ?? map.rejected;
   return (
-    <span className={`inline-flex items-center gap-1 text-xs font-semibold ${cls}`}>
+    <span className={`inline-flex items-center gap-1 text-meta font-semibold ${cls}`}>
       <Icon className="h-3.5 w-3.5" aria-hidden />
       {label}
     </span>
@@ -84,11 +84,11 @@ export default function TradePlanBlock({
   };
 
   return (
-    <div className="mt-4 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+    <div className="mt-4 rounded-xl border border-surface-line bg-surface-panel/60 p-4">
       {/* 头部：标题 + 动作徽章 + 终审结论 */}
       <div className="flex flex-wrap items-center gap-2">
-        <h4 className="text-sm font-semibold text-ink">交易员计划</h4>
-        <span className={`rounded-md px-1.5 py-0.5 text-xs font-semibold ${badge.text} ${badge.bg}`}>
+        <h4 className="text-body font-semibold text-ink">交易员计划</h4>
+        <span className={`rounded-md px-1.5 py-0.5 text-meta font-semibold ${badge.text} ${badge.bg}`}>
           {badge.label}
         </span>
         {verdict && <span className="ml-auto"><VerdictBadge verdict={verdict} /></span>}
@@ -98,31 +98,31 @@ export default function TradePlanBlock({
       <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
         {entry != null && (
           <div className={`${SUB_QUIET} px-2.5 py-2`}>
-            <p className={`text-xs ${TEXT.meta}`}>入场触发</p>
-            <p className="mt-0.5 text-sm font-semibold tabular-nums text-ink">{entry}</p>
+            <p className={`text-meta ${TEXT.meta}`}>入场触发</p>
+            <p className="mt-0.5 text-body font-semibold tabular-nums text-ink">{entry}</p>
           </div>
         )}
         {stop != null && (
           <div className={`${SUB_QUIET} px-2.5 py-2`}>
-            <p className={`text-xs ${TEXT.meta}`}>止损</p>
-            <p className="mt-0.5 text-sm font-semibold tabular-nums text-amber-300">{stop}</p>
+            <p className={`text-meta ${TEXT.meta}`}>止损</p>
+            <p className="mt-0.5 text-body font-semibold tabular-nums text-amber-300">{stop}</p>
           </div>
         )}
         {plan.target_price != null && !isRejected && (
           <div className={`${SUB_QUIET} px-2.5 py-2`}>
-            <p className={`text-xs ${TEXT.meta}`}>目标</p>
-            <p className="mt-0.5 text-sm font-semibold tabular-nums text-ink">{plan.target_price}</p>
+            <p className={`text-meta ${TEXT.meta}`}>目标</p>
+            <p className="mt-0.5 text-body font-semibold tabular-nums text-ink">{plan.target_price}</p>
           </div>
         )}
         <div className={`${SUB_QUIET} px-2.5 py-2`}>
-          <p className={`text-xs ${TEXT.meta}`}>仓位</p>
-          <p className="mt-0.5 text-sm font-semibold tabular-nums text-ink">{pct}%</p>
+          <p className={`text-meta ${TEXT.meta}`}>仓位</p>
+          <p className="mt-0.5 text-body font-semibold tabular-nums text-ink">{pct}%</p>
         </div>
       </div>
 
       {/* 分批方案 */}
       {plan.batches.length > 0 && !isRejected && (
-        <ul className={`mt-2.5 space-y-1 text-xs leading-relaxed ${TEXT.meta}`}>
+        <ul className={`mt-2.5 space-y-1 text-meta leading-relaxed ${TEXT.meta}`}>
           {plan.batches.map((b, i) => (
             <li key={i} className="flex gap-1.5">
               <span className="text-ink-faint">·</span>
@@ -134,7 +134,7 @@ export default function TradePlanBlock({
 
       {/* 计划依据 */}
       {plan.rationale && (
-        <p className={`mt-2.5 text-xs leading-relaxed ${TEXT.meta}`}>
+        <p className={`mt-2.5 text-meta leading-relaxed ${TEXT.meta}`}>
           <span className="font-medium text-ink-muted">依据：</span>
           {plan.rationale}
         </p>
@@ -142,7 +142,7 @@ export default function TradePlanBlock({
 
       {/* 失效条件 */}
       {plan.invalidation && !isRejected && (
-        <p className={`mt-1.5 text-xs leading-relaxed ${TEXT.meta}`}>
+        <p className={`mt-1.5 text-meta leading-relaxed ${TEXT.meta}`}>
           <span className="font-medium text-ink-muted">失效条件：</span>
           {plan.invalidation}
         </p>
@@ -150,9 +150,9 @@ export default function TradePlanBlock({
 
       {/* 终审裁决理由：逐条展示（approved 也展示，让用户知道过了哪些关） */}
       {verdict && verdict.verdict_notes.length > 0 && (
-        <div className="mt-2.5 border-t border-slate-800/60 pt-2.5">
-          <p className="text-xs font-medium text-ink-muted">风控终审</p>
-          <ul className={`mt-1 space-y-1 text-xs leading-relaxed ${TEXT.meta}`}>
+        <div className="mt-2.5 border-t border-surface-line-soft pt-2.5">
+          <p className="text-meta font-medium text-ink-muted">风控终审</p>
+          <ul className={`mt-1 space-y-1 text-meta leading-relaxed ${TEXT.meta}`}>
             {verdict.verdict_notes.map((n, i) => (
               <li key={i} className="flex gap-1.5">
                 <ShieldAlert className="mt-0.5 h-3 w-3 shrink-0 text-ink-faint" aria-hidden />
@@ -165,7 +165,7 @@ export default function TradePlanBlock({
 
       {/* 一键采纳（执行闭环）：仅终审通过 + 建仓类动作 + 落库成功（有 decision_id）时出现 */}
       {adoptable && (
-        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-800/60 pt-2.5">
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-surface-line-soft pt-2.5">
           <Button
             variant="primary"
             size="md"
@@ -175,16 +175,16 @@ export default function TradePlanBlock({
           >
             {adopting ? "建仓中…" : "按此计划建仓模拟盘"}
           </Button>
-          <span className={`text-xs leading-snug ${TEXT.meta}`}>
+          <span className={`text-meta leading-snug ${TEXT.meta}`}>
             按终审仓位 {pct}% 自动换算整手数 · 虚拟资金 · 不会真实下单
           </span>
         </div>
       )}
       {adoptError && (
-        <p className="mt-2 text-xs text-amber-300">{adoptError}</p>
+        <p className="mt-2 text-meta text-amber-300">{adoptError}</p>
       )}
 
-      <p className={`mt-2.5 flex items-start gap-1.5 text-xs leading-relaxed ${TEXT.meta}`}>
+      <p className={`mt-2.5 flex items-start gap-1.5 text-meta leading-relaxed ${TEXT.meta}`}>
         <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400" aria-hidden />
         <span>
           计划来自 LLM 推理（无回测支撑），风控终审只核对纪律不保证收益；

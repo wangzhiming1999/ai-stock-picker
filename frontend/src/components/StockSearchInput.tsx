@@ -65,23 +65,23 @@ export default function StockSearchInput({ value, onChange, onPickCode, disabled
         onChange={(e) => onChange(e.target.value)}
         placeholder="输入 6 位代码或股票名称，如 600519 / 茅台"
         disabled={disabled}
-        className="w-full rounded-lg bg-slate-800/70 py-2.5 pl-9 pr-8 text-sm" />
+        className="w-full rounded-lg bg-surface-inset/70 py-2.5 pl-9 pr-8 text-body" />
       {loading && (
         <span className="absolute right-3 top-1/2 -translate-y-1/2">
-          <span className="block h-4 w-4 animate-spin rounded-full border-2 border-slate-500 border-t-transparent" />
+          <span className="block h-4 w-4 animate-spin rounded-full border-2 border-surface-line-strong border-t-transparent" />
         </span>
       )}
       {show && suggestions.length > 0 && (
-        <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-lg border border-slate-700 bg-slate-900 shadow-xl">
+        <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-lg border border-surface-line bg-surface-panel shadow-xl">
           {suggestions.map((s) => (
             <button
               key={s.code}
               onClick={() => pick(s)}
-              className="flex w-full items-center justify-between px-4 py-2 text-left hover:bg-slate-800"
+              className="flex w-full items-center justify-between px-4 py-2 text-left hover:bg-surface-inset"
             >
-              <span className="text-sm text-ink">{s.name}</span>
-              <span className="ml-3 flex items-center gap-3 text-xs">
-                <span className="text-ink-faint">{s.code}</span>
+              <span className="text-body text-ink">{s.name}</span>
+              <span className="ml-3 flex items-center gap-3 text-meta">
+                <span className="text-ink-muted">{s.code}</span>
                 <span className="text-ink-muted">{s.price.toFixed(2)}</span>
                 <span className={pnlTone(s.change_pct)}>
                   {s.change_pct >= 0 ? "+" : ""}

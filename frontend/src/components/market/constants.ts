@@ -22,15 +22,15 @@ export const POLL_INTERVAL = 60_000;
  * 也不预示下跌（不用绿）—— 高位之后可能继续加速，也可能直接退潮。
  */
 const UP_POSITION_CHIP: Record<string, string> = {
-  启动: "bg-slate-800/70 text-ink-soft",
-  加速: "bg-slate-700/70 text-ink-soft",
-  中继: "bg-slate-700/70 text-ink",
+  启动: "bg-surface-inset/70 text-ink-soft",
+  加速: "bg-surface-line/70 text-ink-soft",
+  中继: "bg-surface-line/70 text-ink",
   高位: "bg-amber-500/10 text-amber-300",
   分歧: "bg-amber-500/10 text-amber-300",
 };
 
 export function upPositionChip(tag: string): string {
-  return UP_POSITION_CHIP[tag] ?? "bg-slate-800/70 text-ink-muted";
+  return UP_POSITION_CHIP[tag] ?? "bg-surface-inset/70 text-ink-muted";
 }
 
 /**
@@ -40,15 +40,15 @@ export function upPositionChip(tag: string): string {
  * 「跌很多」之后既可能修复也可能继续崩，这个组件不替用户判断是哪一种。
  */
 const DOWN_POSITION_CHIP: Record<string, string> = {
-  首跌: "bg-slate-800/70 text-ink-soft",
-  换手: "bg-slate-700/70 text-ink-soft",
+  首跌: "bg-surface-inset/70 text-ink-soft",
+  换手: "bg-surface-line/70 text-ink-soft",
   封死: "bg-amber-500/10 text-amber-300",
   连跌: "bg-amber-500/10 text-amber-300",
   深跌: "bg-amber-500/10 text-amber-300",
 };
 
 export function downPositionChip(tag: string): string {
-  return DOWN_POSITION_CHIP[tag] ?? "bg-slate-800/70 text-ink-muted";
+  return DOWN_POSITION_CHIP[tag] ?? "bg-surface-inset/70 text-ink-muted";
 }
 
 /**
@@ -58,7 +58,7 @@ export function downPositionChip(tag: string): string {
 const TIER_CHIP: Record<number, { chip: string; dot: string }> = {
   1: { chip: "bg-brand/15 text-brand-light", dot: "bg-brand" },
   2: { chip: "bg-amber-500/15 text-amber-300", dot: "bg-amber-400" },
-  3: { chip: "bg-slate-800/60 text-ink-muted", dot: "bg-slate-500" },
+  3: { chip: "bg-surface-inset/60 text-ink-muted", dot: "bg-surface-line-strong" },
 };
 
 export function tierChip(tier: number | undefined): { chip: string; dot: string } {

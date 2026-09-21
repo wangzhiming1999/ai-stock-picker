@@ -1,5 +1,6 @@
 import { ArrowRight, Compass } from "lucide-react";
 import { DOMAINS, FEATURES, featuresOf, type Domain } from "../lib/featureMap";
+import { CARD_FLUSH } from "../lib/ui";
 
 interface Props {
   /** null = 打开整张地图；传域 = 打开并滚到那一组 */
@@ -19,11 +20,11 @@ interface Props {
  */
 export default function FeatureMapBar({ onOpen }: Props) {
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl border border-slate-800 bg-slate-900 px-4 py-2.5">
-      <span className="flex items-center gap-2 text-xs font-medium text-ink-muted">
+    <div className={`${CARD_FLUSH} flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5`}>
+      <span className="flex items-center gap-2 text-meta font-medium text-ink-muted">
         <Compass className="h-3.5 w-3.5 text-brand-light" aria-hidden />
         功能地图
-        <span className="text-ink-faint">{FEATURES.length} 项</span>
+        <span className="text-ink-muted">{FEATURES.length} 项</span>
       </span>
 
       <span className="flex flex-wrap items-center gap-1">
@@ -33,9 +34,9 @@ export default function FeatureMapBar({ onOpen }: Props) {
             type="button"
             onClick={() => onOpen(d.key)}
             title={d.desc}
-            className="rounded-lg bg-slate-800/60 px-2 py-1 text-xs text-ink-soft transition-colors hover:bg-slate-700/70 hover:text-ink"
+            className="rounded-lg bg-surface-inset/60 px-2 py-1 text-meta text-ink-soft transition-colors hover:bg-surface-line/70 hover:text-ink"
           >
-            {d.label} <span className="text-ink-faint">{featuresOf(d.key).length}</span>
+            {d.label} <span className="text-ink-muted">{featuresOf(d.key).length}</span>
           </button>
         ))}
       </span>
@@ -43,7 +44,7 @@ export default function FeatureMapBar({ onOpen }: Props) {
       <button
         type="button"
         onClick={() => onOpen(null)}
-        className="ml-auto flex shrink-0 items-center gap-1 text-xs font-medium text-brand-light transition-colors hover:text-white"
+        className="ml-auto flex shrink-0 items-center gap-1 text-meta font-medium text-brand-light transition-colors hover:text-white"
       >
         全部功能
         <ArrowRight className="h-3.5 w-3.5" aria-hidden />

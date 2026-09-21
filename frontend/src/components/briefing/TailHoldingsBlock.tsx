@@ -62,7 +62,7 @@ function TailHoldingCard({ h }: { h: BriefingHolding }) {
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex items-baseline gap-2">
-            <span className="text-sm font-semibold text-white">{h.name}</span>
+            <span className="text-body font-semibold text-white">{h.name}</span>
             <span className={TEXT.meta}>{h.code}</span>
           </div>
           <div className="mt-0.5 flex items-baseline gap-2">
@@ -70,7 +70,7 @@ function TailHoldingCard({ h }: { h: BriefingHolding }) {
               <Money v={h.price} />
             </span>
             {h.pnl_pct != null && (
-              <span className={`text-xs font-medium ${pnlTone(h.pnl_pct, 300)}`}>
+              <span className={`text-meta font-medium ${pnlTone(h.pnl_pct, 300)}`}>
                 {h.pnl_pct >= 0 ? "+" : ""}
                 {h.pnl_pct.toFixed(1)}%
               </span>
@@ -78,11 +78,11 @@ function TailHoldingCard({ h }: { h: BriefingHolding }) {
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
-          <span className={`rounded-lg px-2 py-1 text-xs font-medium ${tone.bg} ${tone.text}`}>{tone.label}</span>
+          <span className={`rounded-lg px-2 py-1 text-meta font-medium ${tone.bg} ${tone.text}`}>{tone.label}</span>
           <button
             onClick={() => void simOrder("sell")}
             disabled={simBusy}
-            className={`rounded-lg border border-green-700/60 px-2 py-1 text-xs transition-colors hover:bg-green-500/20 ${CHIP.sell.bg} ${CHIP.sell.text}`}
+            className={`rounded-lg border border-green-700/60 px-2 py-1 text-meta transition-colors hover:bg-green-500/20 ${CHIP.sell.bg} ${CHIP.sell.text}`}
             title="用虚拟资金模拟卖出（实时价）"
           >
             {simBusy ? "..." : "模拟卖"}
@@ -90,10 +90,10 @@ function TailHoldingCard({ h }: { h: BriefingHolding }) {
           <button
             onClick={setReminder}
             disabled={watching}
-            className={`rounded-lg border px-2 py-1 text-xs transition-colors ${
+            className={`rounded-lg border px-2 py-1 text-meta transition-colors ${
               watching
                 ? "border-brand/50 text-brand-light"
-                : "border-slate-700 text-ink-soft hover:border-brand hover:text-brand-light"
+                : "border-surface-line text-ink-soft hover:border-brand hover:text-brand-light"
             }`}
           >
             {watching ? "已盯盘" : busy ? "..." : "设提醒"}
@@ -104,26 +104,26 @@ function TailHoldingCard({ h }: { h: BriefingHolding }) {
       <div className="mt-2 grid grid-cols-3 gap-2">
         <div className={`${CHIP.risk.bg} rounded-lg px-2 py-1.5`}>
           <div className={TEXT.meta}>止损</div>
-          <div className={`text-sm font-semibold ${CHIP.risk.text}`}>
+          <div className={`text-body font-semibold ${CHIP.risk.text}`}>
             <Money v={h.stop_loss} />
           </div>
         </div>
         <div className={`${SUB_QUIET} px-2 py-1.5`}>
           <div className={TEXT.meta}>仓位</div>
-          <div className={`text-sm font-semibold ${CHIP.neutral.text}`}>
+          <div className={`text-body font-semibold ${CHIP.neutral.text}`}>
             {h.position_pct != null ? `${h.position_pct}%` : "—"}
           </div>
         </div>
         <div className={`${SUB_QUIET} px-2 py-1.5`}>
           <div className={TEXT.meta}>成本</div>
-          <div className={`text-sm font-semibold ${CHIP.neutral.text}`}>
+          <div className={`text-body font-semibold ${CHIP.neutral.text}`}>
             {h.cost_price != null ? h.cost_price.toFixed(2) : "—"}
           </div>
         </div>
       </div>
 
       {h.tips.length > 0 && (
-        <ul className="mt-2 space-y-1 text-xs text-ink-muted">
+        <ul className="mt-2 space-y-1 text-meta text-ink-muted">
           {h.tips.slice(0, 3).map((t, i) => (
             <li key={i} className="flex gap-1">
               <span className="text-ink-faint">·</span>
@@ -135,10 +135,10 @@ function TailHoldingCard({ h }: { h: BriefingHolding }) {
 
       {(h.order_action || h.limit_price != null) && (
         <div
-          className={`mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border px-2 py-1.5 text-xs ${
+          className={`mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border px-2 py-1.5 text-meta ${
             h.order_action === "卖出"
               ? "border-green-800/40 bg-green-500/5"
-              : "border-red-800/40 bg-red-500/5"
+              : "border-state-danger-line bg-red-500/5"
           }`}
         >
           <span className={`font-semibold ${actionTone(h.order_action, 300)}`}>
@@ -152,8 +152,8 @@ function TailHoldingCard({ h }: { h: BriefingHolding }) {
           <span className="text-ink-muted">{h.order_hint}</span>
         </div>
       )}
-      {tip && <div className="mt-2 text-xs text-amber-300">{tip}</div>}
-      <div className="mt-2 text-xs">
+      {tip && <div className="mt-2 text-meta text-amber-300">{tip}</div>}
+      <div className="mt-2 text-meta">
         <AlgoTag />
       </div>
     </div>
@@ -164,7 +164,7 @@ function TailHoldingCard({ h }: { h: BriefingHolding }) {
 export function TailHoldingsBlock({ tail }: { tail: Briefing["tail"] }) {
   if (tail.need_login) {
     return (
-      <div className={`${SUB} px-4 py-6 text-center text-sm text-ink-muted`}>
+      <div className={`${SUB} px-4 py-6 text-center text-body text-ink-muted`}>
         登录后查看你的持仓尾盘操作建议
       </div>
     );

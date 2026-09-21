@@ -24,9 +24,9 @@ import type { EvidenceLedger, EvidenceLedgerItem } from "../types";
 const TIER_CHIP: Record<string, string> = {
   verified: "bg-brand/15 text-brand-light",
   preliminary: "bg-amber-500/10 text-amber-300",
-  unsupported: "bg-slate-800/70 text-ink-soft",
-  unknown: "bg-slate-800/70 text-ink-muted",
-  not_testable: "bg-slate-800/70 text-ink-muted",
+  unsupported: "bg-surface-inset/70 text-ink-soft",
+  unknown: "bg-surface-inset/70 text-ink-muted",
+  not_testable: "bg-surface-inset/70 text-ink-muted",
 };
 
 const NAMESPACE_LABEL: Record<string, string> = {
@@ -40,26 +40,26 @@ function LedgerRow({ item, open, onToggle }: { item: EvidenceLedgerItem; open: b
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full flex-wrap items-baseline gap-x-2 gap-y-1 rounded-lg bg-slate-800/40 px-3 py-2 text-left transition-colors hover:bg-slate-800/70"
+        className="flex w-full flex-wrap items-baseline gap-x-2 gap-y-1 rounded-lg bg-surface-inset/40 px-3 py-2 text-left transition-colors hover:bg-surface-inset/70"
       >
         <span
-          className={`shrink-0 rounded px-1.5 py-0.5 text-xs font-semibold ${
+          className={`shrink-0 rounded-md px-1.5 py-0.5 text-meta font-semibold ${
             TIER_CHIP[item.tier] ?? TIER_CHIP.unknown
           }`}
         >
           {item.badge}
         </span>
-        <span className="text-xs text-ink">{item.key}</span>
-        <span className="flex-1 text-xs text-ink-faint">{item.label}</span>
+        <span className="text-meta text-ink">{item.key}</span>
+        <span className="flex-1 text-meta text-ink-soft">{item.label}</span>
         <ChevronDown
-          className={`h-3.5 w-3.5 shrink-0 text-ink-faint transition-transform ${open ? "rotate-180" : ""}`}
+          className={`h-3.5 w-3.5 shrink-0 text-ink-muted transition-transform ${open ? "rotate-180" : ""}`}
           aria-hidden
         />
       </button>
       {open && (
         <div className="mt-1 space-y-1 px-3 pb-1">
-          <p className="text-xs leading-relaxed text-ink-soft">{item.summary}</p>
-          <p className="text-xs text-ink-faint">依据：{item.provenance}</p>
+          <p className="text-meta leading-relaxed text-ink-soft">{item.summary}</p>
+          <p className="text-meta text-ink-faint">依据：{item.provenance}</p>
         </div>
       )}
     </div>
@@ -89,11 +89,11 @@ export default function EvidenceLedgerPanel() {
 
   if (err) {
     return (
-      <div className={SUB_QUIET + " px-3 py-2 text-xs text-red-300"}>证据台账加载失败：{err}</div>
+      <div className={SUB_QUIET + " px-3 py-2 text-meta text-red-300"}>证据台账加载失败：{err}</div>
     );
   }
   if (!data) {
-    return <div className={SUB_QUIET + " px-3 py-2 text-xs text-ink-faint"}>正在读取证据台账…</div>;
+    return <div className={SUB_QUIET + " px-3 py-2 text-meta text-ink-soft"}>正在读取证据台账…</div>;
   }
 
   const acc = data.observation.limitup_accumulated;
@@ -103,12 +103,12 @@ export default function EvidenceLedgerPanel() {
     <div className="space-y-3">
       <div>
         <h3 className={TEXT.label}>证据台账（哪些结论能动手）</h3>
-        <p className="mt-1.5 rounded-lg bg-slate-800/50 px-3 py-2 text-xs leading-relaxed text-ink-soft">
+        <p className="mt-1.5 rounded-lg bg-surface-inset/50 px-3 py-2 text-meta leading-relaxed text-ink-soft">
           {data.headline}
         </p>
       </div>
 
-      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-faint">
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-meta text-ink-muted">
         {data.tier_order
           .filter((t) => (data.counts[t] ?? 0) > 0)
           .map((t) => (
@@ -124,7 +124,7 @@ export default function EvidenceLedgerPanel() {
         if (items.length === 0) return null;
         return (
           <div key={ns}>
-            <h4 className="mb-1.5 text-xs font-semibold text-ink-faint">{NAMESPACE_LABEL[ns] ?? ns}</h4>
+            <h4 className="mb-1.5 text-meta font-semibold text-ink-muted">{NAMESPACE_LABEL[ns] ?? ns}</h4>
             <div className="space-y-1">
               {items.map((i) => (
                 <LedgerRow
@@ -142,9 +142,9 @@ export default function EvidenceLedgerPanel() {
       <div className={DIVIDER} />
 
       <div>
-        <h4 className="text-xs font-semibold text-ink-faint">观察期自积累</h4>
+        <h4 className="text-meta font-semibold text-ink-faint">观察期自积累</h4>
         <p
-          className={`mt-1 text-xs leading-relaxed ${
+          className={`mt-1 text-meta leading-relaxed ${
             acc.configured ? "text-ink-soft" : "text-amber-300/90"
           }`}
         >
@@ -163,10 +163,10 @@ export default function EvidenceLedgerPanel() {
             ? `读取失败（${acc.note.slice("read_error:".length)}）`
             : "未接入（原因未知）"}
         </p>
-        <p className="mt-1 text-xs leading-relaxed text-ink-faint">{data.observation.note}</p>
+        <p className="mt-1 text-meta leading-relaxed text-ink-soft">{data.observation.note}</p>
       </div>
 
-      <p className="text-xs text-ink-faint">台账生成于 {data.generated_at}</p>
+      <p className="text-meta text-ink-muted">台账生成于 {data.generated_at}</p>
     </div>
   );
 }

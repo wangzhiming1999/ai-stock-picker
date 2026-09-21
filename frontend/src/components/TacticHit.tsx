@@ -36,7 +36,7 @@ function normalize(t: TacticResult) {
 function directionChipClass(direction: string, executable: boolean): string {
   if (!executable) {
     // 未验证：中性色，避免被读成买卖指令。质量/可信度类语义不得占用红绿。
-    return "bg-slate-700/70 text-ink-soft";
+    return "bg-surface-line/70 text-ink-soft";
   }
   return direction === "buy" ? "bg-red-600/20 text-red-300" : "bg-green-600/20 text-green-300";
 }
@@ -46,14 +46,14 @@ export function TacticChip({ t, title }: { t: TacticResult; title?: string }) {
   return (
     <span
       title={title ?? (executable ? t.action : t.gate_note || t.action)}
-      className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs ${directionChipClass(
+      className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-meta ${directionChipClass(
         t.direction,
         executable,
       )}`}
     >
       <span>{t.name}</span>
       {!executable && (
-        <span className="rounded bg-slate-900/70 px-1 text-ink-faint">{evidence.badge}</span>
+        <span className="rounded-md bg-surface-panel/70 px-1 text-ink-muted">{evidence.badge}</span>
       )}
     </span>
   );
@@ -83,7 +83,7 @@ export function TacticTakeaway({ tactics }: { tactics: TacticResult[] }) {
     return <>{executable.map((t) => t.action).join("；")}</>;
   }
   const first = tactics[0];
-  return <span className="text-ink-faint">{first.gate_note || "观察池 · 尚未通过回测验证"}</span>;
+  return <span className="text-ink-soft">{first.gate_note || "观察池 · 尚未通过回测验证"}</span>;
 }
 
 /** 单条形态的证据等级（供需要自行排版的地方复用兜底逻辑）。 */
@@ -99,7 +99,7 @@ export function tacticEvidenceLabel(t: TacticResult): string {
 /** 形态清单底部的口径说明，与后端 `tactic_evidence` 的分级定义一一对应。 */
 export function TacticEvidenceLegend() {
   return (
-    <p className="mt-2 text-xs leading-relaxed text-ink-faint">
+    <p className="mt-2 text-meta leading-relaxed text-ink-faint">
       证据等级由 walk-forward 回测判定：<span className="text-ink-soft">已验证</span>
       （样本 ≥30 且 |z| ≥1.96，可作买卖点）·
       <span className="text-ink-soft">初步</span>（方向一致但样本不足，仅线索）·

@@ -39,7 +39,7 @@ interface Props {
  * 自己导航到另一个地方，把一气呵成的动作切断了。
  *
  * ⚠️ 为什么是**非模态**：一次分析要跑几十秒到几分钟。旧实现是全屏遮罩
- * （`fixed inset-0` + `bg-slate-950/70 backdrop-blur`）加 `body overflow: hidden`，
+ * （`fixed inset-0` + `bg-surface-canvas/70 backdrop-blur`）加 `body overflow: hidden`，
  * 于是在等待期间整个主界面既点不动也滚不动 —— 用户明明只是想顺便看一眼行情，
  * 却被锁在抽屉里干等。现在改为：无遮罩、不锁滚动、外层 `pointer-events-none`、
  * 面板自身 `pointer-events-auto`，主界面照常可点可滚。
@@ -294,7 +294,7 @@ export default function AnalysisDrawer({ open, codes, requestId, onClose, onBatc
               /* 不占满视口：永远给主界面留一条可点的区域；移动端没有并排空间，故 min 到 100% 即全宽 */
               style={{ width: `min(${width}px, 100%)` }}
               /* 移动端给底部导航让出 4rem，否则收起前的面板会把导航压住，连 tab 都切不了 */
-              className="pointer-events-auto relative flex h-[calc(100dvh-4rem)] flex-col border-l border-slate-800 bg-slate-950 shadow-2xl sm:h-full"
+              className="pointer-events-auto relative flex h-[calc(100dvh-4rem)] flex-col border-l border-surface-line bg-surface-canvas shadow-2xl sm:h-full"
             >
               {/* 左边缘拖拽调宽（桌面端） */}
               <div
@@ -307,11 +307,11 @@ export default function AnalysisDrawer({ open, codes, requestId, onClose, onBatc
               />
 
               {/* 抽屉头 */}
-              <div className="flex items-center justify-between gap-3 border-b border-slate-800 px-4 py-3 sm:px-6">
+              <div className="flex items-center justify-between gap-3 border-b border-surface-line px-4 py-3 sm:px-6">
                 <div className="flex min-w-0 items-center gap-2">
                   <BarChart3 className="h-4 w-4 shrink-0 text-brand-light" aria-hidden />
-                  <h2 className="text-sm font-semibold text-white">深度分析</h2>
-                  <span className="hidden truncate text-xs text-ink-faint sm:inline">
+                  <h2 className="text-body font-semibold text-white">深度分析</h2>
+                  <span className="hidden truncate text-meta text-ink-muted sm:inline">
                     AI 综合行情、K线趋势与最新新闻
                   </span>
                 </div>
@@ -320,7 +320,7 @@ export default function AnalysisDrawer({ open, codes, requestId, onClose, onBatc
                     onClick={() => setCollapsed(true)}
                     aria-label="收起"
                     title="收起（分析继续在后台跑，主界面可继续操作）"
-                    className="rounded-lg p-1.5 text-ink-muted hover:bg-slate-800 hover:text-white"
+                    className="rounded-lg p-1.5 text-ink-muted hover:bg-surface-inset hover:text-white"
                   >
                     <PanelRightClose className="h-4 w-4" />
                   </button>
@@ -328,7 +328,7 @@ export default function AnalysisDrawer({ open, codes, requestId, onClose, onBatc
                     onClick={close}
                     aria-label="关闭"
                     title="关闭（正在运行的分析会被中止）"
-                    className="rounded-lg p-1.5 text-ink-muted hover:bg-slate-800 hover:text-white"
+                    className="rounded-lg p-1.5 text-ink-muted hover:bg-surface-inset hover:text-white"
                   >
                     <X className="h-4 w-4" />
                   </button>

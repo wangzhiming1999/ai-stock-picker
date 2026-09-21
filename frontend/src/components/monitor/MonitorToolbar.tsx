@@ -27,7 +27,7 @@ export default function MonitorToolbar({
     <>
       {/* 周期切换：日线定方向，分钟线定这一笔 */}
       <div className="mb-2 flex flex-wrap items-center gap-2">
-        <div className="inline-flex rounded-lg border border-slate-700 p-0.5">
+        <div className="inline-flex rounded-lg border border-surface-line p-0.5">
           {INTERVALS.map((it) => (
             <button
               key={it.value}
@@ -40,7 +40,7 @@ export default function MonitorToolbar({
                 }
               }}
               title={it.hint}
-              className={`rounded-md px-3 py-1 text-xs transition-colors ${
+              className={`rounded-md px-3 py-1 text-meta transition-colors ${
                 interval === it.value ? "bg-brand/15 text-brand-light" : "text-ink-muted hover:text-ink"
               }`}
             >
@@ -48,7 +48,7 @@ export default function MonitorToolbar({
             </button>
           ))}
         </div>
-        <span className="text-xs text-ink-faint">
+        <span className="text-meta text-ink-muted">
           {INTERVALS.find((i) => i.value === interval)?.hint}
         </span>
       </div>
@@ -66,11 +66,11 @@ export default function MonitorToolbar({
               }
             }}
             placeholder="输入股票代码，空格/逗号分隔，如 600519 000858"
-            className="flex-1 rounded-lg bg-slate-900 px-3 py-2 text-sm"
+            className="flex-1 rounded-lg bg-surface-panel px-3 py-2 text-body"
           />
           <button
             onClick={onAdd}
-            className="inline-flex items-center gap-1 rounded-lg bg-slate-800 px-3 py-2 text-sm text-ink hover:bg-slate-700"
+            className="inline-flex items-center gap-1 rounded-lg bg-surface-inset px-3 py-2 text-body text-ink hover:bg-surface-line"
           >
             <Plus className="h-4 w-4" aria-hidden /> 添加
           </button>
@@ -79,14 +79,14 @@ export default function MonitorToolbar({
           <button
             onClick={onImportWatchlist}
             title="把自选股一次性加入监控名单"
-            className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-ink-muted hover:text-ink"
+            className="inline-flex items-center gap-1 rounded-lg border border-surface-line px-2.5 py-1.5 text-meta text-ink-muted hover:text-ink"
           >
             <Download className="h-3.5 w-3.5" aria-hidden /> 导入自选
           </button>
           <button
             onClick={onImportHoldings}
             title="把持仓加入监控，并带上成本价（指令会显示浮盈浮亏）"
-            className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-ink-muted hover:text-ink"
+            className="inline-flex items-center gap-1 rounded-lg border border-surface-line px-2.5 py-1.5 text-meta text-ink-muted hover:text-ink"
           >
             <Download className="h-3.5 w-3.5" aria-hidden /> 导入持仓
           </button>

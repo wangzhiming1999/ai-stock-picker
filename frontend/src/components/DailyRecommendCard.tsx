@@ -102,10 +102,10 @@ export default function DailyRecommendCard({ onPick, collapsed = false }: Props)
 
   const body = (
     <>
-      {err && <div className="rounded-lg border border-red-800 bg-red-950/40 px-3 py-2 text-sm text-red-300">{err}</div>}
+      {err && <div className="rounded-lg border border-state-danger-line bg-state-danger-surface px-3 py-2 text-body text-state-danger-soft">{err}</div>}
 
       {data?.date && (
-        <div className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-slate-800 bg-slate-800/40 px-3 py-2 text-xs text-ink-muted">
+        <div className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-surface-line bg-surface-inset/40 px-3 py-2 text-meta text-ink-muted">
           <CalendarDays className="h-3.5 w-3.5 shrink-0 text-ink-faint" aria-hidden />
           <span>
             数据截至 <span className="font-medium text-ink">{fmtDayLabel(data.date)}</span> 收盘
@@ -117,11 +117,11 @@ export default function DailyRecommendCard({ onPick, collapsed = false }: Props)
             )}
           </span>
           {isTodayCN(data.date) ? (
-            <span className="rounded bg-brand/10 px-1.5 py-0.5 text-xs text-brand-light">当日收盘</span>
+            <span className="rounded-md bg-brand/10 px-1.5 py-0.5 text-meta text-brand-light">当日收盘</span>
           ) : (
-            <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-xs text-amber-400">最近交易日</span>
+            <span className="rounded-md bg-amber-500/10 px-1.5 py-0.5 text-meta text-amber-400">最近交易日</span>
           )}
-          <span className="ml-auto rounded bg-slate-900 px-1.5 py-0.5 text-xs text-ink-muted">
+          <span className="ml-auto rounded-md bg-surface-panel px-1.5 py-0.5 text-meta text-ink-muted">
             {data.source === "llm" ? "AI 精选" : data.source === "rule" ? "规则推荐" : "暂无推荐"} ·{" "}
             {data.candidates} 只达到行动级别
             {(data.watch_candidates ?? data.watchlist?.length ?? 0) > 0 &&
@@ -130,13 +130,13 @@ export default function DailyRecommendCard({ onPick, collapsed = false }: Props)
         </div>
       )}
 
-      {!data && !err && <div className="p-3 text-sm text-ink-faint">正在扫描全市场并生成 AI 推荐...</div>}
+      {!data && !err && <div className="p-3 text-body text-ink-soft">正在扫描全市场并生成 AI 推荐...</div>}
 
-      {data?.message && <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-sm text-ink-muted">{data.message}</div>}
+      {data?.message && <div className="rounded-lg bg-surface-inset/70 px-3 py-2 text-body text-ink-muted">{data.message}</div>}
 
       {data?.recommendations?.length ? (
         <div className="space-y-3">
-          <div className="rounded-lg bg-slate-800/70 px-3 py-2 text-xs text-ink-soft">
+          <div className="rounded-lg bg-surface-inset/70 px-3 py-2 text-meta text-ink-soft">
             以下标的已通过基础风控，但仍须满足卡片里的“触发”条件；未触发就不买。
           </div>
           <div className="max-h-[480px] space-y-2 overflow-y-auto pr-1">
@@ -145,38 +145,38 @@ export default function DailyRecommendCard({ onPick, collapsed = false }: Props)
               key={r.code}
               onClick={() => toggle(r.code)}
               className={`cursor-pointer rounded-lg border p-3 transition-colors ${
-                picked.has(r.code) ? "border-brand bg-brand/10" : "border-slate-800 hover:border-slate-600"
+                picked.has(r.code) ? "border-brand bg-brand/10" : "border-surface-line hover:border-surface-line-hover"
               }`}
             >
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-2">
-                  <span className="flex h-5 w-5 items-center justify-center rounded bg-slate-800 text-xs font-bold text-ink-muted">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-md bg-surface-inset text-meta font-bold text-ink-muted">
                     {idx + 1}
                   </span>
-                  <span className="text-sm font-medium text-white">{r.name}</span>
-                  <span className="text-xs text-ink-faint">{r.code}</span>
-                  <span className={`text-xs font-medium ${pnlTone(r.change_pct)}`}>
+                  <span className="text-body font-medium text-white">{r.name}</span>
+                  <span className="text-meta text-ink-muted">{r.code}</span>
+                  <span className={`text-meta font-medium ${pnlTone(r.change_pct)}`}>
                     {r.change_pct >= 0 ? "+" : ""}
                     {r.change_pct.toFixed(2)}%
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-ink-faint">{r.price.toFixed(2)}</span>
+                  <span className="text-meta text-ink-soft">{r.price.toFixed(2)}</span>
                   <span
                     title={confidenceHint(r.confidence_source)}
-                    className="rounded bg-amber-900/40 px-1.5 py-0.5 text-xs font-semibold text-amber-300"
+                    className="rounded-md bg-state-warn-surface px-1.5 py-0.5 text-meta font-semibold text-state-warn-soft"
                   >
                     {confidenceLabel(r.confidence_source)} {r.confidence.toFixed(1)}
                   </span>
-                  {picked.has(r.code) && <span className="text-xs text-brand-light">✓</span>}
+                  {picked.has(r.code) && <span className="text-meta text-brand-light">✓</span>}
                   <WatchStar code={r.code} />
                 </div>
               </div>
-              <p className="mt-1.5 text-xs leading-relaxed text-ink-muted">{r.reason}</p>
+              <p className="mt-1.5 text-meta leading-relaxed text-ink-muted">{r.reason}</p>
               {!!r.tags?.length && (
                 <div className="mt-2 flex flex-wrap gap-1">
                   {r.tags.map((tag) => (
-                    <span key={tag} className="rounded border border-slate-700 bg-slate-900 px-1.5 py-0.5 text-xs text-ink-muted">
+                    <span key={tag} className="rounded-md border border-surface-line bg-surface-panel px-1.5 py-0.5 text-meta text-ink-muted">
                       {tag}
                     </span>
                   ))}
@@ -184,13 +184,13 @@ export default function DailyRecommendCard({ onPick, collapsed = false }: Props)
               )}
               {(r.trigger || r.invalidation || r.target || r.expected_price != null) && (
                 <>
-                  <div className="mt-2 grid gap-1 rounded-xl border border-slate-800 bg-slate-900/70 p-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
+                  <div className="mt-2 grid gap-1 rounded-xl border border-surface-line bg-surface-panel/70 p-2 text-meta sm:grid-cols-2 lg:grid-cols-4">
                     <div>
-                      <span className="text-ink-faint">预期价格：</span>
+                      <span className="text-ink-muted">预期价格：</span>
                       {r.expected_price != null ? (
                         <>
                           <span className="font-semibold text-ink">{r.expected_price.toFixed(2)}</span>
-                          <span className="text-ink-faint">
+                          <span className="text-ink-muted">
                             （{r.expected_price_setup === "breakout" ? "突破位" : "回踩位"}）
                           </span>
                           {r.expected_price_gap_pct != null && (
@@ -205,12 +205,12 @@ export default function DailyRecommendCard({ onPick, collapsed = false }: Props)
                         <span className="text-ink-faint">—</span>
                       )}
                     </div>
-                    <div><span className="text-ink-faint">触发：</span><span className="text-green-300">{r.trigger || "等待确认"}</span></div>
-                    <div><span className="text-ink-faint">失效：</span><span className="text-red-300">{r.invalidation || "转弱放弃"}</span></div>
-                    <div><span className="text-ink-faint">目标：</span><span className="text-ink-soft">{r.target || "待确认"}</span></div>
+                    <div><span className="text-ink-muted">触发：</span><span className="text-green-300">{r.trigger || "等待确认"}</span></div>
+                    <div><span className="text-ink-muted">失效：</span><span className="text-red-300">{r.invalidation || "转弱放弃"}</span></div>
+                    <div><span className="text-ink-muted">目标：</span><span className="text-ink-soft">{r.target || "待确认"}</span></div>
                   </div>
                   {r.expected_price_note && (
-                    <p className="mt-1 text-xs leading-relaxed text-ink-faint">
+                    <p className="mt-1 text-meta leading-relaxed text-ink-faint">
                       预期价格是执行锚点：{r.expected_price_note}。它取自结构位而非预测，
                       结构位买入侧实测超额为负（证据档 unsupported），只作挂单价参考。
                     </p>
@@ -227,14 +227,14 @@ export default function DailyRecommendCard({ onPick, collapsed = false }: Props)
         <div className="mt-3 space-y-3">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <div className="flex items-center gap-1.5 text-sm font-semibold text-amber-200">
+              <div className="flex items-center gap-1.5 text-body font-semibold text-amber-200">
                 <Eye className="h-4 w-4" aria-hidden /> 先观察，别急着买
               </div>
-              <p className="mt-0.5 text-xs text-ink-faint">
+              <p className="mt-0.5 text-meta text-ink-soft">
                 下列标的都被门槛拦下，卡片写明拦住它的原因和解除条件；条件没满足就不要买
               </p>
             </div>
-            <span className="rounded-full border border-amber-800/60 bg-amber-500/10 px-2.5 py-1 text-xs text-amber-300">
+            <span className="rounded-full border border-state-warn-line bg-amber-500/10 px-2.5 py-1 text-meta text-state-warn-soft">
               {data.watchlist.length} 只待解锁
             </span>
           </div>
@@ -248,49 +248,49 @@ export default function DailyRecommendCard({ onPick, collapsed = false }: Props)
                   key={item.code}
                   type="button"
                   onClick={() => onPick([item.code])}
-                  className="group rounded-xl border border-slate-800 bg-slate-800/70 p-3 text-left transition hover:border-amber-700/70 hover:bg-amber-950/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+                  className="group rounded-xl border border-surface-line bg-surface-inset/70 p-3 text-left transition hover:border-state-warn-line hover:bg-state-warn-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <span className="font-medium text-ink-strong">{item.name}</span>
-                      <span className="ml-1.5 text-xs text-ink-faint">{item.code}</span>
+                      <span className="ml-1.5 text-meta text-ink-muted">{item.code}</span>
                     </div>
-                    <span className="text-xs font-semibold text-amber-300">{item.score.toFixed(1)}</span>
+                    <span className="text-meta font-semibold text-amber-300">{item.score.toFixed(1)}</span>
                   </div>
-                  <div className="mt-2 flex items-start gap-1.5 text-xs text-ink-muted">
+                  <div className="mt-2 flex items-start gap-1.5 text-meta text-ink-muted">
                     <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400" aria-hidden />
                     <span>
-                      <span className="text-ink-faint">拦截原因：</span>
+                      <span className="text-ink-muted">拦截原因：</span>
                       {plainStatus(item.status, item.blockers)}
                     </span>
                   </div>
                   {hasRR && (
-                    <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
+                    <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-meta">
                       {item.upside_pct != null && (
-                        <span className="text-ink-faint">
+                        <span className="text-ink-soft">
                           上行 <span className={upTone()}>+{item.upside_pct}%</span>
                         </span>
                       )}
                       {item.downside_pct != null && (
-                        <span className="text-ink-faint">
+                        <span className="text-ink-soft">
                           下行 <span className={downTone()}>-{item.downside_pct}%</span>
                         </span>
                       )}
                       {item.rr_ratio != null && (
-                        <span className="text-ink-faint">
+                        <span className="text-ink-soft">
                           盈亏比{" "}
                           <span className={item.rr_ratio >= 1.2 ? upTone() : downTone()}>
                             {item.rr_ratio.toFixed(2)}
                           </span>
-                          <span className="text-ink-faint"> / 门槛 1.2</span>
+                          <span className="text-ink-muted"> / 门槛 1.2</span>
                         </span>
                       )}
                     </div>
                   )}
-                  <div className="mt-1.5 flex items-start gap-1.5 text-xs text-ink-faint group-hover:text-ink-muted">
+                  <div className="mt-1.5 flex items-start gap-1.5 text-meta text-ink-muted group-hover:text-ink-muted">
                     <Unlock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500/80" aria-hidden />
                     <span>
-                      <span className="text-ink-faint">解锁条件：</span>
+                      <span className="text-ink-muted">解锁条件：</span>
                       {unlock || "等待技术信号进一步确认后再评估"}
                     </span>
                   </div>

@@ -5,6 +5,8 @@ import CollapsiblePanel from "./ui/CollapsiblePanel";
 import { TacticChip, TacticEvidenceLegend } from "./TacticHit";
 import type { TacticDef, TacticResult, TacticScanResult } from "../types";
 import Button from "./ui/Button";
+import Table, { Th } from "./ui/Table";
+import { CELL } from "../lib/ui";
 
 interface Props {
   onPick: (codes: string[]) => void;
@@ -99,12 +101,12 @@ export default function ChipPanel({ onPick }: Props) {
           onClick={() => void run("all")}
           disabled={running}
           aria-pressed={active === "all"}
-          className={`rounded-lg border px-3 py-2 text-left text-sm transition ${
-            active === "all" ? "border-brand bg-brand/10 text-white" : "border-slate-700 text-ink hover:border-slate-500"
+          className={`rounded-lg border px-3 py-2 text-left text-body transition ${
+            active === "all" ? "border-brand bg-brand/10 text-white" : "border-surface-line text-ink hover:border-surface-line-hover"
           }`}
         >
           全部筹码形态
-          <span className="ml-2 text-xs text-ink-faint">{tactics.length} 条一起查</span>
+          <span className="ml-2 text-meta text-ink-muted">{tactics.length} 条一起查</span>
         </button>
         {tactics.map((t) => (
           <button
@@ -113,12 +115,12 @@ export default function ChipPanel({ onPick }: Props) {
             disabled={running}
             aria-pressed={active === t.key}
             title={t.evidence.summary}
-            className={`rounded-lg border px-3 py-2 text-left text-sm transition ${
-              active === t.key ? "border-brand bg-brand/10 text-white" : "border-slate-700 text-ink hover:border-slate-500"
+            className={`rounded-lg border px-3 py-2 text-left text-body transition ${
+              active === t.key ? "border-brand bg-brand/10 text-white" : "border-surface-line text-ink hover:border-surface-line-hover"
             }`}
           >
             {t.name}
-            <span className="ml-2 text-xs text-ink-faint">{t.evidence.badge}</span>
+            <span className="ml-2 text-meta text-ink-muted">{t.evidence.badge}</span>
           </button>
         ))}
       </div>
@@ -126,13 +128,13 @@ export default function ChipPanel({ onPick }: Props) {
       <TacticEvidenceLegend />
 
       {running && (
-        <div role="status" className="mt-3 rounded-lg bg-slate-800/70 px-3 py-2 text-sm text-ink-muted">
+        <div role="status" className="mt-3 rounded-lg bg-surface-inset/70 px-3 py-2 text-body text-ink-muted">
           {runningLabel}
         </div>
       )}
 
       {!running && error && (
-        <div role="alert" className="rounded-lg border border-red-800 bg-red-950/40 px-3 py-2 text-sm text-red-300">
+        <div role="alert" className="rounded-lg border border-state-danger-line bg-state-danger-surface px-3 py-2 text-body text-state-danger-soft">
           {error}
           <button onClick={() => void run(active)} className="ml-3 cursor-pointer font-medium text-red-200 underline">
             重试
@@ -141,34 +143,30 @@ export default function ChipPanel({ onPick }: Props) {
       )}
 
       {!running && result && items.length === 0 && (
-        <div role="status" className="rounded-lg border border-slate-700 bg-slate-800/40 px-3 py-3 text-sm text-ink-soft">
+        <div role="status" className="rounded-lg border border-surface-line bg-surface-inset/40 px-3 py-3 text-body text-ink-soft">
           已检查 {result.checked} 只候选，当前没有筹码形态命中。筹码形态对「换手充分度」要求高，未命中属正常；
           部分个股可能因东财数据源失败缺数据，可稍后重试。
         </div>
       )}
 
       {!running && items.length > 0 && (
-        <div className="max-h-[28rem] overflow-y-auto rounded-xl border border-slate-800">
-          <table className="w-full text-sm">
-            <caption className="sr-only">筹码形态扫描结果</caption>
-            <thead className="sticky top-0 bg-slate-900 text-left text-xs text-ink-muted">
-              <tr>
-                <th scope="col" className="px-3 py-2">名称</th>
-                <th scope="col" className="px-3 py-2">代码</th>
-                <th scope="col" className="px-3 py-2">命中形态</th>
-                <th scope="col" className="px-3 py-2">结论</th>
-                <th scope="col" className="px-3 py-2">操作</th>
-              </tr>
-            </thead>
-            <tbody>
+        <Table label="筹码形态扫描结果" maxHeight="sm" head={
+          <tr>
+            <Th>名称</Th>
+            <Th>代码</Th>
+            <Th>命中形态</Th>
+            <Th>结论</Th>
+            <Th>操作</Th>
+          </tr>
+        }>
               {items.map((s) => {
                 const hits = (s.tactics as TacticResult[]).filter((t) => t.matched);
                 const best = hits[0];
                 return (
-                  <tr key={s.code} className="border-t border-slate-800/60 hover:bg-slate-800/40">
-                    <td className="px-3 py-2 text-ink">{s.name}</td>
-                    <td className="px-3 py-2 text-ink-faint">{s.code}</td>
-                    <td className="px-3 py-2">
+                  <tr key={s.code} className="border-t border-surface-line-soft hover:bg-surface-inset/40">
+                    <td className={`${CELL} text-ink`}>{s.name}</td>
+                    <td className={`${CELL} text-ink-muted`}>{s.code}</td>
+                    <td className={CELL}>
                       <div className="flex flex-wrap items-center gap-1">
                         {hits.map((t) => (
                           <TacticChip key={t.key} t={t} />
@@ -177,24 +175,24 @@ export default function ChipPanel({ onPick }: Props) {
                       {best && (
                         <ul className="mt-1 space-y-0.5">
                           {best.conditions.map((cond, i) => (
-                            <li key={i} className="flex items-start gap-2 text-xs">
-                              <span className={cond.passed ? "text-brand-light" : "text-ink-faint"}>
+                            <li key={i} className="flex items-start gap-2 text-meta">
+                              <span className={cond.passed ? "text-brand-light" : "text-ink-muted"}>
                                 {cond.passed ? "✓" : "✗"}
                               </span>
                               <span className="text-ink-soft">{cond.name}</span>
-                              <span className="text-ink-faint">{cond.detail}</span>
+                              <span className="text-ink-soft">{cond.detail}</span>
                             </li>
                           ))}
                         </ul>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-ink-soft">
-                      <span className="text-ink-faint">{s.best_gate_note || "观察池 · 尚未通过回测验证"}</span>
+                    <td className={`${CELL} text-ink-soft`}>
+                      <span className="text-ink-soft">{s.best_gate_note || "观察池 · 尚未通过回测验证"}</span>
                     </td>
-                    <td className="px-3 py-2">
+                    <td className={CELL}>
                       <button
                         onClick={() => onPick([s.code])}
-                        className="cursor-pointer text-xs text-brand-light underline hover:text-brand"
+                        className="cursor-pointer text-meta text-brand-light underline hover:text-brand"
                       >
                         去分析
                       </button>
@@ -202,12 +200,10 @@ export default function ChipPanel({ onPick }: Props) {
                   </tr>
                 );
               })}
-            </tbody>
-          </table>
-        </div>
+        </Table>
       )}
 
-      <div className="mt-3 space-y-1 text-xs text-ink-faint">
+      <div className="mt-3 space-y-1 text-meta text-ink-soft">
         <p>
           口径：筹码分布由本项目复刻东财 CYQ 算法（120 日窗口三角分布、按换手率衰减），
           指标与东财 App 官方读数存在小幅偏差；获利比例 / 成本区间 / 集中度为算法推导读数。

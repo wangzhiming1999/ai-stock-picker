@@ -72,13 +72,13 @@ function MorningStockCard({ s, onPick }: { s: BriefingStock; onPick: (c: string)
   return (
     <div
       onClick={() => onPick(s.code)}
-      className={`${SUB} cursor-pointer p-3 transition-colors hover:bg-slate-800`}
+      className={`${SUB} cursor-pointer p-3 transition-colors hover:bg-surface-inset`}
     >
       {/* 头部：名称 + 现价涨跌 + 操作 */}
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex items-baseline gap-2">
-            <span className="text-sm font-semibold text-white">{s.name}</span>
+            <span className="text-body font-semibold text-white">{s.name}</span>
             <span className={TEXT.meta}>{s.code}</span>
           </div>
           <div className="mt-0.5 flex items-baseline gap-2">
@@ -86,7 +86,7 @@ function MorningStockCard({ s, onPick }: { s: BriefingStock; onPick: (c: string)
               <Money v={s.price} />
             </span>
             {s.change_pct != null && (
-              <span className={`text-xs font-medium ${pnlTone(s.change_pct, 300)}`}>
+              <span className={`text-meta font-medium ${pnlTone(s.change_pct, 300)}`}>
                 {s.change_pct >= 0 ? "+" : ""}
                 {s.change_pct.toFixed(2)}%
               </span>
@@ -97,7 +97,7 @@ function MorningStockCard({ s, onPick }: { s: BriefingStock; onPick: (c: string)
           <button
             onClick={simBuy}
             disabled={simBusy}
-            className={`rounded-lg border border-red-800/60 px-2 py-1 text-xs transition-colors hover:bg-red-500/20 ${CHIP.buy.bg} ${CHIP.buy.text}`}
+            className={`rounded-lg border border-state-danger-line px-2 py-1 text-meta transition-colors hover:bg-red-500/20 ${CHIP.buy.bg} ${CHIP.buy.text}`}
             title="用虚拟资金按建议手数一键模拟买入"
           >
             {simBusy ? "..." : "模拟买"}
@@ -105,10 +105,10 @@ function MorningStockCard({ s, onPick }: { s: BriefingStock; onPick: (c: string)
           <button
             onClick={addWatch}
             disabled={added}
-            className={`flex items-center gap-1 rounded-lg border px-2 py-1 text-xs transition-colors ${
+            className={`flex items-center gap-1 rounded-lg border px-2 py-1 text-meta transition-colors ${
               added
-                ? "border-slate-700 text-ink-faint"
-                : "border-slate-700 text-ink-soft hover:border-brand hover:text-brand-light"
+                ? "border-surface-line text-ink-muted"
+                : "border-surface-line text-ink-soft hover:border-brand hover:text-brand-light"
             }`}
           >
             <Plus className="h-3 w-3" aria-hidden />
@@ -124,45 +124,45 @@ function MorningStockCard({ s, onPick }: { s: BriefingStock; onPick: (c: string)
           <span className={TEXT.meta} title={confidenceHint(s.confidence_source)}>
             {confidenceLabel(s.confidence_source)}
           </span>
-          <span className="text-xs font-semibold text-ink">{s.confidence}</span>
-          <span className="h-1 w-16 overflow-hidden rounded-full bg-slate-800/40">
+          <span className="text-meta font-semibold text-ink">{s.confidence}</span>
+          <span className="h-1 w-16 overflow-hidden rounded-full bg-surface-inset/40">
             <span
               className="block h-full rounded-full bg-brand"
               style={{ width: `${Math.max(0, Math.min(10, s.confidence)) * 10}%` }}
             />
           </span>
-          <span className="text-xs text-ink-faint">/ 10</span>
-          {tip && <span className="ml-auto text-xs text-amber-300">{tip}</span>}
+          <span className="text-meta text-ink-muted">/ 10</span>
+          {tip && <span className="ml-auto text-meta text-amber-300">{tip}</span>}
         </div>
       )}
-      {s.confidence == null && tip && <div className="mt-1 text-xs text-amber-300">{tip}</div>}
+      {s.confidence == null && tip && <div className="mt-1 text-meta text-amber-300">{tip}</div>}
 
       {/* 三个关键数字 */}
       <div className="mt-2 grid grid-cols-3 gap-2">
         <div className={`${CHIP.buy.bg} rounded-lg px-2 py-1.5`}>
           <div className={TEXT.meta}>买点</div>
-          <div className={`text-sm font-semibold ${CHIP.buy.text}`}>
+          <div className={`text-body font-semibold ${CHIP.buy.text}`}>
             <Money v={s.buy_point} />
           </div>
         </div>
         <div className={`${CHIP.risk.bg} rounded-lg px-2 py-1.5`}>
           <div className={TEXT.meta}>止损</div>
-          <div className={`text-sm font-semibold ${CHIP.risk.text}`}>
+          <div className={`text-body font-semibold ${CHIP.risk.text}`}>
             <Money v={s.stop_loss} />
           </div>
         </div>
         <div className={`${CHIP.neutral.bg} rounded-lg px-2 py-1.5`}>
           <div className={TEXT.meta}>建议</div>
-          <div className={`text-sm font-semibold ${CHIP.neutral.text}`}>
+          <div className={`text-body font-semibold ${CHIP.neutral.text}`}>
             {s.suggest_shares ? `${s.suggest_shares}股` : "—"}
           </div>
         </div>
       </div>
 
-      <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-ink-muted">{s.reason}</p>
+      <p className="mt-2 line-clamp-2 text-meta leading-relaxed text-ink-muted">{s.reason}</p>
 
       {(s.trigger || s.invalidation) && (
-        <div className={`mt-2 space-y-1 ${DIVIDER} pt-2 text-xs`}>
+        <div className={`mt-2 space-y-1 ${DIVIDER} pt-2 text-meta`}>
           <div>
             <span className={TEXT.meta}>满足才关注　</span>
             <span className="text-ink">{s.trigger}</span>
@@ -174,7 +174,7 @@ function MorningStockCard({ s, onPick }: { s: BriefingStock; onPick: (c: string)
         </div>
       )}
 
-      <div className="mt-2 text-xs">
+      <div className="mt-2 text-meta">
         <AlgoTag />
       </div>
     </div>
@@ -187,12 +187,12 @@ export function MorningStocksBlock({ stocks, onPick }: { stocks: BriefingStock[]
     return (
       <div
         role="status"
-        className="flex items-start gap-3 rounded-xl border border-amber-900/40 bg-amber-500/5 px-3 py-3"
+        className="flex items-start gap-3 rounded-xl border border-state-warn-line bg-amber-500/5 px-3 py-3"
       >
         <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" aria-hidden />
         <div>
-          <div className="text-sm font-medium text-amber-200">没有股票同时满足上涨趋势和风险控制要求</div>
-          <p className="mt-1 text-xs leading-relaxed text-ink-muted">
+          <div className="text-body font-medium text-amber-200">没有股票同时满足上涨趋势和风险控制要求</div>
+          <p className="mt-1 text-meta leading-relaxed text-ink-muted">
             先不新开仓。下方"先观察，别急着买"会列出接近条件的股票，以及还要等待什么。
           </p>
         </div>

@@ -5,6 +5,7 @@ import { addAlertRule, deleteAlertRule, fetchAlertRules } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import type { AlertRule, AlertType } from "../types";
 import Input from "./ui/Input";
+import Panel from "./ui/Panel";
 import { INPUT_BASE } from "../lib/ui";
 
 const TYPE_LABEL: Record<AlertType, string> = {
@@ -77,24 +78,18 @@ export default function AlertRulesPanel() {
   };
 
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
-      <div className="mb-3 flex items-center gap-2">
-        <Bell className="h-4 w-4 text-brand-light" aria-hidden />
-        <h3 className="text-sm font-semibold text-ink">价格预警</h3>
-        <span className="text-xs text-ink-faint">持仓止损 / 目标价 / 破位，触发后铃铛提醒</span>
-      </div>
-
+    <Panel title="价格预警" desc="持仓止损 / 目标价 / 破位，触发后铃铛提醒" icon={Bell}>
       {/* 添加表单 */}
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <Input
           value={code}
           onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
           placeholder="代码"
-          className="w-20 bg-slate-950 px-2 py-1.5 text-xs" />
+          className="w-20 bg-surface-canvas px-2 py-1.5 text-meta" />
         <select
           value={type}
           onChange={(e) => setType(e.target.value as AlertType)}
-          className={`${INPUT_BASE} bg-slate-950 px-2 py-1.5 text-xs`}>
+          className={`${INPUT_BASE} bg-surface-canvas px-2 py-1.5 text-meta`}>
           {(Object.keys(TYPE_LABEL) as AlertType[]).map((k) => (
             <option key={k} value={k}>
               {TYPE_LABEL[k]}
@@ -108,11 +103,11 @@ export default function AlertRulesPanel() {
           step="any"
           min="0"
           placeholder="阈值价"
-          className="w-24 bg-slate-950 px-2 py-1.5 text-xs" />
+          className="w-24 bg-surface-canvas px-2 py-1.5 text-meta" />
         <button
           onClick={() => void submit()}
           disabled={adding}
-          className="flex items-center gap-1 rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-dark">
+          className="flex items-center gap-1 rounded-lg bg-brand px-3 py-1.5 text-meta font-medium text-white hover:bg-brand-dark">
           <Plus className="h-3.5 w-3.5" aria-hidden />
           添加规则
         </button>
@@ -120,21 +115,21 @@ export default function AlertRulesPanel() {
 
       {/* 规则列表 */}
       {loading && rules.length === 0 ? (
-        <div className="text-xs text-ink-faint">加载中...</div>
+        <div className="text-meta text-ink-soft">加载中...</div>
       ) : rules.length === 0 ? (
-        <div className="text-xs text-ink-faint">暂无规则。添加后，现价到达阈值会推送到上方铃铛。</div>
+        <div className="text-meta text-ink-soft">暂无规则。添加后，现价到达阈值会推送到上方铃铛。</div>
       ) : (
         <div className="space-y-1.5">
           {rules.map((r) => (
-            <div key={r.id} className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-800/70 px-3 py-2 text-xs">
+            <div key={r.id} className="flex items-center justify-between rounded-xl border border-surface-line bg-surface-inset/70 px-3 py-2 text-meta">
               <div className="flex items-center gap-2">
                 <span className="font-mono font-semibold text-ink">{r.code}</span>
                 <span className="text-ink-muted">{r.name || "-"}</span>
-                <span className="rounded bg-slate-800 px-1.5 py-0.5 text-xs text-ink-muted">{TYPE_LABEL[r.type]}</span>
+                <span className="rounded-md bg-surface-inset px-1.5 py-0.5 text-meta text-ink-muted">{TYPE_LABEL[r.type]}</span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-ink-soft">阈值 {r.threshold}</span>
-                <button onClick={() => void remove(r.id)} className="rounded p-1 text-ink-faint hover:bg-red-950/40 hover:text-red-400" title="删除">
+                <button onClick={() => void remove(r.id)} className="rounded-md p-1 text-ink-muted hover:bg-state-danger-surface hover:text-state-danger" title="删除">
                   <Trash2 className="h-3.5 w-3.5" aria-hidden />
                 </button>
               </div>
@@ -142,6 +137,6 @@ export default function AlertRulesPanel() {
           ))}
         </div>
       )}
-    </div>
+    </Panel>
   );
 }

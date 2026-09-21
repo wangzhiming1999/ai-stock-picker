@@ -2,27 +2,85 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── 基础层 ──────────────────────────────────────────────────────────
- * 页面底色用 `surface-canvas`（最深层），文字用 ink 阶梯 —— 不要在这里写
- * text-slate-* 当文字色（见 tailwind.config.js 的分层约定）。
+/* 全站排版 · base 层
+ * ════════════════════════════════════════════════════════════════════
+ * 这一层负责「不带任何 class 的元素应该长什么样」。
+ *
+ * 为什么标题层级写在这里而不是逐个组件：此前 h1/h2/h3 只统一了颜色
+ * （见下方原注释），字号与字重全靠各处手写 —— 结果是「同一个 h3 在 A 面板
+ * 是 14px/semibold、在 B 面板是 12px/medium」。放在 base 层后，只有**确实
+ * 需要例外**的地方才写 class，其余自动对齐。
+ *
+ * 字号 token 全部来自 tailwind.config.js 的 fontSize 阶梯，改那里就全站生效。
  */
 @layer base {
   html {
     /* 吸顶二级导航 + 锚点滚动时给标题留出高度，否则会贴边被顶栏盖住 */
     scroll-padding-top: 5.5rem;
+    /* 中文在暗底上过细，加一点点字重补偿；同时避免 Safari 的字体合成 */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
   body {
-    @apply bg-surface-canvas text-ink antialiased;
+    @apply bg-surface-canvas font-sans text-body text-ink-soft antialiased;
     /* 数字等宽：行情/持仓数字实时刷新时不抖动，表格里的涨跌幅能上下对齐 */
     font-variant-numeric: tabular-nums;
+    /* 中英混排时给拉丁/数字留一点额外字距，避免中文方块字把它们挤在一起 */
+    font-feature-settings: "kern" 1;
+    text-rendering: optimizeLegibility;
   }
 
-  /* 标题默认继承字重阶梯，避免各处手写 font-bold 造成层级不一致 */
+  /* ── 标题层级 ──────────────────────────────────────────────────────
+   * 四级，尺寸与字重都在这里定死：
+   *   h1  页面级标题     20px / semibold
+   *   h2  大区块标题     16px / semibold
+   *   h3  面板 · 卡片标题 16px / semibold
+   *   h4  卡内小标题     14px / semibold
+   *
+   * 颜色一律 ink（不用 ink-strong —— 那是留给「一屏一处的主结论 / 大数字」的，
+   * 满屏都最亮就等于没有层级）。
+   */
   h1,
   h2,
+  h3,
+  h4 {
+    @apply font-semibold text-ink;
+  }
+  h1 {
+    @apply text-h1;
+  }
+  h2,
   h3 {
-    @apply text-ink-strong;
+    @apply text-head;
+  }
+  h4 {
+    @apply text-body;
+  }
+
+  /* ── 表格基线 ──────────────────────────────────────────────────────
+   * 表头统一「小字 + 中性色 + 不换行」，避免列名折行把行高撑开。
+   */
+  th {
+    @apply whitespace-nowrap font-medium text-ink-muted;
+  }
+
+  /* ── 表单基线 ──────────────────────────────────────────────────────
+   * select / textarea 此前完全没管，在暗底上会渲染成系统默认浅色控件
+   * （白底黑字），一屏里突然出现一个亮块。
+   */
+  select,
+  textarea {
+    @apply font-sans text-body text-ink-strong;
+  }
+  select option {
+    @apply bg-surface-raised text-ink-strong;
+  }
+
+  /* 选中文本：用品牌色实底 + 白字（默认的蓝底在暗色主题里偏亮刺眼） */
+  ::selection {
+    background-color: #1d4ed8;
+    color: #ffffff;
   }
 }
 
@@ -89,6 +147,8 @@ button:not(:disabled):active {
 
 /* ── 数字对齐 ────────────────────────────────────────────────────────
  * 涨跌幅、价格、手数这类列必须上下对齐，否则扫描表格时会跳行。
+ * body 已全局开启 tabular-nums，这里给**局部需要强制**的场景（如
+ * 非继承链上的组件、第三方渲染内容）。
  */
 .tnum {
   font-variant-numeric: tabular-nums;

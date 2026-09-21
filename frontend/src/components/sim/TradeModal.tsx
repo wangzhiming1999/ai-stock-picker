@@ -67,35 +67,35 @@ export default function TradeModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <div className="w-full max-w-sm rounded-xl border border-slate-700 bg-slate-900 p-5" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-sm rounded-xl border border-surface-line bg-surface-panel p-5" onClick={(e) => e.stopPropagation()}>
         <div className="mb-4 flex items-center justify-between">
-          <span className={`text-sm font-bold ${isBuy ? "text-red-400" : "text-green-400"}`}>
+          <span className={`text-body font-bold ${isBuy ? "text-red-400" : "text-green-400"}`}>
             {isBuy ? "模拟买入" : "模拟卖出"}
           </span>
-          <button onClick={onClose} className="text-xs text-ink-faint hover:text-ink-soft">关闭</button>
+          <button onClick={onClose} className="text-meta text-ink-muted hover:text-ink-soft">关闭</button>
         </div>
         <div className="space-y-3">
           <label className="block">
-            <span className="mb-1 block text-xs text-ink-faint">股票代码</span>
-            <Input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="6 位代码" disabled={!!initialCode} className="w-full rounded-lg bg-slate-800/70 px-3 py-1.5 text-sm" />
+            <span className="mb-1 block text-meta text-ink-muted">股票代码</span>
+            <Input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="6 位代码" disabled={!!initialCode} className="w-full rounded-lg bg-surface-inset/70 px-3 py-1.5 text-body" />
           </label>
           <label className="block">
-            <span className="mb-1 block text-xs text-ink-faint">数量（股，100 的整数倍）</span>
-            <Input value={shares} onChange={(e) => setShares(e.target.value.replace(/\D/g, ""))} type="number" placeholder="如 100" className="w-full rounded-lg bg-slate-800/70 px-3 py-1.5 text-sm" />
+            <span className="mb-1 block text-meta text-ink-muted">数量（股，100 的整数倍）</span>
+            <Input value={shares} onChange={(e) => setShares(e.target.value.replace(/\D/g, ""))} type="number" placeholder="如 100" className="w-full rounded-lg bg-surface-inset/70 px-3 py-1.5 text-body" />
           </label>
           <label className="block">
-            <span className="mb-1 flex items-center justify-between text-xs text-ink-faint">
+            <span className="mb-1 flex items-center justify-between text-meta text-ink-muted">
               成交价
-              <label className="flex items-center gap-1 text-ink-faint">
+              <label className="flex items-center gap-1 text-ink-muted">
                 <input type="checkbox" checked={priceAuto} onChange={(e) => setPriceAuto(e.target.checked)} className="h-3 w-3 accent-brand" />
                 用实时价
               </label>
             </span>
-            <Input value={price} onChange={(e) => setPrice(e.target.value)} type="number" step="0.01" disabled={priceAuto} placeholder={priceAuto ? "自动取当前价" : "如 12.50"} className="w-full rounded-lg bg-slate-800/70 px-3 py-1.5 text-sm" />
+            <Input value={price} onChange={(e) => setPrice(e.target.value)} type="number" step="0.01" disabled={priceAuto} placeholder={priceAuto ? "自动取当前价" : "如 12.50"} className="w-full rounded-lg bg-surface-inset/70 px-3 py-1.5 text-body" />
           </label>
           {isBuy && (
             <label className="block">
-              <span className="mb-1 block text-xs text-ink-faint">
+              <span className="mb-1 block text-meta text-ink-muted">
                 预期价格（选填 · 你本来打算在什么价成交）
               </span>
               <Input
@@ -104,9 +104,9 @@ export default function TradeModal({
                 type="number"
                 step="0.01"
                 placeholder="如 12.30（打板价 / 回踩位）"
-                className="w-full rounded-lg bg-slate-800/70 px-3 py-1.5 text-sm"
+                className="w-full rounded-lg bg-surface-inset/70 px-3 py-1.5 text-body"
               />
-              <span className="mt-1 block text-xs text-ink-faint">
+              <span className="mt-1 block text-meta text-ink-soft">
                 只用于事后看「预期 vs 实际成交」差多少，<b className="text-ink-muted">不参与盈亏计算</b>
                 {previewSlip != null && (
                   <>
@@ -120,10 +120,10 @@ export default function TradeModal({
             </label>
           )}
           <div className="flex gap-2 pt-1">
-            <button onClick={submit} disabled={busy} className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium text-white ${isBuy ? "bg-red-600 hover:bg-red-500" : "bg-green-600 hover:bg-green-500"}`}>
+            <button onClick={submit} disabled={busy} className={`flex-1 rounded-lg px-4 py-2 text-body font-medium text-white ${isBuy ? "bg-red-600 hover:bg-red-500" : "bg-green-600 hover:bg-green-500"}`}>
               {busy ? "提交中..." : isBuy ? "买入" : "卖出"}
             </button>
-            <button onClick={onClose} className="rounded-lg border border-slate-600 px-4 py-2 text-sm text-ink-muted hover:text-ink">取消</button>
+            <button onClick={onClose} className="rounded-lg border border-surface-line-strong px-4 py-2 text-body text-ink-muted hover:text-ink">取消</button>
           </div>
         </div>
       </div>

@@ -23,8 +23,8 @@ const VIEWS: Array<[ScanView, string, string]> = [
 export default function ScanViewPicker({ scanView, strategyRunning, onSelect }: Props) {
   return (
     <section className="rounded-xl border border-surface-line bg-surface-panel p-5">
-      <h3 className="text-sm font-semibold text-ink">你今天想找什么？</h3>
-      <p className="mt-1 text-xs text-ink-faint">
+      <h3 className="text-body font-semibold text-ink">你今天想找什么？</h3>
+      <p className="mt-1 text-meta text-ink-soft">
         先选一个目标。扫描结果只是候选池，进入深度分析确认后再决定是否操作。
       </p>
       <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -38,11 +38,11 @@ export default function ScanViewPicker({ scanView, strategyRunning, onSelect }: 
             className={`cursor-pointer rounded-lg border p-3 text-left transition disabled:cursor-wait ${
               scanView === value
                 ? "border-brand bg-brand/10"
-                : "border-surface-line-strong hover:border-slate-400"
+                : "border-surface-line-strong hover:border-surface-line-hover"
             }`}
           >
-            <div className="text-sm font-semibold text-ink-strong">{label}</div>
-            <div className="mt-0.5 text-xs text-ink-faint">
+            <div className="text-body font-semibold text-ink-strong">{label}</div>
+            <div className="mt-0.5 text-meta text-ink-soft">
               {value === "quick" && strategyRunning ? "正在筛选今日候选…" : desc}
             </div>
           </button>

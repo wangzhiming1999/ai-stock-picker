@@ -33,7 +33,7 @@ export default function EmptyState({ icon: Icon, title, desc, action, compact = 
           <Icon className="h-5 w-5 text-ink-muted" aria-hidden />
         </div>
       )}
-      <p className={`mt-3 font-medium text-ink ${compact ? "text-sm" : ""}`}>{title}</p>
+      <p className={`mt-3 font-medium text-ink ${compact ? "text-body" : ""}`}>{title}</p>
       {desc && <p className={`mt-1 ${TEXT.meta} ${compact ? "" : "mx-auto max-w-md"}`}>{desc}</p>}
       {action && <div className="mt-4 flex justify-center">{action}</div>}
     </div>

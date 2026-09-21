@@ -10,7 +10,7 @@ export default function AnalysisError({ phase, errorMsg }: Props) {
   if (phase !== "error" || !errorMsg) return null;
 
   return (
-    <div className="mt-4 rounded-lg border border-red-800 bg-red-950/40 px-4 py-3 text-sm text-red-300">
+    <div className="mt-4 rounded-lg border border-state-danger-line bg-state-danger-surface px-4 py-3 text-body text-state-danger-soft">
       {errorMsg}
     </div>
   );

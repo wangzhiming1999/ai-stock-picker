@@ -13,13 +13,13 @@ import type { Caliber } from "../types";
 export function CaliberLine({ caliber, compact = false }: { caliber?: Caliber | null; compact?: boolean }) {
   if (!caliber || caliber.registered === false) {
     return (
-      <p className="text-xs leading-relaxed text-ink-faint">
+      <p className="text-meta leading-relaxed text-ink-faint">
         口径未登记，请不要据此下结论（后端 calibers 缺少该指标定义）。
       </p>
     );
   }
   return (
-    <div className="rounded-lg bg-slate-800/50 px-2.5 py-2 text-xs leading-relaxed">
+    <div className="rounded-lg bg-surface-inset/50 px-2.5 py-2 text-meta leading-relaxed">
       <div className="text-ink-soft">
         <span className="text-ink-muted">口径 · </span>
         {caliber.name}
@@ -40,7 +40,7 @@ export function CaliberLine({ caliber, compact = false }: { caliber?: Caliber | 
  */
 export function CaliberIncomparabilityNote({ note }: { note?: string }) {
   return (
-    <p className="rounded-lg border border-amber-900/50 bg-amber-950/25 px-3 py-2 text-xs leading-relaxed text-amber-200/90">
+    <p className="rounded-lg border border-state-warn-line bg-state-warn-surface px-3 py-2 text-meta leading-relaxed text-state-warn-soft">
       {note ||
         "本页多个「胜率」的标的、持有期、分类数与是否对比基准都不同，数字之间不可比较、不可相加；" +
           "判断有效性必须看各自口径下的基准超额与样本量。"}

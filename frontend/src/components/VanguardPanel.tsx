@@ -91,7 +91,11 @@ export default function VanguardPanel({ onPick }: Props) {
         meta={data ? `${data.date} 收盘 · ${data.headline}` : "每日更新"}
       >
         <div className={STACK_TIGHT}>
-          <div className="grid gap-2 sm:grid-cols-3">
+          {/* 三维口径说明：**一行 inline**，不是三张卡。
+              原先三张 `rounded-xl bg-surface-inset px-3 py-2` 的卡只写了口径名、
+              没给任何数字，却占了约 60px 高 —— 等于用卡片的视觉权重装了一句注释。
+              这里压成一行带分隔的说明，视觉上归到「注释」层级，把首屏让给榜单。 */}
+          <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 text-meta text-ink-muted">
             {(data?.dims ?? [
               { key: "dark_money", label: "暗盘资金", desc: "主力净流入（大单口径）" },
               { key: "trend", label: "趋势", desc: "均线 · 斜率 · 位置 · MACD" },
@@ -99,16 +103,14 @@ export default function VanguardPanel({ onPick }: Props) {
             ]).map((d) => {
               const Icon = DIM_ICON[d.key as keyof typeof DIM_ICON] ?? Layers;
               return (
-                <div key={d.key} className="rounded-xl bg-surface-inset px-3 py-2">
-                  <p className="flex items-center gap-1.5 text-sm font-medium text-ink">
-                    <Icon className="h-3.5 w-3.5 text-brand-light" aria-hidden />
-                    {d.label}
-                  </p>
-                  <p className="mt-0.5 text-xs text-ink-faint">{d.desc}</p>
-                </div>
+                <li key={d.key} className="flex items-center gap-1.5">
+                  <Icon className="h-3.5 w-3.5 shrink-0 text-brand-light" aria-hidden />
+                  <span className="font-medium text-ink-soft">{d.label}</span>
+                  <span>{d.desc}</span>
+                </li>
               );
             })}
-          </div>
+          </ul>
 
           {data && <FundFlowNotice status={data.fund_flow.status} covered={data.fund_flow.covered} note={data.fund_flow.note} />}
           {data && <EvidenceNote evidence={data.evidence} />}
@@ -116,8 +118,8 @@ export default function VanguardPanel({ onPick }: Props) {
       </Panel>
 
       {err && (
-        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-red-800 bg-red-950/40 px-3 py-2 text-sm text-red-300">
-          <span>{err}</span>
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-state-danger-line bg-state-danger-surface px-3 py-2 text-body text-state-danger-soft">
+          <span className="min-w-0 flex-1">{err}</span>
           <Button variant="outlineQuiet" size="xs" onClick={() => void load()}>
             重试
           </Button>
@@ -125,7 +127,7 @@ export default function VanguardPanel({ onPick }: Props) {
       )}
 
       {!data && !err && (
-        <p className="text-sm text-ink-faint">
+        <p className="text-body text-ink-soft">
           正在计算三维榜：首次生成会拉取一次资金流批次与数十只 K 线，约需 1~2 分钟；
           之后当日整日命中缓存秒回。
         </p>
@@ -136,12 +138,13 @@ export default function VanguardPanel({ onPick }: Props) {
           <CollapsiblePanel
             id="vanguard-board"
             title="三维选股榜"
+            badge={<EvidenceBadge evidence={data.evidence} />}
             subtitle={`暗盘资金 · 趋势 · 活跃度加权排序 Top ${data.items.length} · 候选池 ${data.pool_size} 只 · 点行勾选、点箭头展开明细`}
             defaultOpen
             action={refreshBtn}
           >
             {data.items.length === 0 ? (
-              <p className="text-sm text-ink-faint">今日没有通过硬过滤与精算的标的。</p>
+              <p className="text-body text-ink-soft">今日没有通过硬过滤与精算的标的。</p>
             ) : (
               <BoardTable data={data} onPick={onPick} onDiagnose={diagnose} />
             )}
@@ -195,26 +198,30 @@ export default function VanguardPanel({ onPick }: Props) {
           <CollapsiblePanel
             id="vanguard-timing"
             title="买卖时机 · 结构位"
+            badge={<EvidenceBadge evidence={data.timing?.evidence} />}
             subtitle="支撑 / 压力 / 止损锚定结构位，不随现价漂移；买入侧实测为负，只作价位参考"
             defaultOpen={false}
-            action={<EvidenceBadge evidence={data.timing?.evidence} />}
           >
             <div className={STACK_TIGHT}>
-              <p className="text-sm text-ink-soft">{data.timing?.note}</p>
-              <EvidenceNote evidence={data.timing?.evidence} />
-              <p className="flex items-start gap-1.5 text-xs text-ink-faint">
-                <Target className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-                每个价位在各行展开明细里查看。买卖点是结构位而不是「现价 × 系数」——后者会让挂单价
-                每天跟着现价平移，实测超过七成样本退化成现价 ∓1%。
-              </p>
-              <p className="flex items-start gap-1.5 text-xs text-ink-faint">
-                <Timer className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-                本页不做盘中轮询：结构位来自日线，盯实时买卖点请用「今日作战 → 盯盘」。
-              </p>
+              <p className="text-body text-ink-soft">{data.timing?.note}</p>
+              <ul className="space-y-1 text-meta leading-relaxed text-ink-faint">
+                <li className="flex items-start gap-1.5">
+                  <Target className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+                  <span>
+                    每个价位在各行展开明细里查看。买卖点是结构位而不是「现价 × 系数」——后者会让挂单价
+                    每天跟着现价平移，实测超过七成样本退化成现价 ∓1%。
+                  </span>
+                </li>
+                <li className="flex items-start gap-1.5">
+                  <Timer className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+                  <span>本页不做盘中轮询：结构位来自日线，盯实时买卖点请用「今日作战 → 盯盘」。</span>
+                </li>
+              </ul>
             </div>
           </CollapsiblePanel>
 
-          <p className="flex items-start gap-1.5 text-xs text-ink-faint">
+          {/* 页脚免责：降到最低视觉权重 —— 它是合规说明，不该和读数抢注意力 */}
+          <p className="flex items-start gap-1.5 px-1 text-meta text-ink-faint">
             <Users className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
             本页全部为统计读数与规则打分，不是投资建议；三维榜尚未做收益回测，证据档为「初步」。
           </p>

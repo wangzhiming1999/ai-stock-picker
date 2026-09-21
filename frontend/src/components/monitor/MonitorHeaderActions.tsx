@@ -16,10 +16,10 @@ export default function MonitorHeaderActions({ notifyOn, onToggleNotify, onForce
       <button
         onClick={onToggleNotify}
         title="指令变化时（买入/减仓/止损）响铃提醒，页面后台时弹系统通知"
-        className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1 text-xs transition-colors ${
+        className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1 text-meta transition-colors ${
           notifyOn
-            ? "border-amber-700/60 bg-amber-950/40 text-amber-300 hover:bg-amber-950/60"
-            : "border-slate-700 text-ink-muted hover:text-ink"
+            ? "border-state-warn-line bg-state-warn-surface text-state-warn-soft hover:bg-state-warn-surface"
+            : "border-surface-line text-ink-muted hover:text-ink"
         }`}
       >
         {notifyOn ? <BellRing className="h-3.5 w-3.5" aria-hidden /> : <Bell className="h-3.5 w-3.5" aria-hidden />}

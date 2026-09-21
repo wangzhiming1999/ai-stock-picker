@@ -7,6 +7,7 @@ import AlertBell from "./components/AlertBell";
 import AnalysisDrawer from "./components/AnalysisDrawer";
 import AuthModal from "./components/AuthModal";
 import BrandLogo from "./components/BrandLogo";
+import Button, { buttonVariants } from "./components/ui/Button";
 import ErrorBoundary from "./components/ui/ErrorBoundary";
 import FeatureMapModal from "./components/FeatureMapModal";
 import HoldingsPanel from "./components/HoldingsPanel";
@@ -176,32 +177,29 @@ export default function App() {
 
             <div className="flex shrink-0 items-center gap-2">
               {/* 功能地图：一级导航只有 4 项，但功能有 20+ 个，所以索引常驻在头部 */}
-              <button
-                type="button"
+              <Button
+                variant="outline"
+                size="md"
                 onClick={() => openMap(null)}
                 title="全部功能 · 一眼看到这个工具有什么"
-                className="flex items-center gap-1.5 rounded-lg border border-surface-line-strong px-2.5 py-1.5 text-xs text-ink-soft transition-colors hover:border-slate-400 hover:text-ink-strong"
               >
                 <Compass className="h-3.5 w-3.5" aria-hidden />
                 <span className="hidden sm:inline">全部功能</span>
-              </button>
+              </Button>
               {user && <AlertBell />}
               {user ? (
-                <div className="flex items-center gap-2 rounded-lg border border-surface-line px-3 py-1.5">
-                  <span className="hidden max-w-[140px] truncate text-xs text-ink-soft md:inline">{user.email}</span>
-                  <button
-                    onClick={signOut}
-                    className="flex items-center gap-1 text-xs text-ink-faint transition-colors hover:text-ink"
-                  >
+                <div className="flex items-center gap-1 rounded-lg border border-surface-line px-3 py-1.5">
+                  <span className="hidden max-w-[140px] truncate text-meta text-ink-soft md:inline">{user.email}</span>
+                  <Button variant="ghost" size="xs" onClick={signOut}>
                     <LogIn className="h-3.5 w-3.5" aria-hidden />
                     退出
-                  </button>
+                  </Button>
                 </div>
               ) : (
                 <motion.button
                   onClick={() => setAuthOpen(true)}
                   whileTap={{ scale: 0.96 }}
-                  className="flex items-center gap-1.5 rounded-lg bg-brand px-4 py-1.5 text-xs font-medium text-white hover:bg-brand-dark"
+                  className={buttonVariants({ variant: "primary", size: "md" })}
                 >
                   <LogIn className="h-3.5 w-3.5" aria-hidden />
                   登录
@@ -223,13 +221,13 @@ export default function App() {
                   key={t.key}
                   onClick={() => changeTab(t.key)}
                   aria-current={active ? "page" : undefined}
-                  className={`relative flex items-center gap-1.5 px-3 text-sm font-medium transition-colors ${
+                  className={`relative flex items-center gap-1.5 px-3 text-body font-medium transition-colors ${
                     active ? "text-ink-strong" : "text-ink-muted hover:text-ink"
                   }`}
                 >
                   <Icon className="h-4 w-4" strokeWidth={2.2} aria-hidden />
                   {t.label}
-                  <span className="hidden text-xs font-normal text-ink-faint lg:inline">{t.desc}</span>
+                  <span className="hidden text-meta font-normal text-ink-muted lg:inline">{t.desc}</span>
                   {active && (
                     <motion.span
                       layoutId="top-tab-underline"
@@ -320,8 +318,8 @@ export default function App() {
                 onClick={() => changeTab(t.key)}
                 aria-current={active ? "page" : undefined}
                 whileTap={{ scale: 0.92 }}
-                className={`flex flex-col items-center gap-0.5 py-2.5 text-xs font-medium transition-colors ${
-                  active ? "text-brand-light" : "text-ink-faint"
+                className={`flex flex-col items-center gap-0.5 py-2.5 text-meta font-medium transition-colors ${
+                  active ? "text-brand-light" : "text-ink-muted"
                 }`}
               >
                 <Icon className={`h-5 w-5 ${active ? "fill-brand/10" : ""}`} strokeWidth={active ? 2.4 : 2} />
@@ -332,7 +330,7 @@ export default function App() {
         </div>
       </nav>
 
-      <footer className="mx-auto hidden max-w-[1360px] px-6 pb-8 text-center text-xs text-ink-faint sm:block">
+      <footer className={`${PAGE_WRAP} hidden pb-8 text-center text-meta text-ink-faint sm:block`}>
         数据来源：akshare（腾讯/新浪）· 分析模型：DeepSeek · 仅供研究学习，不构成投资建议
       </footer>
     </div>

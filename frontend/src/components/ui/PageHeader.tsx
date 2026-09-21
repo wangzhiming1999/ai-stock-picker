@@ -32,9 +32,9 @@ export default function PageHeader({ title, desc, icon: Icon, meta }: Props) {
             {title}
           </span>
         </h1>
-        {desc && <p className="mt-1 text-sm text-ink-muted">{desc}</p>}
+        {desc && <p className="mt-1 text-body text-ink-muted">{desc}</p>}
       </div>
-      {meta && <div className="shrink-0 text-right text-xs text-ink-faint">{meta}</div>}
+      {meta && <div className="shrink-0 text-right text-meta text-ink-muted">{meta}</div>}
     </header>
   );
 }

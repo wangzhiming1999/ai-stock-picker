@@ -35,16 +35,16 @@ export default function AgentDecisionsSection() {
   if (loading) return null;
   if (err && !data) {
     return (
-      <div className="mt-4 border-t border-slate-800 pt-3 text-xs text-ink-faint">
+      <div className="mt-4 border-t border-surface-line pt-3 text-meta text-ink-muted">
         Agent 决策记录暂不可用：{err}
       </div>
     );
   }
   if (!data || data.decisions.length === 0) {
     return (
-      <div className="mt-4 border-t border-slate-800 pt-3">
-        <div className="mb-1.5 text-xs font-semibold text-ink-muted">Agent 决策记录</div>
-        <p className="text-xs leading-relaxed text-ink-faint">
+      <div className="mt-4 border-t border-surface-line pt-3">
+        <div className="mb-1.5 text-meta font-semibold text-ink-muted">Agent 决策记录</div>
+        <p className="text-meta leading-relaxed text-ink-soft">
           还没有记录。在「深度分析」勾选多空对辩并跑出终审计划后，这里会出现 agent 的每条计划与实际结算结果 ——
           这就是 agent 自己的战绩单。
         </p>
@@ -56,10 +56,10 @@ export default function AgentDecisionsSection() {
   const pending = decisions.filter((d) => d.settled_at == null);
 
   return (
-    <div className="mt-4 border-t border-slate-800 pt-3">
+    <div className="mt-4 border-t border-surface-line pt-3">
       <div className="mb-2 flex flex-wrap items-baseline gap-2">
-        <span className="text-xs font-semibold text-ink-muted">Agent 决策记录</span>
-        <span className="text-xs text-ink-faint">交易员计划 → 终审 → 实际结算 · agent 的战绩单</span>
+        <span className="text-meta font-semibold text-ink-muted">Agent 决策记录</span>
+        <span className="text-meta text-ink-soft">交易员计划 → 终审 → 实际结算 · agent 的战绩单</span>
       </div>
 
       {stats && (
@@ -84,7 +84,7 @@ export default function AgentDecisionsSection() {
         </div>
       )}
       {stats && (
-        <p className="mb-3 text-xs leading-relaxed text-ink-faint">
+        <p className="mb-3 text-meta leading-relaxed text-ink-faint">
           口径：{stats.caliber.name} · {stats.caliber.window} · {stats.caliber.rule}
           {stats.caliber.pitfall ? `。注意：${stats.caliber.pitfall}` : ""}
         </p>
@@ -94,18 +94,18 @@ export default function AgentDecisionsSection() {
         {decisions.map((d) => {
           const settledRow = d.settled_at != null;
           return (
-            <div key={d.id} className="rounded bg-slate-800/40 px-3 py-2 text-xs">
+            <div key={d.id} className="rounded-md bg-surface-inset/40 px-3 py-2 text-meta">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-medium text-ink">{d.name || d.code}</span>
-                <span className="text-ink-faint">{d.code}</span>
-                <span className="text-ink-faint">· {d.data_date}</span>
+                <span className="text-ink-muted">{d.code}</span>
+                <span className="text-ink-muted">· {d.data_date}</span>
                 <span
-                  className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                  className={`rounded-md px-1.5 py-0.5 text-micro font-medium ${
                     d.status === "adopted"
                       ? "bg-blue-900/40 text-blue-300"
                       : d.status === "rejected"
-                        ? "bg-slate-700/50 text-ink-faint"
-                        : "bg-slate-700/40 text-ink-soft"
+                        ? "bg-surface-line/50 text-ink-muted"
+                        : "bg-surface-line/40 text-ink-soft"
                   }`}
                   title={
                     d.status === "adopted"
@@ -117,7 +117,7 @@ export default function AgentDecisionsSection() {
                 >
                   {d.status === "adopted" ? "已采纳" : d.status === "rejected" ? "已否决" : "未采纳"}
                 </span>
-                <span className="text-ink-faint">
+                <span className="text-ink-muted">
                   {d.action} · 终审 {d.verdict} · 仓位 {d.position_pct}%
                 </span>
                 <span className="ml-auto">
@@ -128,22 +128,22 @@ export default function AgentDecisionsSection() {
                         {d.pnl_pct.toFixed(1)}%{d.hit ? " · 命中" : " · 未命中"}
                       </span>
                     ) : (
-                      <span className="text-ink-faint">已结算（无方向基准）</span>
+                      <span className="text-ink-muted">已结算（无方向基准）</span>
                     )
                   ) : (
-                    <span className="text-ink-faint">待结算（{d.horizon_days} 个交易日后）</span>
+                    <span className="text-ink-muted">待结算（{d.horizon_days} 个交易日后）</span>
                   )}
                 </span>
               </div>
               {d.reflection && (
-                <p className="mt-1 leading-relaxed text-ink-faint">{d.reflection}</p>
+                <p className="mt-1 leading-relaxed text-ink-soft">{d.reflection}</p>
               )}
             </div>
           );
         })}
       </div>
       {pending.length > 0 && (
-        <p className="mt-1.5 text-xs text-ink-faint">
+        <p className="mt-1.5 text-meta text-ink-soft">
           {pending.length} 条待结算 —— 每日收盘 cron 自动按到期日收盘价回写。
         </p>
       )}

@@ -30,6 +30,9 @@ import PerfChart from "./sim/PerfChart";
 import TradeModal from "./sim/TradeModal";
 import AgentDecisionsSection from "./sim/AgentDecisionsSection";
 import type { ModalState } from "./sim/shared";
+import Panel from "./ui/Panel";
+// CARD 仍有一处正当用途：未登录时的门禁卡（不是面板，没有头部）
+import { CARD } from "../lib/ui";
 
 export default function SimPanel() {
   const { user } = useAuth();
@@ -76,7 +79,7 @@ export default function SimPanel() {
 
   if (!user) {
     return (
-      <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5 text-sm text-ink-muted">
+      <div className={`${CARD} text-body text-ink-muted`}>
         请先登录后使用模拟盘（虚拟资金，按用户隔离）。
       </div>
     );
@@ -91,21 +94,22 @@ export default function SimPanel() {
   }, [positions]);
 
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
-      <div className="mb-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div>
-            <h3 className="text-sm font-semibold text-ink">模拟盘</h3>
-            <p className="mt-0.5 text-xs text-ink-faint">虚拟资金实操验证 · A 股费用规则 · T+1</p>
-          </div>
-          {usingMock && (
-            <span className="rounded border border-amber-700/40 bg-amber-950/40 px-1.5 py-0.5 text-xs font-medium text-amber-300" title="模拟盘后端当前不可用，前端展示固定演示数据">
-              演示数据
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          {loading && <span className="text-xs text-ink-faint">加载中…</span>}
+    <Panel
+      title="模拟盘"
+      desc="虚拟资金实操验证 · A 股费用规则 · T+1"
+      meta={
+        usingMock ? (
+          <span
+            className="rounded-md border border-state-warn-line bg-state-warn-surface px-1.5 py-0.5 text-meta font-medium text-state-warn-soft"
+            title="模拟盘后端当前不可用，前端展示固定演示数据"
+          >
+            演示数据
+          </span>
+        ) : undefined
+      }
+      actions={
+        <>
+          {loading && <span className="text-meta text-ink-soft">加载中…</span>}
           {!usingMock && (
             <button
               onClick={async () => {
@@ -127,7 +131,7 @@ export default function SimPanel() {
                   toast.error((e as Error).message);
                 }
               }}
-              className="rounded border border-red-800/60 px-2.5 py-1 text-xs text-red-300 hover:border-red-500 hover:bg-red-950/30 hover:text-red-200"
+              className="rounded-md border border-state-danger-line px-2.5 py-1 text-meta text-state-danger-soft hover:border-red-500 hover:bg-state-danger-surface hover:text-state-danger-soft"
               title="清空所有成交流水、净值快照、现金归零（不影响总资金与持仓配置）"
             >
               重置
@@ -138,11 +142,11 @@ export default function SimPanel() {
             >
             + 模拟买入
           </Button>
-        </div>
-      </div>
-
+        </>
+      }
+    >
       {realButUninit && (
-        <div className="mb-4 rounded-lg border border-amber-700/40 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
+        <div className="mb-4 rounded-lg border border-state-warn-line bg-state-warn-surface px-3 py-2 text-meta text-state-warn-soft">
           模拟账户尚未初始化。
           <button
             onClick={async () => {
@@ -184,6 +188,6 @@ export default function SimPanel() {
           onDone={() => void load()}
         />
       )}
-    </div>
+    </Panel>
   );
 }

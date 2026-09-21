@@ -9,9 +9,9 @@ interface Props {
 }
 
 const SIZE_MAP = {
-  sm: { box: "h-8 w-8", icon: "h-4 w-4", text: "text-sm", sub: "text-xs", glow: "shadow-[0_0_8px_rgba(37,99,235,0.35)]" },
-  md: { box: "h-10 w-10", icon: "h-5 w-5", text: "text-base", sub: "text-xs", glow: "shadow-[0_0_14px_rgba(37,99,235,0.45)]" },
-  lg: { box: "h-14 w-14", icon: "h-7 w-7", text: "text-xl", sub: "text-xs", glow: "shadow-[0_0_20px_rgba(37,99,235,0.55)]" },
+  sm: { box: "h-8 w-8", icon: "h-4 w-4", text: "text-body", sub: "text-meta", glow: "shadow-[0_0_8px_rgba(37,99,235,0.35)]" },
+  md: { box: "h-10 w-10", icon: "h-5 w-5", text: "text-head", sub: "text-meta", glow: "shadow-[0_0_14px_rgba(37,99,235,0.45)]" },
+  lg: { box: "h-14 w-14", icon: "h-7 w-7", text: "text-h1", sub: "text-meta", glow: "shadow-[0_0_20px_rgba(37,99,235,0.55)]" },
 };
 
 export default function BrandLogo({ size = "md", withText = true, subtitle, onClick }: Props) {
