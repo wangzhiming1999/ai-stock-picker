@@ -243,6 +243,23 @@ export async function tacticCheck(code: string): Promise<TacticStock> {
   return res.json();
 }
 
+/**
+ * 筹码形态扫描：按筹码峰形态（单峰密集 / 低位低获利 / 转移向上）筛命中标的。
+ *
+ * 复用 `POST /market/tactic-scan` 通用链路 —— 筹码形态就是注册在 pattern_service
+ * 里的 chip_* 技巧，后端在 check_codes 里按需注入筹码序列。独立函数是为了
+ * 调用点语义清晰（筹码页只扫 chip_* 键），而不是另一条 API。
+ */
+export async function chipScan(params: {
+  tactic?: "chip_single_peak" | "chip_low_profit" | "chip_transfer_up";
+  codes?: string[];
+  limit?: number;
+  minAmountYi?: number;
+  force?: boolean;
+}): Promise<TacticScanResult> {
+  return tacticScan({ ...params, tactic: params.tactic });
+}
+
 /** 实战形态回测：walk-forward 验证技巧表现（含同区间基准对比） */
 export async function tacticBacktest(params: {
   tactic?: string;

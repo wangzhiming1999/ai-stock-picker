@@ -541,6 +541,9 @@ async def strategy_scan(req: StrategyScanRequest):
 # 其余技巧只取一次日线，可以用更大的池子。
 _TACTIC_CAP_MULTI = 12
 _TACTIC_CAP_PLAIN = 20
+# 筹码形态：每只票首次要真拉 210 根东财K线（之后走每日缓存），与多周期同级收窄。
+# 冷启动 12 只 × ~1s（含重试）≈ 12s，Serverless 可接受。
+_TACTIC_CAP_CHIP = 12
 
 
 class TacticScanRequest(BaseModel):
@@ -553,6 +556,8 @@ class TacticScanRequest(BaseModel):
 
 
 def _tactic_candidates(keys: list[str]) -> int:
+    if any(k.startswith("chip_") for k in keys):
+        return _TACTIC_CAP_CHIP
     return _TACTIC_CAP_MULTI if pattern_service.needed_periods(keys) else _TACTIC_CAP_PLAIN
 
 

@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { Crosshair, Lightbulb, ScanSearch, Shapes } from "lucide-react";
+import { Crosshair, Lightbulb, ScanSearch, Shapes, Layers } from "lucide-react";
 import { subNavFor } from "../lib/subnav";
 import { useSubPage } from "../lib/useSubPage";
 import type { NavJump } from "../lib/featureMap";
@@ -13,18 +13,21 @@ import PageHeader from "./ui/PageHeader";
 const ScanPanel = lazyRetry(() => import("./ScanPanel"));
 const TacticView = lazyRetry(() => import("./TacticView"));
 const VanguardPanel = lazyRetry(() => import("./VanguardPanel"));
+const ChipPanel = lazyRetry(() => import("./ChipPanel"));
 
 const SUB_ICON = {
   recommend: Lightbulb,
   vanguard: Crosshair,
   scan: ScanSearch,
   tactic: Shapes,
+  chip: Layers,
 } as const;
 const SUB_KEYS = {
   recommend: "recommend",
   vanguard: "vanguard",
   scan: "scan",
   tactic: "tactic",
+  chip: "chip",
 } as const;
 
 interface Props {
@@ -95,6 +98,14 @@ export default function OpportunityPanel({ onPick, jump }: Props) {
         <div className={isVisible(SUB_KEYS.tactic)}>
           <Suspense fallback={<PanelSkeleton label="正在加载形态命中" />}>
             <TacticView onPick={onPick} />
+          </Suspense>
+        </div>
+      )}
+
+      {isMounted(SUB_KEYS.chip) && (
+        <div className={isVisible(SUB_KEYS.chip)}>
+          <Suspense fallback={<PanelSkeleton label="正在加载筹码形态" />}>
+            <ChipPanel onPick={onPick} />
           </Suspense>
         </div>
       )}

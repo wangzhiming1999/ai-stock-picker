@@ -95,6 +95,7 @@ def _prefix(hist: StockHistory, end: int) -> StockHistory:
         opens=hist.opens[:end] if hist.opens else None,
         highs=hist.highs[:end] if hist.highs else None,
         lows=hist.lows[:end] if hist.lows else None,
+        turnover=hist.turnover[:end] if hist.turnover else None,
     )
 
 
@@ -348,7 +349,10 @@ def _evaluate_sync(
                     "daily": prefix,
                     "intraday": None,
                     "price": closes[i],
-                    "turnover": None,  # 无历史换手率
+                    # 历史换手率已补齐（腾讯日线行索引 7），对齐 prefix 长度后取当日值
+                    "turnover": (
+                        prefix.turnover[i] if prefix.turnover and i < len(prefix.turnover) else None
+                    ),
                 }
                 if wants_extra:
                     day = prefix.dates[-1] if prefix.dates else None

@@ -1311,7 +1311,13 @@ export interface BriefingHoldingRelay {
 // ---------- 实战形态（pattern_service） ----------
 
 /** 技巧分类 */
-export type TacticCategory = "周期共振" | "K线组合" | "量价关系" | "均线与指标" | "风控铁律";
+export type TacticCategory =
+  | "周期共振"
+  | "K线组合"
+  | "量价关系"
+  | "均线与指标"
+  | "风控铁律"
+  | "筹码形态";
 
 /** 技巧方向：buy=买点 / sell=卖点或止损 */
 export type TacticDirection = "buy" | "sell";
