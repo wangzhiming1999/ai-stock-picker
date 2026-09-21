@@ -602,7 +602,9 @@ async def tactic_scan_endpoint(req: TacticScanRequest):
                 detail=f"未知技巧 {req.tactic}，可选: {list(pattern_service.TACTIC_MAP)}",
             )
         keys = [req.tactic]
-    active = keys or list(pattern_service.DETECTORS)
+    # 候选池规模按「本次真正要跑的技巧」估。默认集合用 ACTIVE_TACTICS（= TACTIC_MAP 的键），
+    # **不是 DETECTORS** —— DETECTORS 含已下线技巧，拿它当默认会让 check_codes 查表 KeyError。
+    active = keys or list(pattern_service.ACTIVE_TACTICS)
 
     if req.codes:
         codes = [c.strip() for c in req.codes if c and c.strip()][:30]

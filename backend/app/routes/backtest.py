@@ -117,7 +117,7 @@ async def backtest_pool():
 class TacticBacktestRequest(BaseModel):
     """实战形态回测请求"""
     tactic: str | None = Field(None, description="技巧 key（见 /api/market/tactics），不传=全部可回测技巧")
-    codes: list[str] | None = Field(None, description="股票池，缺省用形态回测默认池（10 只）")
+    codes: list[str] | None = Field(None, description="股票池，缺省用形态回测默认池（42 只）")
     horizon_days: int = Field(10, ge=1, le=30, description="持有期（交易日）")
     eval_bars: int = Field(250, ge=60, le=400, description="每只票参与评估的最近交易日数")
 
@@ -126,8 +126,9 @@ class TacticBacktestRequest(BaseModel):
 async def tactic_backtest_endpoint(req: TacticBacktestRequest):
     """实战形态历史回测：walk-forward 验证技巧表现，并与同区间基准对比。
 
-    结论仅供参考：免费数据源只有日线历史，分时背离无法回测；天量见天价的换手率
-    条件在回测中按数据缺失处理。命中样本过少时返回 `insufficient_data`，不给结论。
+    结论仅供参考：免费数据源只有日线历史，分时背离无法回测；天量见天价的换手率条件
+    已在回测中生效（历史换手率来自腾讯日线），个别时点缺值会在该条结果的 note 里报出。
+    命中样本过少时返回 `insufficient_data`，不给结论。
     """
     keys: list[str] | None = None
     if req.tactic:

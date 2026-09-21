@@ -148,6 +148,20 @@ RETIRED_TACTICS: list[str] = ["ma20_slope"]
 
 TACTIC_MAP: dict[str, dict] = {t["key"]: t for t in TACTICS}
 
+# 「参与扫描 / 回测 / 面板」的默认技巧集合 = TACTICS 的键。
+#
+# ⚠️ **不要用 `list(DETECTORS)` 当默认集合。** DETECTORS 刻意保留了已下线技巧
+# （RETIRED_TACTICS）的 detect 函数 —— 那是留给「日后重新校准区间时复用回测链路」的，
+# 但那些 key **不在 TACTIC_MAP 里**。两者混用会得到一个「比查到它的字典更宽」的集合，
+# 下游 `TACTIC_MAP[key]` 直接 KeyError。
+#
+# 2026-09-21 实测事故：`keys or list(DETECTORS)` 出现在 3 处，
+# 于是「形态回测验证」「全部技巧扫描」「单票形态体检」三个入口在不指定技巧时
+# **恒定报错** `'ma20_slope'`（前端表现为「形态回测失败：'ma20_slope' 重试」）。
+# 危害不止于报错：形态回测是**唯一**能把技巧从观察池升到 verified 的通道，
+# 它一挂，11 条技巧的证据等级就永远停在原地。
+ACTIVE_TACTICS: tuple[str, ...] = tuple(t["key"] for t in TACTICS)
+
 # 单市场（日线）技巧的兜底阈值，集中在此便于日后回测调参。
 _BODY_SHADOW_RATIO = 2.0        # 影线长度至少为实体倍数
 _SHADOW_RANGE_RATIO = 0.4       # 影线至少占全幅比例
@@ -668,7 +682,9 @@ def detect_volume_floor(ctx: dict) -> dict:
             f"60 日高点 {hi:.2f}（第 {hi_pos + 1} 根），现价 {c[-1]:.2f}，回撤 {drawdown:.1f}%",
         ),
         _cond(
-            "出现地量（≤ 前期均量 20%）",
+            # 标签必须由常量插值而来：原文写 20%，但校准后阈值是 30%，
+            # 写死字符串会出现「28% 前期均量」被打 ✓ 却标着「≤ 20%」的自相矛盾。
+            f"出现地量（≤ 前期均量 {_FLOOR_VOLUME_RATIO:.0%}）",
             floor_vol,
             (
                 f"最近地量 {v[low_idx]:.0f} 手，为前期均量 {base_avg:.0f} 手的 {low_ratio * 100:.1f}%"
@@ -679,12 +695,12 @@ def detect_volume_floor(ctx: dict) -> dict:
             ),
         ),
         _cond(
-            "3 日内温和放量 ≥ 地量 2 倍",
+            f"3 日内温和放量 ≥ 地量 {_FLOOR_CONFIRM_RATIO:.0f} 倍",
             confirmed,
             (
                 f"地量后第 {confirm_idx - low_idx} 日放量至 {v[confirm_idx]:.0f} 手"
                 if confirmed
-                else "尚未出现 2 倍量确认"
+                else f"尚未出现 {_FLOOR_CONFIRM_RATIO:.0f} 倍量确认"
             ),
         ),
     ]
@@ -1168,7 +1184,7 @@ def needed_periods(keys: list[str] | None = None) -> tuple[str, ...]:
     因此绝大多数调用点不会产生任何额外请求。
     """
     out: list[str] = []
-    for key in keys or list(DETECTORS):
+    for key in keys or ACTIVE_TACTICS:
         for period in TACTIC_MAP.get(key, {}).get("extra_periods", ()):
             if period not in out:
                 out.append(period)
@@ -1234,7 +1250,7 @@ async def load_tactic_periods(
 
 def check_one(ctx: dict, keys: list[str] | None = None) -> list[dict]:
     """对单个上下文跑指定技巧（默认全部）。单个技巧异常不拖垮其余技巧。"""
-    selected = keys or [t["key"] for t in TACTICS]
+    selected = list(keys) if keys else list(ACTIVE_TACTICS)
     out: list[dict] = []
     for key in selected:
         fn = DETECTORS.get(key)
@@ -1243,7 +1259,16 @@ def check_one(ctx: dict, keys: list[str] | None = None) -> list[dict]:
         try:
             out.append(fn(ctx))
         except Exception as e:  # 形态计算失败不应让整批扫描 502
-            out.append(_insufficient(TACTIC_MAP[key], f"计算异常：{type(e).__name__}"))
+            # 元数据取不到（例如显式传了已下线技巧）时兜一份最小骨架 ——
+            # 这里的 except 是为了「不拖垮其余技巧」，不是为了再抛一个 KeyError。
+            tactic = TACTIC_MAP.get(key) or {
+                "key": key,
+                "name": key,
+                "category": "",
+                "direction": "buy",
+                "desc": "",
+            }
+            out.append(_insufficient(tactic, f"计算异常：{type(e).__name__}"))
     return out
 
 
@@ -1263,7 +1288,9 @@ async def check_codes(codes: list[str], keys: list[str] | None = None, intraday_
     需要周线/月线的技巧（多周期共振）另外按周期取一次，各自独立缓存。
     """
     codes = [c.strip() for c in codes if c and c.strip()]
-    selected = [k for k in (keys or list(DETECTORS)) if k in DETECTORS]
+    # 默认集合用 ACTIVE_TACTICS（= TACTIC_MAP 的键），**不是 DETECTORS** ——
+    # DETECTORS 含已下线技巧，拿它当默认会让下面的 TACTIC_MAP[k] 直接 KeyError。
+    selected = [k for k in (keys or ACTIVE_TACTICS) if k in TACTIC_MAP]
     if not codes or not selected:
         return []
 

@@ -243,6 +243,9 @@ async def _build_review(user_id: str | None) -> dict | None:
     if not user_id:
         return None
     review: dict = {"holdings_pnl": None, "alerts_today": None, "actions": None, "summary": None}
+    # 取数失败要留在 summary 里：前端在 summary 与 alerts 都为空时会把整块隐藏，
+    # 所以「静默 pass」的结果不是「少一行」，而是**失败与「今天没事发生」完全同形**。
+    failures: list[str] = []
     try:
         data = await portfolio_service.list_holdings(user_id)
         holdings = data.get("holdings", [])
@@ -256,8 +259,8 @@ async def _build_review(user_id: str | None) -> dict | None:
                 "best": {"name": best.get("name") or best.get("code"), "pnl_pct": best.get("pnl_pct")},
                 "worst": {"name": worst.get("name") or worst.get("code"), "pnl_pct": worst.get("pnl_pct")},
             }
-    except Exception:
-        pass
+    except Exception as e:
+        failures.append(f"持仓盈亏取数失败（{type(e).__name__}）")
 
     # 今日触发的预警事件（收盘后复盘「盘中发生了什么」）
     try:
@@ -271,8 +274,8 @@ async def _build_review(user_id: str | None) -> dict | None:
                 {"title": e.get("title"), "message": e.get("message"), "severity": e.get("severity")}
                 for e in todays[:5]
             ]
-    except Exception:
-        pass
+    except Exception as e:
+        failures.append(f"今日预警取数失败（{type(e).__name__}）")
 
     # 汇总一句话
     parts = []
@@ -286,6 +289,9 @@ async def _build_review(user_id: str | None) -> dict | None:
             parts.append(f"最弱 {hp['worst']['name']} {hp['worst']['pnl_pct']}%")
     if review["alerts_today"]:
         parts.append(f"盘中触发 {len(review['alerts_today'])} 条预警")
+    # 失败说明并进 summary（而不是另开一个前端不读的字段）——
+    # 这样前端在「今天什么都没有」的既有渲染路径里就能把失败显示出来。
+    parts.extend(failures)
     review["summary"] = "；".join(parts) if parts else None
     return review
 

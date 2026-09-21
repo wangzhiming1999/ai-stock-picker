@@ -289,6 +289,7 @@ def run_backtest(params: BacktestParams) -> dict:
 
     # 基准收益（沪深300，用新浪指数接口兜底）
     benchmark_return = None
+    benchmark_note = None
     try:
         bdf = akshare_guard.call(ak.stock_zh_index_daily, symbol=BENCHMARK)
         bdf["date"] = pd.to_datetime(bdf["date"])
@@ -296,8 +297,12 @@ def run_backtest(params: BacktestParams) -> dict:
         bdf = bdf[bdf["date"].dt.date <= dt.date.fromisoformat(equity_curve[-1]["date"])]
         if len(bdf) > 1:
             benchmark_return = (float(bdf["close"].iloc[-1]) / float(bdf["close"].iloc[0]) - 1) * 100
-    except Exception:
-        pass
+        else:
+            benchmark_note = "基准（沪深300）在回测区间内取不到足够数据，本次未计算基准收益"
+    except Exception as e:
+        # 取数失败原本是静默 pass → 前端只显示「—」，与「还没跑」无法区分。
+        # 但基准恰恰是判断「这策略到底跑赢没有」的那一半，缺了必须说明原因。
+        benchmark_note = f"基准（沪深300）取数失败（{type(e).__name__}），本次未计算基准收益"
 
     return {
         "strategy": params.strategy,
@@ -312,6 +317,8 @@ def run_backtest(params: BacktestParams) -> dict:
         "win_rate": round(float(win_rate), 1),
         "periods": len(returns),
         "benchmark_return": round(float(benchmark_return), 2) if benchmark_return is not None else None,
+        # 基准为空时说明原因（取数失败 / 区间数据不足），别让前端只能显示「—」
+        "benchmark_note": benchmark_note,
         "equity_curve": equity_curve,
         "pool_size": len(histories),
         # 口径随数据一起下发：这里的「胜率」是**调仓期**口径，样本单位是期不是票

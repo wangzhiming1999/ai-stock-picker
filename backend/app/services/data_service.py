@@ -220,7 +220,9 @@ def _parse_qq_history_payload(
                 volume = float(row[5])
             except (TypeError, ValueError):
                 continue
-            # 行索引 7 为换手率%（仅日线返回；周/月线该位为空串）。缺失不报错、置 None。
+            # 行索引 7 为换手率%。2026-09-21 实测：**日线、周线、月线都有值**
+            # （此前这里写「仅日线返回、周/月线为空串」是错的，周线实测 0.09）。
+            # 缺失不报错、置 None。
             turnover = None
             if len(row) > 7 and row[7] not in (None, ""):
                 try:

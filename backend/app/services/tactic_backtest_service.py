@@ -12,9 +12,13 @@
    （否则一次持续下跌会被拆成几十次「成功逃顶」）；
 4. **不可回测 / 不可得的项要明说**，不能静默当成通过：
    - 分时背离需要分钟级历史 K 线，当前数据源只有日线历史；
-   - 天量见天价的「换手率 >30%」需要历史换手率，回测时按数据缺失处理；
+   - 历史换手率**已补齐**（腾讯日线行索引 7），因此天量见天价的「换手率 >30%」
+     在回测里是生效的第三个条件；个别时点缺值由 `_note_for()` 按实际缺少数报出，
+     不再用一句全局文案盖掉整个技巧；
    - 历史长度覆盖不了预热期的技巧，报 `insufficient_data` 并写明「未纳入评估」，
-     而不是混在「0 次命中」里 —— 那会把「没信号」和「没评」显示成同一件事。
+     而不是混在「0 次命中」里 —— 那会把「没信号」和「没评」显示成同一件事；
+   - 形态判定抛异常的时点会被跳过（否则一只票算崩就废掉整轮回测），
+     但跳过数会一并报出 —— 静默跳过会让「算不出来」和「真没信号」长得一模一样。
 
 多周期共振取的是**真实周线/月线**（与日线同一端点，只是 period 参数不同），
 回放时用 `_PeriodCursor` 按评估日切到「当时能看到的最后一根」，并把进行中那根的
@@ -76,10 +80,14 @@ _NOT_BACKTESTABLE = {
     "intraday_divergence": "需要分钟级历史 K 线，当前数据源只提供日线历史，无法回测",
 }
 
-# 回测中拿不到的历史字段（按数据缺失处理，不参与判定）
-_HISTORY_FIELD_NOTES = {
-    "volume_peak": "「换手率 >30%」需历史换手率，回测中按数据缺失处理（仅按涨幅 + 天量判定）",
-}
+# 换手率类条件的提示模板。**不要**把它写成「回测中按数据缺失处理」的全局声明 ——
+# 历史换手率自 2026-09-21 起已由 data_service 解析（腾讯日线行索引 7）并传入检测器，
+# 只有个别时点真的缺值时才该报出来，缺多少报多少。
+_TURNOVER_MISSING_FMT = (
+    "其中 {missing}/{points} 个评估时点缺历史换手率，这些时点的「换手率 >30%」按数据缺失处理"
+    "（仅按涨幅 + 天量判定）"
+)
+_TACTICS_USING_TURNOVER = ("volume_peak",)
 
 
 def _clamp(value: int, lo: int, hi: int) -> int:
@@ -212,9 +220,9 @@ def _pack(
     baseline: list[float],
     stocks: int,
     per_stock: dict[str, list[float]],
+    note: str | None = None,
 ) -> dict:
     buy = tactic["direction"] == "buy"
-    note = _HISTORY_FIELD_NOTES.get(tactic["key"])
     base = _blank(tactic, horizon, "insufficient_data", note)
     base["stocks_evaluated"] = stocks
     base["eval_points"] = len(baseline)
@@ -222,7 +230,9 @@ def _pack(
     base["win_definition"] = "之后上涨记为胜（买入形态）" if buy else "之后下跌记为胜（卖出形态）"
 
     if not signals or not baseline:
-        reason = note or "评估区间内未出现命中，样本不足以下结论"
+        reason = "；".join(
+            p for p in (note, "评估区间内未出现命中，样本不足以下结论") if p
+        )
         base["note"] = reason
         base["verdict"] = reason
         return base
@@ -284,6 +294,25 @@ def _pack(
     return base
 
 
+def _note_for(key: str, acc: dict) -> str | None:
+    """按**实际观测到的**缺失与异常生成说明 —— 不用一句全局文案代替事实。
+
+    两类都要报出来，因为它们都会让命中数偏低：
+    - 换手率类条件（volume_peak）在部分时点缺历史换手率；
+    - 形态判定抛异常、被跳过的时点数。
+    不报的话，这两件事与「真的没有信号」在界面上完全无法区分。
+    """
+    parts: list[str] = []
+    points = int(acc.get("points") or 0)
+    missing = int(acc.get("no_turnover") or 0)
+    if missing and key in _TACTICS_USING_TURNOVER:
+        parts.append(_TURNOVER_MISSING_FMT.format(missing=missing, points=points))
+    errors = int(acc.get("errors") or 0)
+    if errors:
+        parts.append(f"另有 {errors} 个时点形态计算异常、已跳过（不代表没有信号）")
+    return "；".join(parts) if parts else None
+
+
 def _evaluate_sync(
     hist_map: dict[str, StockHistory],
     keys: list[str],
@@ -309,7 +338,11 @@ def _evaluate_sync(
             plan.append(key)
 
     extra_keys = {k for k in plan if pattern_service.TACTIC_MAP[k].get("extra_periods")}
-    accum = {k: {"signals": [], "baseline": [], "per_stock": {}, "stocks": 0} for k in plan}
+    accum = {
+        k: {"signals": [], "baseline": [], "per_stock": {}, "stocks": 0,
+            "points": 0, "no_turnover": 0, "errors": 0}
+        for k in plan
+    }
 
     for code, hist in hist_map.items():
         closes = hist.closes
@@ -349,11 +382,16 @@ def _evaluate_sync(
                     "daily": prefix,
                     "intraday": None,
                     "price": closes[i],
-                    # 历史换手率已补齐（腾讯日线行索引 7），对齐 prefix 长度后取当日值
+                    # 历史换手率已补齐（腾讯日线行索引 7，日/周/月线都有值），
+                    # 对齐 prefix 长度后取当日值；个别时点缺值会被计数并报出。
                     "turnover": (
                         prefix.turnover[i] if prefix.turnover and i < len(prefix.turnover) else None
                     ),
                 }
+                # 记「真的评了」的时点数，_note_for 用它算缺失比例的分母
+                acc["points"] += 1
+                if ctx["turnover"] is None:
+                    acc["no_turnover"] += 1
                 if wants_extra:
                     day = prefix.dates[-1] if prefix.dates else None
                     for period, cursor in cursors.items():
@@ -363,6 +401,10 @@ def _evaluate_sync(
                 try:
                     hit = detector(ctx)
                 except Exception:
+                    # 单点算崩不该废掉整只票，但**必须计数** ——
+                    # 静默 continue 会让「算不出来」与「真没信号」长得一模一样，
+                    # 而这两件事一个有 bug 一个没有，混起来就查不出来了。
+                    acc["errors"] += 1
                     continue
                 if not hit["matched"]:
                     continue
@@ -393,6 +435,7 @@ def _evaluate_sync(
             acc["baseline"],
             acc["stocks"],
             acc["per_stock"],
+            note=_note_for(key, acc),
         )
     return [resolved[k] for k in selected]
 
@@ -404,7 +447,13 @@ async def evaluate(
     eval_bars: int = DEFAULT_EVAL_BARS,
 ) -> dict:
     """回测入口：并发取日线后在线程池里跑 walk-forward。"""
-    selected = [k for k in (keys or list(pattern_service.DETECTORS)) if k in pattern_service.DETECTORS]
+    # 默认集合必须取 ACTIVE_TACTICS（= TACTIC_MAP 的键），**不是 DETECTORS**。
+    # DETECTORS 刻意保留了已下线技巧（RETIRED_TACTICS）的 detect 函数，那些 key
+    # 不在 TACTIC_MAP 里 —— 拿它当默认集合，下面的 TACTIC_MAP[k] 会直接 KeyError。
+    # 线上「形态回测失败: 'ma20_slope'」就是这么来的：前端不传 tactic 时必然触发。
+    selected = [
+        k for k in (keys or pattern_service.ACTIVE_TACTICS) if k in pattern_service.TACTIC_MAP
+    ]
     if not selected:
         return {"error": "没有可回测的技巧"}
 
