@@ -284,23 +284,39 @@ def _quantitative_block(breadth: dict | None, regime: dict, evidence_score: floa
 async def predict_tomorrow(force_refresh: bool = False) -> dict:
     """生成明日（下一个交易日）大盘走势预测。
 
-    缓存按"最近交易日"（data_day）而不是自然日：
+    缓存按**实际行情基准日**（K 线最后一根的日期）而不是日历上的最近交易日：
     - 周五收盘后生成 → 数据基准周五；周末/盘前访问都命中同一份缓存
     - "明日" = 下一个交易日（自动跳过周末与法定节假日）
     优先返回数据库缓存（跨实例共享），无则生成并写入。
+
+    ⚠️ 为什么缓存 key 必须用 K 线末日而不是 ``last_trading_day()``：
+    ``ak.stock_zh_index_daily``（新浪日线）**会滞后发布**。若在交易日盘后但该源
+    尚未更新时生成预测，末尾那根 K 线仍是上一交易日的 → 结果基于旧一日行情，
+    却被写成当日的 ``data_date``。此后每次请求都命中这份「用昨天数据算的今天预测」，
+    表现为**方向与当日实际走势完全相反且整天不变**（实测 2026-09-21：缓存里是 09-18
+    基准、报「下跌」，而当日实际上涨 0.94%、真实分数 6.60 判「上涨」）。
+    key 与实际 K 线日绑定后，源追上来的那次请求会自然 miss 并重算。
     """
     settings = get_settings()
 
-    # 数据基准日 = 最近交易日（收盘后有完整数据的那天）
-    data_day = await trade_calendar_service.last_trading_day()
+    # 日历意义上的最近交易日：仅用于给出「应到哪天」，不作为缓存 key
+    calendar_day = await trade_calendar_service.last_trading_day()
+
+    hist = await asyncio_hist()
+    if not hist:
+        raise RuntimeError("指数历史 K 线为空，无法生成预测")
+
+    # 实际行情基准日 = K 线最后一根。它是数据的真实新鲜度，也是缓存 identity。
+    bar_day_s = str(hist[-1]["date"])[:10]
+    data_day = dt.date.fromisoformat(bar_day_s) if bar_day_s else calendar_day
     today = data_day.isoformat()
     next_day = await trade_calendar_service.next_trading_day(data_day)
 
-    # 1. 数据库缓存（按数据日）
+    # 1. 数据库缓存（按实际行情基准日）
     if not force_refresh:
         db_result = await _load_db_prediction(today)
         if db_result:
-            # 兼容旧记录（无日期语义字段）：按当前交易日补齐
+            # 兼容旧记录（无日期语义字段）：按当前数据基准日补齐
             db_result.setdefault("data_date", today)
             if not db_result.get("target_date"):
                 db_result["target_date"] = next_day.isoformat()
@@ -313,8 +329,6 @@ async def predict_tomorrow(force_refresh: bool = False) -> dict:
         if not cached.get("target_date"):
             cached["target_date"] = next_day.isoformat()
         return cached
-
-    hist = await asyncio_hist()
 
     # 上一交易日快照：既给方向分提供「昨日锚」（惯性平滑），也提供成交额环比的基期
     prev_result = await _load_prev_snapshot(today)
@@ -382,11 +396,19 @@ async def predict_tomorrow(force_refresh: bool = False) -> dict:
     _finalize_direction(result, summary, prev_result, llm_score=llm_score)
 
     # 统一补齐日期语义字段（LLM 与规则回退两个分支共用）：
-    # - date：行情 K 线最后一根的日期（数据源可能滞后一日，仅作参考）
-    # - data_date：本份预测的数据基准交易日（缓存 key 也用它）
+    # - date：行情 K 线最后一根的日期（数据新鲜度的唯一判据）
+    # - data_date：本份预测的数据基准交易日（缓存 key 也用它，恒等于 date）
     # - target_date：本份预测针对的交易日（T+1，跳过周末/节假日）
+    # - stale_note：行情源滞后于日历最近交易日时的显式提示（不滞后则 None）
     result["data_date"] = today
     result["target_date"] = next_day.isoformat()
+    if data_day < calendar_day:
+        result["stale_note"] = (
+            f"行情源尚未更新 {calendar_day.isoformat()} 数据，本预测基于 "
+            f"{today} 收盘（落后 {(calendar_day - data_day).days} 天）。"
+        )
+    else:
+        result["stale_note"] = None
 
     # 保存预测记录（用于准确率统计）
     try:
