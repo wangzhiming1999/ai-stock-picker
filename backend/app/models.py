@@ -23,6 +23,8 @@ class StockHistory(BaseModel):
     opens: list[float] | None = None
     highs: list[float] | None = None
     lows: list[float] | None = None
+    # 换手率%（腾讯 newfqkline 行索引 7，日/周/月线均返回）
+    turnover: list[float] | None = None
 
 
 class IntradaySignal(BaseModel):

@@ -220,6 +220,15 @@ def _parse_qq_history_payload(
                 volume = float(row[5])
             except (TypeError, ValueError):
                 continue
+            # 行索引 7 为换手率%（仅日线返回；周/月线该位为空串）。缺失不报错、置 None。
+            turnover = None
+            if len(row) > 7 and row[7] not in (None, ""):
+                try:
+                    t = float(row[7])
+                    if t >= 0:
+                        turnover = t
+                except (TypeError, ValueError):
+                    turnover = None
             if close <= 0:
                 continue
             # 腾讯偶发缺失/异常 OHLC：回退为收盘价，并夹逼保证 high >= max(open, close)
@@ -229,9 +238,12 @@ def _parse_qq_history_payload(
             low = low if low > 0 else close
             high = max(high, open_p, close)
             low = min(low, open_p, close)
-            valid.append((date, open_p, close, high, low, volume))
+            valid.append((date, open_p, close, high, low, volume, turnover))
         if not valid:
             return None
+        turns = [row[6] for row in valid]
+        # 只要全程缺失（周/月线），就保持 None，别给下游一个全空数组
+        has_turnover = any(t is not None for t in turns)
         return StockHistory(
             dates=[row[0] for row in valid],
             closes=[row[2] for row in valid],
@@ -239,6 +251,7 @@ def _parse_qq_history_payload(
             opens=[row[1] for row in valid],
             highs=[row[3] for row in valid],
             lows=[row[4] for row in valid],
+            turnover=turns if has_turnover else None,
         )
     except (AttributeError, TypeError, ValueError, KeyError, IndexError):
         return None

@@ -13,6 +13,8 @@
 from __future__ import annotations
 
 import datetime as dt
+import inspect
+import re
 
 import pytest
 
@@ -348,6 +350,27 @@ class LeaderTests:
 
         assert V._leaders(items, set()) == []
 
+    def test_money_gate_is_reachable_from_the_parsed_row(self) -> None:
+        """资金门槛必须**真的够得着**，且用的是「解析器产出的行」而不是手写 dict。
+
+        手写 dict 喂什么分数都能过；真正会压死分数的是取数侧的字段漏配。
+        这条测试与上面的字段守卫是一对：一个保证字段被请求，一个保证分数能到门槛。
+        """
+        raw = {
+            "f12": "600001", "f14": "测试股", "f2": 20.0, "f3": 5.0, "f6": 1e9,
+            "f62": 4e8, "f184": 8.5, "f66": 3e8, "f69": 6.0, "f72": 1e8, "f75": 2.0,
+            "f78": 0.0, "f84": 0.0, "f100": "半导体",
+        }
+        row = S._fund_flow_row(raw, rank=1)
+        assert row is not None
+
+        dm, _ = V._score_dark_money(row, _spot_row("600001", change_pct=5.0), available=True)
+        closes = _up_closes()
+        tr, _ = V._score_trend(V._trend_metrics(closes, closes, closes, closes[-1]), closes[-1])
+
+        assert dm is not None and dm >= V.LEADER_MIN_DARK_MONEY, "资金分到不了门槛，潜力龙头会永久为空"
+        assert tr is not None and tr >= V.LEADER_MIN_TREND, "趋势分到不了门槛，潜力龙头会永久为空"
+
 
 # ───────────────────────── 资金流批量端点（spot_service） ─────────────────────────
 
@@ -409,6 +432,21 @@ class FundFlowParseTests:
         assert sent[0]["po"] == "1"
         assert "/api/qt/clist/get" == S._EM_FF_PATH
         assert "f62" in sent[0]["fields"]
+
+    def test_requested_fields_cover_every_parsed_field(self) -> None:
+        """请求字段表必须覆盖解析器读取的每一个 f-key。
+
+        这是本文件最重要的一条守卫，因为它抓的是一类**不报错的失效**：
+        线上实测漏配了 `f184`（主力净占比）—— 解析器照常工作、只是永远拿到 None，
+        资金分被压在 5.0~5.6（只剩净额加成），下游「潜力龙头」的资金门槛（≥7）
+        **永远不可能达到**，而界面看上去只是「今天没有龙头」。
+        只断言「fields 里有 f62」是抓不到的（旧断言就是这样放过去的）。
+        """
+        parsed = set(re.findall(r'item\.get\("(f\d+)"', inspect.getsource(S._fund_flow_row)))
+        requested = {f.strip() for f in S._EM_FF_FIELDS.split(",")}
+
+        assert parsed, "解析器源码没解析到任何字段，守卫会退化成空断言"
+        assert parsed <= requested, f"这些字段被解析却没被请求：{sorted(parsed - requested)}"
 
     def test_ascending_switches_sort_direction(self, monkeypatch) -> None:
         sent: list[dict] = []

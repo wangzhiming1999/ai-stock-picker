@@ -62,6 +62,13 @@ KLINE_DAYS = 250          # 趋势维需要 250 日高点，腾讯日 K 上限 6
 POOL_TOP_N = 40           # 进入 K 线精算的候选数（与四维榜同量级，逐只请求受此上限约束）
 BOARD_SIZE = 20           # 榜单展示条数
 LEADER_SIZE = 8           # 潜力龙头条数
+# 龙头门槛提成具名常量，让「门槛是否够得着」可以被测试断言 —— 实测教训：
+# 资金维漏配 f184 → 资金分被压在 5.0~5.6 → 这里写死的 7 让整块**永久为空**，
+# 而界面上没有任何报错，看上去只是「今天没有龙头」。
+LEADER_MIN_DARK_MONEY = 7.0
+LEADER_MIN_TREND = 6.0
+LEADER_MAX_CHANGE_PCT = 9.0   # 涨幅≥9% 大概率一字/秒板，列出来只会导向买不进的价格
+LEADER_MIN_PCT_FROM_HIGH = -30.0
 SECTOR_SIZE = 12          # 板块强度展示条数
 
 # 资金流批次（东财 clist）缓存
@@ -842,12 +849,12 @@ def _leaders(items: list[dict], strong_sectors: set[str], limit: int = LEADER_SI
         tr = it["scores"].get("trend")
         if dm is None or tr is None:
             continue
-        if dm < 7 or tr < 6:
+        if dm < LEADER_MIN_DARK_MONEY or tr < LEADER_MIN_TREND:
             continue
-        if it["change_pct"] >= 9:
+        if it["change_pct"] >= LEADER_MAX_CHANGE_PCT:
             continue
         pfh = (it.get("metrics") or {}).get("pct_from_high", -99)
-        if pfh < -30:      # 距高点太远，谈不上"龙头"
+        if pfh < LEADER_MIN_PCT_FROM_HIGH:      # 距高点太远，谈不上"龙头"
             continue
         reasons = []
         fund = it.get("fund") or {}

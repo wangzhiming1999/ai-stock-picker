@@ -316,7 +316,11 @@ def fetch_spot_frame() -> pd.DataFrame:
 #   f6 成交额（元，供活跃度维复用）  f100 所属行业  f124 快照时间戳
 # 单位：与 akshare `stock_individual_fund_flow_rank` 一致，f62 系**元**，消费方自行折亿元。
 _EM_FF_PATH = "/api/qt/clist/get"
-_EM_FF_FIELDS = "f12,f14,f2,f3,f6,f62,f66,f69,f72,f75,f78,f81,f84,f87,f100,f124"
+# ⚠️ f184（主力净占比）**不能漏**：`_fund_flow_row` 会读它，漏了不报错 ——
+#    只是 `main_pct` 永远为 None，资金维就只剩「净额加成」，分数被压在 5.0~5.6，
+#    下游「潜力龙头」的资金门槛（≥7）**永远不可能达到**（线上实测踩过，见 tests 的字段守卫）。
+#    与 akshare `stock_individual_fund_flow_rank` 同端点的字段串一致（只多 f100 行业）。
+_EM_FF_FIELDS = "f12,f14,f2,f3,f6,f62,f184,f66,f69,f72,f75,f78,f81,f84,f87,f100,f124"
 # 与快照的 _EM_FS 相比不含北交所（s:2048）—— 资金流排行对北交所支持不稳定，缺了会整页返空
 _EM_FF_FS = "m:0 t:6,m:0 t:80,m:1 t:2,m:1 t:23"
 # 单页 500：东财单页上限通常在 100~200，超限会被截断；这里按 200 走，靠页数覆盖
