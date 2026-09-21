@@ -336,6 +336,173 @@ export interface QuadRankResult {
   items: QuadStock[];
 }
 
+/* ── 决策先锋：暗盘资金 / 趋势 / 活跃度 三维 ──────────────────────────
+ * 与四维榜（QuadRankResult）是两条独立榜单：维度不同、候选池不同、口径不可比。
+ * 与四维榜一致的是闸门：`evidence.tier` 恒为 preliminary，禁止当作买点渲染。
+ */
+
+/** 三维的 key。与后端 vanguard_service.DIM_KEYS 一一对应。 */
+export type VanguardDimKey = "dark_money" | "trend" | "activity";
+
+/** 三维分数。资金维整体不可用时为 null（不是 0 —— 0 是「这一维很差」的读数）。 */
+export interface VanguardScores {
+  dark_money: number | null;
+  trend: number | null;
+  activity: number | null;
+}
+
+/** 主力资金（大单口径）。金额单位亿元。 */
+export interface VanguardFund {
+  main_net_yi: number;
+  main_pct: number | null;
+  super_net_yi: number | null;
+  rank: number | null;
+}
+
+export interface VanguardMetrics {
+  pct_from_high: number;
+  ma5: number;
+  ma20: number;
+  ma60: number;
+  ma20_slope: number;
+  r20: number;
+}
+
+/** 买卖时机：结构位（不随现价漂移）。买入侧实测为负，只作价位参考。 */
+export interface VanguardLevels {
+  price: number;
+  support: number;
+  resistance: number;
+  buy_point: number;
+  sell_point: number;
+  stop_loss: number;
+  rr_ratio: number;
+  strength: number;
+  bb_upper: number;
+  bb_lower: number;
+  ma5: number;
+  ma20: number;
+  ma60: number;
+  low60: number;
+  high60: number;
+}
+
+export interface VanguardItem {
+  /** 榜单内名次；「诊股」现场计算的票不在榜内，故可选 */
+  rank?: number;
+  code: string;
+  name: string;
+  price: number;
+  change_pct: number;
+  turnover: number | null;
+  volume_ratio: number | null;
+  amount_yi: number;
+  market_cap_yi: number | null;
+  sector: string | null;
+  /** 所属板块的强度分（0-10）；板块行不在展示集内时为 null */
+  sector_strength?: number | null;
+  overall_score: number;
+  /** 实际参与加权的维度权重（资金维缺失时会重新归一化） */
+  weights_used: Record<string, number>;
+  scores: VanguardScores;
+  comments: Record<VanguardDimKey, string>;
+  fund: VanguardFund | null;
+  metrics: VanguardMetrics | null;
+  levels: VanguardLevels | null;
+  tags: string[];
+}
+
+export interface VanguardSector {
+  sector: string;
+  member_count: number;
+  up_count: number;
+  avg_change_pct: number | null;
+  net_inflow_yi: number;
+  limitup_count: number;
+  max_boards: number;
+  seal_fund_yi?: number | null;
+  strength_score: number;
+  /** 当日横截面分位（0-10）；换日即换基准，不可跨日比较 */
+  dims: { money: number; momentum: number; breadth: number; sentiment: number };
+  tags: string[];
+}
+
+export interface VanguardHerding {
+  level: "high" | "mid" | "low" | "unknown";
+  score: number | null;
+  concentration?: number | null;
+  money_share?: number | null;
+  limitup_total?: number;
+  sentiment_tone?: string | null;
+  note: string;
+  top_sectors: {
+    sector: string;
+    limitup_count: number;
+    max_boards: number;
+    net_inflow_yi: number | null;
+  }[];
+}
+
+export interface VanguardLeader {
+  code: string;
+  name: string;
+  price: number;
+  change_pct: number;
+  sector: string | null;
+  overall_score: number;
+  dark_money: number;
+  trend: number;
+  pct_from_high: number;
+  main_pct: number | null;
+  reason: string;
+}
+
+/** 与后端 tactic_evidence.Evidence.as_dict() 同形 */
+export interface VanguardEvidence {
+  key?: string;
+  tier: string;
+  label: string;
+  badge: string;
+  summary: string;
+  provenance: string;
+  actionable: boolean;
+  registered?: boolean;
+}
+
+export interface VanguardBoard {
+  date: string;
+  source: "rule";
+  generated_at: string;
+  pool_size: number;
+  scored_size: number;
+  evidence: VanguardEvidence;
+  dims: { key: VanguardDimKey; label: string; desc: string }[];
+  weights_note: string;
+  /** status: ok | cached | cooldown | unavailable —— 必须在 UI 上如实展示 */
+  fund_flow: { status: string; covered: number; note?: string | null; source: string };
+  /** f100 行业字段是否可用；false 时板块强度不可用（不是「没有板块强」） */
+  sector_field_available: boolean;
+  headline: string;
+  timing: { evidence: VanguardEvidence; note: string };
+  items: VanguardItem[];
+  sectors: VanguardSector[];
+  herding: VanguardHerding;
+  leaders: VanguardLeader[];
+  fund_map: Record<string, (number | null)[]>;
+}
+
+export interface VanguardDiagnose {
+  code: string;
+  in_board: boolean;
+  rank: number | null;
+  item: VanguardItem;
+  sector: VanguardSector | null;
+  evidence: VanguardEvidence;
+  timing: { evidence: VanguardEvidence; note: string };
+  date: string | null;
+  note?: string | null;
+}
+
 /** 决策周期：1d 日线（战略） / 5m 15m 30m 60m 分钟线（日内战术） */
 export type MonitorInterval = "1d" | "5m" | "15m" | "30m" | "60m";
 

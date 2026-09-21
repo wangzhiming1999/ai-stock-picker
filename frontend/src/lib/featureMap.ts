@@ -77,7 +77,7 @@ export const DOMAIN_TAB: Record<Exclude<Domain, "global">, Tab> = {
 /** 分组的展示顺序与标题。顺序 = 用户一天里的使用顺序，不是功能多少。 */
 export const DOMAINS: { key: Domain; label: string; desc: string }[] = [
   { key: "today", label: "今日作战", desc: "今天该做什么：盯盘 · 简报" },
-  { key: "opportunity", label: "选机会", desc: "今天买什么：推荐 · 扫描 · 形态" },
+  { key: "opportunity", label: "选机会", desc: "今天买什么：推荐 · 决策 · 扫描 · 形态" },
   { key: "holdings", label: "持仓", desc: "我手里有什么：持仓 · 模拟盘 · 自选 · 历史" },
   { key: "research", label: "研究", desc: "这些方法靠不靠谱：台账 · 胜率 · 回测" },
   { key: "global", label: "全局读数", desc: "常驻在每一页顶部，不进任何 tab" },
@@ -142,6 +142,57 @@ export const FEATURES: FeatureEntry[] = [
     domain: "opportunity",
     sub: "recommend",
     keywords: ["板块", "热榜", "行业", "热点", "主线", "sector"],
+  },
+
+  /* ── 选机会 · 决策（决策先锋） ────────────────────────────── */
+  {
+    key: "op.vanguard",
+    label: "决策先锋三维榜",
+    desc: "暗盘资金 / 趋势 / 活跃度 三维打分排序；三维分是当日读数，不是买入信号",
+    domain: "opportunity",
+    sub: "vanguard",
+    keywords: ["决策先锋", "三维", "选股", "打分", "暗盘", "资金", "vanguard"],
+    isNew: true,
+  },
+  {
+    key: "op.vanguard.diagnose",
+    label: "三维诊股",
+    desc: "单只票的三维分数 + 结构位 + 所属板块强度（量化读数，不给多空结论）",
+    domain: "opportunity",
+    sub: "vanguard",
+    keywords: ["诊股", "体检", "单票", "打分", "diagnose", "个股诊断"],
+  },
+  {
+    key: "op.vanguard.sector",
+    label: "板块强度",
+    desc: "按当日横截面分位合成的板块强弱（资金 / 动量 / 广度 / 情绪；分位换日即换基准）",
+    domain: "opportunity",
+    sub: "vanguard",
+    keywords: ["板块强度", "强度", "板块", "热点", "核心热点", "strength"],
+  },
+  {
+    key: "op.vanguard.herding",
+    label: "主力抱团监测",
+    desc: "涨停板块集中度与板块资金净流入占比的合读，用来判断有没有抱团主线",
+    domain: "opportunity",
+    sub: "vanguard",
+    keywords: ["抱团", "主力抱团", "集中度", "主线", "herding"],
+  },
+  {
+    key: "op.vanguard.leader",
+    label: "潜力龙头",
+    desc: "资金已进场、趋势成立且尚未被拉到买不进的候选（涨幅 ≥9% 的已剔除）",
+    domain: "opportunity",
+    sub: "vanguard",
+    keywords: ["龙头", "潜力龙头", "领涨", "leader"],
+  },
+  {
+    key: "op.vanguard.timing",
+    label: "买卖时机结构位",
+    desc: "支撑 / 压力 / 止损锚定结构位，不随现价漂移；买入侧实测为负，只作价位参考",
+    domain: "opportunity",
+    sub: "vanguard",
+    keywords: ["买卖时机", "买卖点", "支撑", "压力", "止损", "时机", "timing"],
   },
 
   /* ── 选机会 · 扫描 ───────────────────────────────────────── */

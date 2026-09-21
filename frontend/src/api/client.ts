@@ -44,6 +44,8 @@ import type {
   TacticScanResult,
   TacticStock,
   UserProfile,
+  VanguardBoard,
+  VanguardDiagnose,
   WatchImportResult,
   WatchlistData,
   WinrateStats,
@@ -465,6 +467,34 @@ export async function fetchIndexHistory(days = 120): Promise<IndexHistory> {
 export async function fetchQuadRanking(refresh = false): Promise<QuadRankResult> {
   const res = await fetch(`${API}/market/quad${refresh ? "?refresh=true" : ""}`);
   if (!res.ok) throw await errorFrom(res, "获取四维牛股榜失败");
+  return res.json();
+}
+
+/* ---------- 决策先锋（三维选股 · 诊股） ---------- */
+
+/**
+ * 决策先锋三维榜：暗盘资金 / 趋势 / 活跃度 打分排序，同屏带板块强度、
+ * 主力抱团、潜力龙头与买卖时机（结构位）。
+ *
+ * ⚠️ `evidence.tier` 恒为 `preliminary`（三维分是当日读数，不是收益口径）。
+ * 调用方**不得**把它渲染成买点或动作指令。
+ *
+ * refresh=true 只穿透后端的榜单缓存；底层行情源仍走既有缓存与跨实例冷却，
+ * 因此它**不会**触发全市场快照的强制直拉 —— 前端不需要为它加 spotGuard 闸门。
+ */
+export async function fetchVanguardBoard(refresh = false): Promise<VanguardBoard> {
+  const res = await fetch(`${API}/market/vanguard${refresh ? "?refresh=true" : ""}`);
+  if (!res.ok) throw await errorFrom(res, "获取决策先锋榜失败");
+  return res.json();
+}
+
+/**
+ * 单票三维体检（诊股）。命中榜单快照时后端零额外请求；否则现场算两只接口。
+ * 只在用户显式操作时调用，不要轮询。
+ */
+export async function fetchVanguardDiagnose(code: string): Promise<VanguardDiagnose> {
+  const res = await fetch(`${API}/market/vanguard/diagnose?code=${encodeURIComponent(code)}`);
+  if (!res.ok) throw await errorFrom(res, "诊股失败");
   return res.json();
 }
 

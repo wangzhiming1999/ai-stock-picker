@@ -6,7 +6,7 @@ import { Lightbulb, Microscope, Wallet, Zap } from "lucide-react";
  *
  * ## 四个入口对应一天里的四类动作
  *   today       今天该干什么   —— 盯盘 / 简报
- *   opportunity 今天买什么     —— 推荐 / 扫描 / 形态
+ *   opportunity 今天买什么     —— 推荐 / 决策 / 扫描 / 形态
  *   holdings    我手里有什么   —— 持仓 / 模拟盘 / 自选 / 历史
  *   research    这些方法靠不靠谱 —— 证据台账 / 胜率 / 回测
  *
@@ -37,7 +37,7 @@ export interface NavItem {
 
 export const NAV: NavItem[] = [
   { key: "today", label: "今日作战", icon: Zap, desc: "盯盘 · 简报" },
-  { key: "opportunity", label: "选机会", icon: Lightbulb, desc: "推荐 · 扫描 · 形态" },
+  { key: "opportunity", label: "选机会", icon: Lightbulb, desc: "推荐 · 决策 · 扫描 · 形态" },
   { key: "holdings", label: "持仓", icon: Wallet, desc: "持仓 · 模拟盘 · 自选 · 历史" },
   { key: "research", label: "研究", icon: Microscope, desc: "证据台账 · 胜率 · 回测" },
 ];

@@ -38,6 +38,7 @@ export const SUB_NAV = {
   ],
   opportunity: [
     { key: "recommend", label: "推荐", desc: "AI 每日推荐 · 大盘推衍 · 四维排名 · 板块热榜" },
+    { key: "vanguard", label: "决策", desc: "三维选股 · 诊股 · 板块强度 · 主力抱团 · 买卖时机" },
     { key: "scan", label: "扫描", desc: "找候选 · 条件筛选 · 开盘前/收盘前异动" },
     { key: "tactic", label: "形态", desc: "K 线量价条件命中（条件成立 ≠ 已被验证）" },
   ],
