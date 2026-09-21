@@ -33,6 +33,13 @@ interface Props<K extends string> {
  * 换底色的方案在上一版用过，问题是「哪一个是当前项」只能靠颜色对比判断，
  * 而颜色在同一屏里还承担着涨跌语义，容易打架。滑动条是**位置**信息，
  * 与语义色互不干扰。
+ *
+ * ## 为什么按钮按内容宽度排、放不下就横向滚动
+ * 按钮曾经是 `flex-1`（等分整行）。子页少时看着整齐，但 `desc` 是长句，
+ * 等分后每个按钮只有 1/N 宽度，文案在按钮内部折行、label 被挤成竖排单字，
+ * 一排「标签」直接变成一堵墙。`desc` 又是用户判断「要不要点进去」的唯一依据，
+ * 不能截断。所以改成：宽度由内容决定（`flex-auto` + `whitespace-nowrap`），
+ * 容器 `scroll-x` 兜底 —— 放得下就铺开，放不下就横向滚动，永不折行。
  */
 export default function SubNav<K extends string>({ id, items, value, onChange }: Props<K>) {
   return (
@@ -50,7 +57,7 @@ export default function SubNav<K extends string>({ id, items, value, onChange }:
               type="button"
               onClick={() => onChange(it.key)}
               aria-current={active ? "page" : undefined}
-              className={`relative flex min-w-0 flex-1 shrink-0 items-center justify-center gap-2 rounded-lg px-3 py-2 text-body font-medium transition-colors ${
+              className={`relative flex flex-auto items-center justify-center gap-2 whitespace-nowrap rounded-lg px-3 py-2 text-body font-medium transition-colors ${
                 active ? "text-white" : "text-ink-muted hover:text-ink"
               }`}
             >
