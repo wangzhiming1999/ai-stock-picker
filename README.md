@@ -208,9 +208,9 @@ ai-stock-picker/
 │       │                        #   二级走吸顶 SubNav；深度分析走全局抽屉）
 │       ├── api/                 # client / auth / supabase
 │       ├── auth/AuthContext.tsx # 登录态
-│       ├── components/          # 102 个文件：顶层 40 个组件 + ui/ 11 个原语
-│       │                        #   + 6 个模块目录（monitor / briefing / market / scan / sim / analysis）
-│       └── lib/                 # 17 个模块：nav / subnav / featureMap / bus / tone / ui / confidence / spotGuard / useSubPage…
+│       ├── components/          # 109 个文件：顶层 42 个组件 + ui/ 11 个原语
+│       │                        #   + 7 个模块目录（monitor / briefing / market / scan / sim / analysis / vanguard）
+│       └── lib/                 # 18 个模块：nav / subnav / featureMap / bus / tone / ui / blockFocus / spotGuard / useSubPage…
 ├── docs/
 │   └── sim-trading-plan.md      # 模拟盘设计文档
 ├── Dockerfile · docker-compose.yml

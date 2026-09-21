@@ -1,7 +1,7 @@
 # 迭代日志 Changelog
 
 > 格式参考 [Keep a Changelog](https://keepachangelog.com/)，版本号遵循产品里程碑（V1 ~ V5.x）。
-> 代码仓库版本见 `backend/app/main.py` 的 `version` 字段，**当前为 `0.2.0`，对应产品里程碑 V1–V5.22**。
+> 代码仓库版本见 `backend/app/main.py` 的 `version` 字段，**当前为 `0.2.0`，对应产品里程碑 V1–V5.27**。
 >
 > 说明：历史条目按 ROADMAP 的「已完成」章节整理；里程碑日期以 ROADMAP 末次更新（2026-09-02）为最新基准，早期里程碑未逐日记录，具体提交时间以 git 历史为准。
 
@@ -10,6 +10,46 @@
 ## [Unreleased]
 
 ### Added
+- **功能地图支持区块级直达：点到即展开并滚到那一块**（2026-09-21）
+  > 功能地图原先只能跳到「子页」。但 29 项功能里有 16 项其实是子页内部的折叠区块，
+  > 其中 6 个默认收起、折叠状态还写进 localStorage —— 于是用户「到了地方仍要找」。
+  > 落点只能到子页，就是「点进来还是找不到」的机械原因。
+  - 新增 `frontend/src/lib/blockFocus.ts`：带 **150s 有效期**的「待认领」聚焦请求。目标区块可能尚未挂载
+    （lazy + Suspense），也可能因数据未到而**根本没渲染**（`{data && <CollapsiblePanel/>}`），
+    所以不做逐层 props 透传，改为**谁渲染谁认领**
+  - `useCollapse` 补 `setOpen`：**幂等展开**而不是 toggle —— 目标恰好已是展开态时，toggle 会把它反收
+  - `CollapsiblePanel` 自认领：`setOpen(true)` → 等 250ms 展开动画走完 → 再滚动；用 `scroll-mt` 抵消
+    吸顶的一级导航 + 二级导航高度，否则滚过去标题被盖住
+  - `featureMap.ts` 新增 `BlockId` 联合类型（19 个取值）+ `FeatureEntry.block`，19 项功能已登记落点。
+    类型只能保证**拼写**（拼错编译期断掉）；「这个 id 是否真挂在某个面板上」在组件侧是裸字符串，
+    由测试扫源码对账兜住
+  - `App.tsx`：有 `block` 时发聚焦请求，且**不再滚顶部** —— 两个滚动指令会互相打断
+  - 新增 2 条守卫（落点必须真实存在、`block` 必须与 `sub` 同现）；前端测试 42 → **49**
+  - 验证：`tsc -p tsconfig.app.json` 零错误、`vite build` 通过
+
+- **筹码形态洞察子页：自复刻东财 CYQ 的三条筹码技巧**（2026-09-21）
+  > 筹码分布由本项目**自复刻东财 CYQ 算法**（三角分布近似），与东财官方读数偏差 <2% 后
+  > **去掉 akshare 依赖**，改为每日缓存一份。三条形态**全部 `tier=unknown`、未回测**，
+  > 命中一律进观察池 —— 页面上的「口径提醒」文案不可删。
+  - 新增三个技巧（`pattern_service.TACTICS`）：`chip_single_peak`（单峰密集：90 集中度 ≤0.07 且收敛、
+    现价贴峰）、`chip_low_profit`（低位低获利：获利比例 ≤10% + 60 日低位区）、
+    `chip_transfer_up`（筹码转移向上：获利比例 10 日 +5pt、成本重心上移、无深回撤）
+  - `tactic_evidence.py` 三条均登记 `tier=unknown`，并写明**回测成本**：每日逐根 K 线复算 CYQ
+    可行但昂贵（90 日 × 每根 120 窗口）；待回测时可只算命中日 ±1 或降采样。
+    `chip_low_profit` 的登记特意写明「深跌 = 便宜」在本项目**已被证伪过**（跌停次日、低开再买均为负期望），
+    此形态是否不同 **由回测回答，不由文案回答**
+  - 候选池收窄：`POST /market/tactic-scan` 对 `chip_*` 键单独设 `_TACTIC_CAP_CHIP = 12` ——
+    每只票首次要真拉 **210 根东财 K 线**（之后走每日缓存），与多周期技巧同级收窄；
+    冷启动 12 只 × ~1s ≈ 12s，Serverless 可接受
+  - `data_service` 补齐 `StockHistory.turnover`（历史换手率）—— CYQ 复刻的必要输入
+  - 前端新增 `components/ChipPanel.tsx`（选机会 · 筹码子页）：扫描链路**完全复用** `tactic-scan`
+    （同端点、同结果结构），差异只有「技巧清单过滤为筹码类 + 文案讲筹码口径」两点；
+    不复用 `TacticPanel` 是为了不把两个域的条件逻辑塞进同一个组件
+  - **本页刷新仍走 spotGuard 闸门**（`confirmForceRefresh` / `useSpotCooldown`）——
+    它真的要拉 K 线；这与「决策」子页（`refresh` 只穿透本服务缓存、底层恒 `force=False`）不同，别混
+  - `subnav.ts` 新增「筹码」子页、`featureMap` 新增 `op.chip`（`isNew`）、
+    `TacticCategory` 增加「筹码形态」
+
 - **决策先锋：暗盘资金 / 趋势 / 活跃度 三维选股 + 诊股 + 板块强度 + 主力抱团 + 潜力龙头**（2026-09-21）
   > 与四维榜（基本面/技术面/资金面/消息面）**刻意并存而不是替代**：四维榜回答「这票好不好」
   > （静态质地），决策先锋回答「今天资金在往哪去、谁跟着走」（当日行为）。维度不同、
