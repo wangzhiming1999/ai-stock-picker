@@ -743,6 +743,8 @@ export interface BacktestResult {
   win_rate: number;
   periods: number;
   benchmark_return: number | null;
+  /** 基准为空时的原因说明（取数失败 / 区间数据不足）；有基准时为 null */
+  benchmark_note?: string | null;
   equity_curve: { date: string; value: number; holdings: string[] }[];
   pool_size: number;
   /** 口径：这里是「调仓期」胜率，样本单位是期不是票 */

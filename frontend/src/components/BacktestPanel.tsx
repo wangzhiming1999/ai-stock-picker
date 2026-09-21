@@ -201,6 +201,12 @@ export default function BacktestPanel() {
             <span>初始 {result.initial_capital.toLocaleString()}</span>
           </div>
 
+          {/* 基准为空时说明原因：只显示「-」会把「基准取数失败」读成「基准是 0」，
+              而基准正好是判断这套策略跑赢没有的那一半。 */}
+          {result.benchmark_return == null && result.benchmark_note && (
+            <p className="mt-1 text-xs leading-relaxed text-amber-300/90">{result.benchmark_note}</p>
+          )}
+
           {/* 口径随数据下发：这里的「胜率」样本单位是调仓期，不是个股，不能和形态/推荐胜率混算。
               不可比声明统一在「研究 · 证据台账」子页顶部展示一次。 */}
           <div className="mt-2">

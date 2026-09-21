@@ -93,7 +93,8 @@ export default function TacticBacktestPanel() {
 
       {running && (
         <div role="status" className="rounded-lg bg-slate-800/70 px-3 py-2 text-sm text-ink-muted">
-          正在多只票上逐日重放形态判定（walk-forward），多周期共振需要 900+ 根日线，耗时较久...
+          正在逐只票、逐日重放形态判定（walk-forward）：日线取 640 根，多周期共振还要另拉周线/月线，
+          耗时较久...
         </div>
       )}
 
@@ -232,15 +233,19 @@ export default function TacticBacktestPanel() {
       <p className="mt-3 text-xs leading-relaxed text-ink-faint">
         口径说明：walk-forward 只用「截至当日」的 K 线判定，命中后按当日收盘价入场；胜率按方向定义（买入形态看涨、卖出形态看跌）；
         必须与同区间同持有期的<strong className="text-ink-muted">基准</strong>对比才有意义——牛市里任何买入信号胜率都高。
-        分时背离需要分钟级历史，当前数据源无法回测；天量见天价的「换手率 &gt;30%」缺历史换手率，回测中按数据缺失处理。
+        分时背离需要分钟级历史，当前数据源无法回测；天量见天价的换手率条件已纳入回测，个别时点缺值时会在该行「明细」里报出缺失数。
         结果仅为历史统计，不代表未来收益，不构成投资建议。
       </p>
 
       {/* 口径随数据下发，避免和「次日胜率 / 调仓期胜率」被当成同一把尺子。
-          不可比声明统一在「研究 · 证据台账」子页顶部展示一次，这里只给本面板自己的口径。 */}
-      <div className="mt-2">
-        <CaliberLine caliber={result?.caliber} />
-      </div>
+          不可比声明统一在「研究 · 证据台账」子页顶部展示一次，这里只给本面板自己的口径。
+          ⚠️ 只在**真的拿到结果**时渲染：`result` 为空时 caliber 必然缺失，
+          直接渲染会显示「口径未登记」，把「请求失败了」误导成「后端没登记这个口径」。 */}
+      {result && (
+        <div className="mt-2">
+          <CaliberLine caliber={result.caliber} />
+        </div>
+      )}
     </CollapsiblePanel>
   );
 }
