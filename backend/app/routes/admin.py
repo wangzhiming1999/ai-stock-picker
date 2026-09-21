@@ -48,6 +48,7 @@ EXPECTED_TABLES = [
     "prediction_records",
     "opportunity_cache",
     "quad_snapshots",
+    "vanguard_snapshots",
     # 行情源与交易日历
     "market_spot_cache",
     "market_source_state",

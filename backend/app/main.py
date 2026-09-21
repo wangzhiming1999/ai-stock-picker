@@ -11,7 +11,7 @@ from starlette.responses import Response
 
 from app import store
 from app.config import get_settings
-from app.routes import analysis, alerts, auth, backtest, briefing, cron, history, limitdown, limitup, market, monitor, portfolio, quad, sim, stock, watchlist, admin
+from app.routes import analysis, alerts, auth, backtest, briefing, cron, history, limitdown, limitup, market, monitor, portfolio, quad, sim, stock, vanguard, watchlist, admin
 
 settings = get_settings()
 
@@ -161,6 +161,7 @@ app.include_router(sim.router)
 app.include_router(watchlist.router)
 app.include_router(briefing.router)
 app.include_router(quad.router)
+app.include_router(vanguard.router)
 app.include_router(monitor.router)
 app.include_router(admin.router)
 

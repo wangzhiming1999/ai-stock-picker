@@ -300,3 +300,111 @@ def fetch_spot_frame() -> pd.DataFrame:
                 errors.append(f"{label}#{round_no + 1}: {exc}")
             time.sleep(_RETRY_SLEEP * (round_no + 1))
     raise RuntimeError("；".join(errors))
+
+
+# ───────────────────────── 全市场资金流排行（东财 clist · 批量） ─────────────────────────
+#
+# ⚠️ 这一节**刻意走与快照同一个 clist 端点**，而不是 `ak.stock_individual_fund_flow`
+#    （那是逐个 code 请求，正是 memory 里点名的风控主因）。
+#    同一个 `/api/qt/clist/get` 换一个 `fid` 就能按「主力净流入」排序返回**整页**个股，
+#    一次请求覆盖数百只 —— 拿真实主力资金数据，而请求量比逐股方案低两个数量级。
+#    因此：**永远不要在这里加逐股回环**。
+#
+# 字段口径（东财 push2 资金流列）：
+#   f62 主力净流入额（元）  f184 主力净占比（%）
+#   f66/f69 超大单净额/占比  f72/f75 大单  f78/f81 中单  f84/f87 小单
+#   f6 成交额（元，供活跃度维复用）  f100 所属行业  f124 快照时间戳
+# 单位：与 akshare `stock_individual_fund_flow_rank` 一致，f62 系**元**，消费方自行折亿元。
+_EM_FF_PATH = "/api/qt/clist/get"
+_EM_FF_FIELDS = "f12,f14,f2,f3,f6,f62,f66,f69,f72,f75,f78,f81,f84,f87,f100,f124"
+# 与快照的 _EM_FS 相比不含北交所（s:2048）—— 资金流排行对北交所支持不稳定，缺了会整页返空
+_EM_FF_FS = "m:0 t:6,m:0 t:80,m:1 t:2,m:1 t:23"
+# 单页 500：东财单页上限通常在 100~200，超限会被截断；这里按 200 走，靠页数覆盖
+_EM_FF_PAGE_SIZE = 200
+_EM_FF_MAX_PAGES = 3
+_EM_FF_UT = "bd1d9ddb04089700cf9c27f6f7426281"
+
+
+def _fund_flow_row(item: dict, rank: int) -> dict | None:
+    """东财资金流行 → 归一化 dict。code 缺失或全字段不可用时返回 None。"""
+    code = str(item.get("f12", "")).strip()
+    if not code:
+        return None
+    sector = item.get("f100")
+    sector = str(sector).strip() if sector not in (None, "", "-") else None
+    row = {
+        "code": code,
+        "name": str(item.get("f14", "")).strip(),
+        "price": _num(item.get("f2")),
+        "change_pct": _num(item.get("f3")),
+        "amount": _num(item.get("f6")),
+        "main_net": _num(item.get("f62")),
+        "main_pct": _num(item.get("f184")),
+        "super_net": _num(item.get("f66")),
+        "super_pct": _num(item.get("f69")),
+        "large_net": _num(item.get("f72")),
+        "large_pct": _num(item.get("f75")),
+        "mid_net": _num(item.get("f78")),
+        "small_net": _num(item.get("f84")),
+        "sector": sector,
+        "rank": rank,
+    }
+    # 主力净额完全拿不到的行没有价值（既不能排序也不能归因）
+    if row["main_net"] is None and row["main_pct"] is None:
+        return None
+    return row
+
+
+def fetch_fund_flow_rows(
+    sort_field: str = "f62",
+    ascending: bool = False,
+    max_pages: int = _EM_FF_MAX_PAGES,
+) -> list[dict]:
+    """按资金流字段排序取全市场排行（批量，非逐股）。
+
+    sort_field: `f62`（主力净流入额）/ `f184`（主力净占比）/ `f66`（超大单）…
+    ascending=False 取净流入前列（吸筹侧），True 取净流出前列（出货侧）。
+    单页失败自动换域名重试；页间节流与整份快照一致。
+
+    全部失败时抛 RuntimeError，由调用方决定是否进入冷却 ——
+    ⚠️ 调用方**不要**在这里做兜底重试循环：与快照同源，重试只会延长 IP 封禁。
+    """
+    session = _session("https://data.eastmoney.com/zjlx/")
+    params = {
+        "pn": "1",
+        "pz": str(_EM_FF_PAGE_SIZE),
+        "po": "0" if ascending else "1",
+        "np": "1",
+        "ut": _EM_FF_UT,
+        "fltt": "2",
+        "invt": "2",
+        "fid": sort_field,
+        "fs": _EM_FF_FS,
+        "fields": _EM_FF_FIELDS,
+    }
+    payload, diff = _em_request(session, params)
+    raw: list[dict] = list(diff)
+    total = int((payload.get("data") or {}).get("total") or 0)
+    total_pages = max(1, math.ceil(total / max(len(diff), 1)))
+    total_pages = min(total_pages, max(1, max_pages))
+
+    failed = 0
+    for page in range(2, total_pages + 1):
+        params["pn"] = str(page)
+        try:
+            _, page_diff = _em_request(session, params, host_offset=page)
+            raw.extend(page_diff)
+        except Exception:  # noqa: BLE001 - 容忍少量失败页，与快照同一策略
+            failed += 1
+            if failed > _EM_MAX_FAILED_PAGES:
+                break
+        time.sleep(_PAGE_SLEEP)
+
+    rows: list[dict] = []
+    for idx, item in enumerate(raw):
+        row = _fund_flow_row(item, rank=idx + 1)
+        if row:
+            rows.append(row)
+    if not rows:
+        raise RuntimeError("东财资金流排行返回空数据")
+    return rows
