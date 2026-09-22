@@ -11,12 +11,15 @@ from app.services import akshare_guard, concurrency, data_service, evidence_ledg
 
 router = APIRouter(prefix="/api/market", tags=["market"])
 
-# 全市场快照缓存：key -> (timestamp, data)，缓存 5 分钟
-_spot_cache: tuple[float, list] | None = None
-_SPOT_TTL = 300  # 5 分钟
-# Supabase 持久化快照有效期：全市场快照单次拉取需数十秒，
-# 落库后跨实例/跨请求复用，避免每个冷实例都打一次慢速行情源（每日最多拉几次）。
+# 全市场快照缓存：(加载时刻 monotonic, 行, 底层快照真实年龄秒)。
+# 真实年龄用于前端展示「数据有多旧」，避免把 serve-stale 的缓存当作实时数据。
+_spot_cache: tuple[float, list, float] | None = None
+_SPOT_TTL = 300  # 5 分钟：内存热缓存
+# Supabase 持久化快照「新鲜」窗口：超过此值视为偏旧，触发后台异步刷新（不阻塞请求）。
 _SPOT_DB_TTL = 6 * 3600
+# serve-stale 容错窗口：行情源慢且易被风控，宁可返回稍旧数据也不在请求路径同步真拉。
+# 选 24h：覆盖「cron 每日 1 次 + 周末不跑」的最大空窗，避免冷启动穿透去撞行情源。
+_SPOT_DB_SERVE_STALE_TTL = 24 * 3600
 # 强制刷新的最小间隔：短时间内反复 force 会触发行情源风控（东财直接断连），
 # 风控窗口内所有数据源都会失败，因此这里做节流。
 _SPOT_FORCE_MIN_INTERVAL = 60
@@ -31,6 +34,10 @@ _COOLDOWN_TABLE = "market_source_state"
 _COOLDOWN_ROW_ID = 1
 _last_live_fetch: float | None = None
 _last_live_failure: float | None = None
+# prime 锁：DB 完全缺失时的首拉只放行一次（同实例并发），避免冷启动多请求并发真拉。
+_prime_lock = asyncio.Lock()
+# 后台刷新进行中标记：防止多个 serve-stale 请求各自起一个刷新任务打爆行情源。
+_bg_refresh_running = False
 
 
 def _is_usable_spot(rows: list | None) -> bool:
@@ -104,10 +111,14 @@ def _fetch_live_spot_rows() -> list[dict]:
     return rows
 
 
-async def _load_spot_db() -> list | None:
-    """从 Supabase 读取最近的全市场快照（6h 内有效）。表未建时静默返回 None。"""
+async def _load_spot_db() -> tuple[list | None, float | None]:
+    """从 Supabase 读取最近的全市场快照（serve-stale 窗口内有效）。
+
+    返回 (rows, age_seconds)。表未建 / 超时 / 不可用快照一律返回 (None, None)。
+    age 用于前端展示真实数据年龄，并在偏旧时触发后台异步刷新（而非阻塞请求）。
+    """
     if not supabase_store.is_configured():
-        return None
+        return (None, None)
     try:
         sb = await supabase_store.get_service_client()
         res = await sb.table("market_spot_cache").select("rows, updated_at").order("updated_at", desc=True).limit(1).execute()
@@ -116,15 +127,13 @@ async def _load_spot_db() -> list | None:
             updated = row.get("updated_at")
             if isinstance(updated, str):
                 updated = dt.datetime.fromisoformat(updated.replace("Z", "+00:00"))
-            if (
-                updated
-                and (dt.datetime.now(dt.timezone.utc) - updated).total_seconds() < _SPOT_DB_TTL
-                and _is_usable_spot(row.get("rows"))
-            ):
-                return row["rows"]
+            if updated:
+                age = (dt.datetime.now(dt.timezone.utc) - updated).total_seconds()
+                if age < _SPOT_DB_SERVE_STALE_TTL and _is_usable_spot(row.get("rows")):
+                    return (row["rows"], age)
     except Exception as e:
         print(f"[spot] db load failed: {e}")
-    return None
+    return (None, None)
 
 
 async def _save_spot_db(rows: list) -> None:
@@ -210,18 +219,26 @@ async def spot_cooldown_seconds() -> int:
 
 
 async def _get_spot(force: bool = False) -> list:
-    """获取全市场快照。
+    """获取全市场快照，并解耦「请求路径」与「真拉行情源」。
 
-    内存 5 分钟缓存 → Supabase 6h 持久化快照（跨实例共享，避免每个冷实例都打 ~70s 慢速行情源）
-    → 以上都未命中才真正拉行情源并落库。force=True 仅绕过内存缓存，仍优先复用持久化快照。
+    三层回退：内存 5min → Supabase 持久化快照(serve-stale ≤24h) → 真拉。
+    - force=True 跳过内存与 DB，仍走冷却/节流/prime 锁，避免连点把 IP 封禁拖长。
+    - DB 命中即返回（即使 >6h 也先返回旧数据），若已偏旧则后台异步刷新，不阻塞请求路径。
+    - 仅当 DB 完全缺失（首部署/表被清）才同步真拉，并加 prime 锁 + 拉前复查防多实例并发真拉。
+
+    这样真拉只发生在：① cron 每日预热；② serve-stale 后台刷新；③ 首部署 prime。
+    请求路径不再因冷启动/超 6h 而同步打 ~70s 慢速行情源 —— 这是 Fluid Active CPU 的最大消耗点。
     """
     global _spot_cache, _last_live_fetch, _last_live_failure
     now = time.monotonic()
     if not force and _spot_cache and now - _spot_cache[0] < _SPOT_TTL:
         return _spot_cache[1]
-    db_rows = None if force else await _load_spot_db()
+    db_rows, db_age = (None, None) if force else await _load_spot_db()
     if _is_usable_spot(db_rows):
-        _spot_cache = (now, db_rows)
+        _spot_cache = (now, db_rows, db_age or 0.0)
+        # 快照热窗口(6h)已过期但仍在 serve-stale 窗口内：后台异步刷新，不占请求路径 CPU。
+        if db_age is not None and db_age > _SPOT_DB_TTL:
+            asyncio.create_task(_maybe_refresh_spot())
         return db_rows
     cooling = await spot_cooldown_seconds()
     if cooling > 0:
@@ -234,18 +251,59 @@ async def _get_spot(force: bool = False) -> list:
         and _spot_cache
     ):
         return _spot_cache[1]
+    # DB 完全缺失 → 同步真拉。加 prime 锁 + 拉前复查（内存 → DB），避免冷启动多实例并发把行情源打爆。
+    # 内存复查兜底「表未建静默降级」场景：DB 没落库时也能靠同实例内存去重，否则仍会并发真拉。
+    async with _prime_lock:
+        now2 = time.monotonic()
+        if _spot_cache and now2 - _spot_cache[0] < _SPOT_TTL:
+            return _spot_cache[1]
+        if not force:
+            re_rows, re_age = await _load_spot_db()
+            if _is_usable_spot(re_rows):
+                _spot_cache = (now2, re_rows, re_age or 0.0)
+                return re_rows
+        try:
+            rows = await asyncio.to_thread(_fetch_live_spot_rows)
+        except Exception:
+            _last_live_failure = time.monotonic()
+            await _save_shared_failure()
+            raise
+        _last_live_fetch = time.monotonic()
+        _last_live_failure = None
+        _spot_cache = (now, rows, 0.0)
+        await _save_spot_db(rows)
+        await _clear_shared_failure()
+        return rows
+
+
+async def _maybe_refresh_spot() -> None:
+    """后台异步刷新全市场快照：仅在冷却/节流允许时真拉，不阻塞用户请求。
+
+    由 serve-stale 命中时触发。失败仅写冷却标记，不影响正在服务的旧数据。
+    Serverless 实例可能在任务完成前冻结 —— 属尽力而为，不影响正确性（下次仍会触发）。
+    """
+    global _bg_refresh_running, _last_live_fetch, _last_live_failure
+    if _bg_refresh_running:
+        return
+    _bg_refresh_running = True
     try:
+        cooling = await spot_cooldown_seconds()
+        if cooling > 0:
+            return
+        now = time.monotonic()
+        if _last_live_fetch is not None and now - _last_live_fetch < _SPOT_FORCE_MIN_INTERVAL:
+            return
         rows = await asyncio.to_thread(_fetch_live_spot_rows)
+        _last_live_fetch = time.monotonic()
+        _last_live_failure = None
+        _spot_cache = (time.monotonic(), rows, 0.0)
+        await _save_spot_db(rows)
+        await _clear_shared_failure()
     except Exception:
         _last_live_failure = time.monotonic()
         await _save_shared_failure()
-        raise
-    _last_live_fetch = time.monotonic()
-    _last_live_failure = None
-    _spot_cache = (now, rows)
-    await _save_spot_db(rows)
-    await _clear_shared_failure()
-    return rows
+    finally:
+        _bg_refresh_running = False
 
 
 @router.get("/spot-status")
@@ -256,11 +314,16 @@ async def spot_status_endpoint():
     （连点会刷新失败标记 → 冷却窗口不断后延 → 全站持续 502）。
     """
     cooldown = await spot_cooldown_seconds()
+    real_age = None
+    if _spot_cache:
+        real_age = int((time.monotonic() - _spot_cache[0]) + (_spot_cache[2] or 0))
     return {
         "cooldown_seconds": cooldown,
         "in_cooldown": cooldown > 0,
-        "snapshot_age_seconds": int(time.monotonic() - _spot_cache[0]) if _spot_cache else None,
+        # 真实数据年龄（含下层快照自身的陈旧度），让前端明示「这数据可能不是实时的」
+        "snapshot_age_seconds": real_age,
         "snapshot_size": len(_spot_cache[1]) if _spot_cache else 0,
+        "snapshot_stale": (real_age is not None and real_age > _SPOT_DB_TTL) if _spot_cache else None,
         "cooldown_window_seconds": _SPOT_COOLDOWN,
         "force_min_interval_seconds": _SPOT_FORCE_MIN_INTERVAL,
     }

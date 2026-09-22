@@ -1,3 +1,4 @@
+import asyncio
 import time
 
 import pandas as pd
@@ -355,3 +356,85 @@ async def test_spot_status_exposes_countdown(monkeypatch):
     assert 0 < status["cooldown_seconds"] <= market._SPOT_COOLDOWN
     assert status["snapshot_size"] == 0
     _reset_spot_state()
+
+
+@pytest.mark.asyncio
+async def test_serve_stale_returns_without_synchronous_pull(monkeypatch):
+    """DB 快照偏旧(>6h 但 <24h)必须立即返回，不在请求路径同步真拉（CPU 优化核心不变量）。"""
+    old_rows = [{"code": "600519", "name": "贵州茅台", "price": 10, "change": 1, "amount": 1e8}] * 100
+
+    async def old_db():
+        return (old_rows, 10 * 3600)  # 10h 前
+
+    pulled: list[int] = []
+
+    def fake_fetch():
+        pulled.append(1)
+        return _frame(10)
+
+    monkeypatch.setattr(market, "_load_spot_db", old_db)
+    monkeypatch.setattr(market, "_fetch_live_spot_rows", fake_fetch)
+    market._spot_cache = None
+    market._last_live_failure = None
+    market._last_live_fetch = None
+    market._bg_refresh_running = False
+
+    rows = await market._get_spot(force=False)
+
+    # 返回的是旧快照，且本次调用没有同步真拉
+    assert rows is old_rows
+    assert pulled == []
+
+    # 让事件循环跑一下，后台刷新应当触发一次真拉（最好在宽松环境里验证刷新链路）
+    await asyncio.sleep(0.02)
+    assert pulled == [1]
+    _reset_spot_state()
+    market._bg_refresh_running = False
+
+
+@pytest.mark.asyncio
+async def test_maybe_refresh_respects_cooldown(monkeypatch):
+    """后台刷新在冷却期内不应真拉，避免延长行情源封禁。"""
+    pulled: list[int] = []
+
+    def fake_fetch():
+        pulled.append(1)
+        return _frame(10)
+
+    monkeypatch.setattr(market, "_fetch_live_spot_rows", fake_fetch)
+    market._last_live_failure = time.monotonic()  # 刚失败 → 冷却中
+    market._bg_refresh_running = False
+
+    await market._maybe_refresh_spot()
+
+    assert pulled == []
+    market._last_live_failure = None
+    market._bg_refresh_running = False
+
+
+@pytest.mark.asyncio
+async def test_prime_lock_prevents_concurrent_pull(monkeypatch):
+    """DB 完全缺失时，并发请求应只真拉一次（prime 锁 + 拉前复查）。"""
+    async def no_db():
+        return (None, None)
+
+    pulled: list[int] = []
+
+    def fake_fetch():
+        pulled.append(1)
+        return _frame(10)
+
+    monkeypatch.setattr(market, "_load_spot_db", no_db)
+    monkeypatch.setattr(market, "_fetch_live_spot_rows", fake_fetch)
+    market._spot_cache = None
+    market._last_live_failure = None
+    market._last_live_fetch = None
+    market._bg_refresh_running = False
+
+    # 两个并发请求，DB 都缺失；二者都进入 prime 锁，第二个应在锁内复查到第一个已落库的快照
+    r1, r2 = await asyncio.gather(market._get_spot(force=False), market._get_spot(force=False))
+
+    assert r1 is not None and r2 is not None
+    assert pulled == [1], "并发首拉只应触发一次真拉"
+    _reset_spot_state()
+    market._bg_refresh_running = False
