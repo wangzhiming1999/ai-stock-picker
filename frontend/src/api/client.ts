@@ -506,8 +506,10 @@ export async function fetchQuadRanking(refresh = false): Promise<QuadRankResult>
  * ⚠️ `evidence.tier` 恒为 `preliminary`（三维分是当日读数，不是收益口径）。
  * 调用方**不得**把它渲染成买点或动作指令。
  *
- * refresh=true 只穿透后端的榜单缓存；底层行情源仍走既有缓存与跨实例冷却，
- * 因此它**不会**触发全市场快照的强制直拉 —— 前端不需要为它加 spotGuard 闸门。
+ * refresh=true 现在会**穿透底层行情源**（force=true）：跳过内存 / Supabase 两层快照直拉全市场，
+ * 并一并穿透资金流批次与榜单缓存，盘中价格 / 涨跌幅 / 排名会随之更新。
+ * 底层直拉有跨实例冷却（180s）与最小间隔（60s）守卫，因此前端调用方**必须**走
+ * `spotGuard` 的二次确认 + 冷却倒计时（见 VanguardPanel 的刷新按钮），禁止无确认连点。
  */
 export async function fetchVanguardBoard(refresh = false): Promise<VanguardBoard> {
   const res = await fetch(`${API}/market/vanguard${refresh ? "?refresh=true" : ""}`);

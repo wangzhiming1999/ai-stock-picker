@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
 import { Crosshair, Gauge, Layers, RefreshCw, Target, Timer, TrendingUp, Users } from "lucide-react";
 import { fetchVanguardBoard } from "../api/client";
-import { STACK, STACK_TIGHT } from "../lib/ui";
-import type { VanguardBoard } from "../types";
+import { cn } from "../lib/cn";
+import { CELL, STACK, STACK_TIGHT } from "../lib/ui";
+import { confirmForceRefresh, FORCE_REFRESH_HINT, useSpotCooldown } from "../lib/spotGuard";
+import type { VanguardBoard, VanguardItem } from "../types";
 import Button from "./ui/Button";
 import CollapsiblePanel from "./ui/CollapsiblePanel";
 import Panel from "./ui/Panel";
+import Table, { Th } from "./ui/Table";
 import BoardTable from "./vanguard/BoardTable";
 import WidePoolTable from "./vanguard/WidePoolTable";
 import DiagnoseCard from "./vanguard/DiagnoseCard";
 import { HerdingCard, LeadersList, SectorTable } from "./vanguard/MarketLayer";
-import { EvidenceBadge, EvidenceNote, FundFlowNotice } from "./vanguard/shared";
+import { EvidenceBadge, EvidenceNote, ExpectedPriceChip, FundFlowNotice, LevelChips } from "./vanguard/shared";
 
 interface Props {
   onPick: (codes: string[]) => void;
@@ -39,13 +42,62 @@ const DIAGNOSE_ANCHOR = "vanguard-diagnose";
  *   ⑤ 三维诊股   —— 单票体检；与全局「深度分析」（LLM 辩论）分工不同
  *
  * ## 两条不能破的约束
- * 1. **刷新不碰行情源**。本页的 refresh 只穿透后端榜单缓存；底层全市场快照与资金流
- *    都走既有缓存与跨实例冷却，因此这里**不需要** spotGuard 那套「强制刷新」确认闸门
- *    （四维榜需要，因为它的 refresh 会一路 force 到底层）。
+ * 1. **刷新穿透底层行情源（选项 C）**。本页 refresh=true 现在会一路 force 到底层：
+ *    全市场快照（force=True）+ 资金流批次 + 本服务榜单缓存三层一起穿透，盘中数字随之更新。
+ *    底层直拉有 `_get_spot` 的跨实例冷却（180s）与最小间隔（60s）守卫；前端 refresh 按钮
+ *    必须走 `spotGuard` 的二次确认 + 冷却倒计时，冷却期内禁用并展示倒计时，禁止连点拖长封禁。
  * 2. **读数不是指令**。三维分 / 板块强度 / 抱团 / 龙头全是读数，证据档 preliminary；
  *    买卖时机的结构位来自 monitor_levels，其买入侧实测为负（unsupported）。
  *    这个页面上任何一处都不得出现「建议买入」一类措辞。
  */
+/**
+ * 买卖时机 · 结构位（聚合视图）。
+ *
+ * 这一块此前只有一段口径说明、没有实际结构位数据 —— 结构位本来就在每只票的
+ * `item.levels` / `item.expected_price` 里（三维榜行展开、三维诊股都能看到），
+ * 但「决策」页的聚合面板没有把它们摆出来，于是看起来「空」。
+ *
+ * 这里把榜单里有结构位的票（K 线 ≥ 60 根）汇总成一张表，统一可复核：
+ * 代码·名称 / 预期价格（执行锚点）/ 结构位芯片（支撑·压力·买点区·卖出区·止损 + 风报比·信号强度）。
+ */
+function TimingLevels({ items }: { items: VanguardItem[] }) {
+  const rows = items.filter((it) => it.levels);
+  if (rows.length === 0) {
+    return (
+      <p className="text-body text-ink-soft">
+        当日榜单中暂无可用结构位（全部标的 K 线不足 60 根，或结构位尚未计算）—— 在「三维诊股」里对单只票查看。
+      </p>
+    );
+  }
+  return (
+    <Table
+      label="买卖时机结构位一览"
+      maxHeight="sm"
+      head={
+        <tr>
+          <Th>股票</Th>
+          <Th>预期价格</Th>
+          <Th>结构位（不随现价漂移）</Th>
+        </tr>
+      }
+    >
+      {rows.map((it) => (
+        <tr key={it.code} className="border-t border-surface-line-soft">
+          <td className={cn(CELL, "text-ink-soft")}>
+            <span className="text-ink-muted">{it.code}</span> {it.name}
+          </td>
+          <td className={cn(CELL, "text-ink-soft")}>
+            <ExpectedPriceChip ep={it.expected_price} />
+          </td>
+          <td className={cn(CELL, "text-ink-soft")}>
+            <LevelChips levels={it.levels} />
+          </td>
+        </tr>
+      ))}
+    </Table>
+  );
+}
+
 export default function VanguardPanel({ onPick }: Props) {
   const [data, setData] = useState<VanguardBoard | null>(null);
   const [loading, setLoading] = useState(false);
@@ -69,6 +121,17 @@ export default function VanguardPanel({ onPick }: Props) {
     void load();
   }, [load]);
 
+  // 冷却状态来自后端跨实例冷却（本地仅倒计时展示）：冷却期禁用按钮并展示秒数。
+  const { seconds: cooldownSec } = useSpotCooldown();
+
+  // 强制刷新：先二次确认 + 冷却拦截（spotGuard），确认后才一路 force 到底层行情源。
+  const handleForceRefresh = useCallback(async () => {
+    if (loading || cooldownSec > 0) return;
+    const ok = await confirmForceRefresh(FORCE_REFRESH_HINT);
+    if (!ok) return;
+    await load(true);
+  }, [loading, cooldownSec, load]);
+
   const diagnose = useCallback((code: string) => {
     setDiagCode(code);
     setDiagReq((n) => n + 1);
@@ -76,9 +139,14 @@ export default function VanguardPanel({ onPick }: Props) {
   }, []);
 
   const refreshBtn = (
-    <Button variant="outlineQuiet" size="sm" onClick={() => void load(true)} disabled={loading}>
+    <Button
+      variant="outlineQuiet"
+      size="sm"
+      onClick={() => void handleForceRefresh()}
+      disabled={loading || cooldownSec > 0}
+    >
       <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden />
-      {loading ? "重算中..." : "刷新"}
+      {cooldownSec > 0 ? `冷却 ${cooldownSec}s` : loading ? "重算中..." : "强制刷新"}
     </Button>
   );
 
@@ -226,6 +294,7 @@ export default function VanguardPanel({ onPick }: Props) {
                   <span>本页不做盘中轮询：结构位来自日线，盯实时买卖点请用「今日作战 → 盯盘」。</span>
                 </li>
               </ul>
+              <TimingLevels items={data.items} />
             </div>
           </CollapsiblePanel>
 
