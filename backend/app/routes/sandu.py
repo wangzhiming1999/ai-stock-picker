@@ -21,6 +21,7 @@ from app.models import SanduItem, SanduScanRequest, SanduScanResult
 from app.services import data_service
 from app.services.concurrency import gather_limited
 from app.services.sandu_service import score_sandu
+from app.services.spot_service import fetch_fund_flow_rows
 
 router = APIRouter(prefix="/api/sandu", tags=["sandu"])
 
@@ -38,6 +39,46 @@ def _empty_item(code: str, reason: str) -> SanduItem:
         action=reason,
         reasons=[reason],
     )
+
+
+@router.get("/auto-candidates")
+async def auto_candidates(count: int = 20) -> dict:
+    """自动挑一批三度扫描候选：当日主力净流入榜（吸筹侧）前列。
+
+    数据源是东财资金流 clist **批量单请求**（max_pages=1，一页 200 行），
+    与全市场快照同纪律，不做逐只请求 —— 候选生成阶段零逐股 I/O；
+    逐只日 K 仍由 /scan 按用户确认后的候选拉取。
+
+    过滤：剔除 ST/退市、北交所（8/4/92 开头）；只留主力净流入 > 0 的吸筹侧。
+    失败时抛 RuntimeError → 500，由前端按行情源故障提示（不静默给空名单）。
+    """
+    count = max(5, min(count, 30))
+    rows = await asyncio.to_thread(fetch_fund_flow_rows, "f62", False, 1)
+
+    candidates: list[dict] = []
+    for row in rows:
+        code = str(row.get("code") or "")
+        name = str(row.get("name") or "")
+        main_net = row.get("main_net")
+        if "ST" in name.upper() or "退" in name:
+            continue
+        # 只留沪深主板 / 创业板 / 科创板，剔除北交所
+        if not (len(code) == 6 and (code[:2] in {"60", "00"} or code[:3] in {"300", "301", "302", "688"})):
+            continue
+        if main_net is None or main_net <= 0:
+            continue
+        candidates.append(
+            {
+                "code": code,
+                "name": name,
+                "main_net": main_net,
+                "change_pct": row.get("change_pct"),
+            }
+        )
+        if len(candidates) >= count:
+            break
+
+    return {"source": "fund_flow_main_net", "count": len(candidates), "candidates": candidates}
 
 
 @router.post("/scan", response_model=SanduScanResult)
