@@ -149,7 +149,10 @@ class TestPackAttachesEvidence:
         # 判定条件成立 ≠ 该形态被证明有效：未验证的命中只能进观察池
         assert result["executable"] is False
         assert result["evidence"]["tier"] == "unsupported"
-        assert result["gate_note"].startswith("观察池")
+        # 结论句必须排在最前（第一眼读到「这东西能不能用」），
+        # 「观察池 · 等级」只作收尾 —— 顺序反了等于把内部分级名词挡在人话前面。
+        assert result["gate_note"].startswith(result["evidence"]["summary"][:10])
+        assert result["gate_note"].endswith("（观察池 · 未获支持）")
 
     def test_not_matched_never_executable(self) -> None:
         results = ps.check_one({"daily": None, "intraday": None, "price": None})
