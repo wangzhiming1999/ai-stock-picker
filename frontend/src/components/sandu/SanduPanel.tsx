@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import { sanduScan } from "../../api/client";
-import type { SanduItem, SanduScanResult } from "../../types";
+import { sanduAutoCandidates, sanduScan } from "../../api/client";
+import type { SanduAutoCandidate, SanduItem, SanduScanResult } from "../../types";
 import CollapsiblePanel from "../ui/CollapsiblePanel";
 import Button from "../ui/Button";
 import Input from "../ui/Input";
@@ -53,8 +53,10 @@ function StatusChip({ status }: { status: SanduItem["status"] }) {
 export default function SanduPanel({ onPick }: Props) {
   const [raw, setRaw] = useState("");
   const [running, setRunning] = useState(false);
+  const [picking, setPicking] = useState(false);
   const [result, setResult] = useState<SanduScanResult | null>(null);
   const [error, setError] = useState("");
+  const [pickInfo, setPickInfo] = useState<SanduAutoCandidate[] | null>(null);
 
   const codes = useMemo(
     () =>
@@ -70,13 +72,14 @@ export default function SanduPanel({ onPick }: Props) {
   );
   const overflow = raw.split(/[\s,，;；\n]+/).filter((s) => s.trim()).length > 30;
 
-  const run = async () => {
-    if (codes.length === 0 || running) return;
+  const run = async (scanCodes?: string[]) => {
+    const target = scanCodes ?? codes;
+    if (target.length === 0 || running) return;
     setRunning(true);
     setError("");
     setResult(null);
     try {
-      const r = await sanduScan(codes, DEFAULT_MIN_OVERALL);
+      const r = await sanduScan(target, DEFAULT_MIN_OVERALL);
       setResult(r);
     } catch (e) {
       setError((e as Error).message || "三度扫描失败");
@@ -85,8 +88,30 @@ export default function SanduPanel({ onPick }: Props) {
     }
   };
 
-  const passed = result?.results.filter((r) => r.status === "passed") ?? [];
-  const others = result?.results.filter((r) => r.status !== "passed") ?? [];
+  /** 一键自动候选：主力净流入榜前列 → 填入输入框 → 直接扫描 */
+  const autoPick = async () => {
+    if (picking || running) return;
+    setPicking(true);
+    setError("");
+    try {
+      const r = await sanduAutoCandidates(20);
+      const cands = r.candidates;
+      if (cands.length === 0) {
+        setError("主力净流入榜暂无可选候选（全部被过滤），稍后再试或手动输入代码");
+        return;
+      }
+      setRaw(cands.map((c) => c.code).join(" "));
+      setPickInfo(cands);
+      await run(cands.map((c) => c.code));
+    } catch (e) {
+      setError((e as Error).message || "自动候选获取失败");
+    } finally {
+      setPicking(false);
+    }
+  };
+
+  const passed = result?.items.filter((r) => r.status === "passed") ?? [];
+  const others = result?.items.filter((r) => r.status !== "passed") ?? [];
 
   return (
     <CollapsiblePanel
@@ -95,7 +120,7 @@ export default function SanduPanel({ onPick }: Props) {
       subtitle="厚度 · 力度 · 速度 三度合成读数 · 主力吸筹结构观察 · 未回测验证，输出是候选不是买点"
       action={
         result && result.scanned > 0 ? (
-          <Button variant="primary" size="sm" onClick={() => onPick(passed.length > 0 ? passed.map((s) => s.code) : result.results.map((s) => s.code))}>
+          <Button variant="primary" size="sm" onClick={() => onPick(passed.length > 0 ? passed.map((s) => s.code) : result.items.map((s) => s.code))}>
             去分析 →
           </Button>
         ) : undefined
@@ -116,10 +141,20 @@ export default function SanduPanel({ onPick }: Props) {
           aria-label="候选代码"
           className="flex-1"
         />
+        <Button variant="ghost" size="md" onClick={() => void autoPick()} disabled={picking || running}>
+          {picking ? "选票中..." : "帮我选"}
+        </Button>
         <Button variant="primary" size="md" onClick={() => void run()} disabled={running || codes.length === 0}>
           {running ? "扫描中..." : `扫描（${codes.length}）`}
         </Button>
       </div>
+      {pickInfo && (
+        <p className="mt-1 text-meta text-ink-faint">
+          候选来源：当日主力净流入榜前列（吸筹侧）——{" "}
+          {pickInfo.slice(0, 5).map((c) => `${c.name || c.code}`).join("、")}
+          {pickInfo.length > 5 ? ` 等 ${pickInfo.length} 只` : ""}
+        </p>
+      )}
       {overflow && (
         <p role="status" className="mt-1 text-meta text-amber-300">
           候选超过 30 只，仅取前 30 只 —— 控制逐只 K 线请求量（行情源风控约束）。
@@ -144,7 +179,7 @@ export default function SanduPanel({ onPick }: Props) {
       {!running && result && (
         <>
           <p className="mt-3 text-meta text-ink-muted">
-            输入 {result.total} 只 · 成功取到 K 线 {result.scanned} 只 · 三度齐备 {passed.length} 只
+            输入 {result.count} 只 · 成功取到 K 线 {result.scanned} 只 · 三度齐备 {passed.length} 只
           </p>
 
           {result.scanned === 0 ? (
@@ -229,10 +264,10 @@ export default function SanduPanel({ onPick }: Props) {
               {/* 维度条件明细（可展开，默认收起） */}
               <details className="rounded-xl bg-surface-inset px-4 py-3">
                 <summary className="cursor-pointer text-body font-semibold text-ink">
-                  全部候选 · 逐条条件明细（{result.results.length} 只）
+                  全部候选 · 逐条条件明细（{result.items.length} 只）
                 </summary>
                 <div className="mt-3 space-y-3">
-                  {result.results.map((s) => (
+                  {result.items.map((s) => (
                     <div key={s.code} className="rounded-lg bg-surface-raised/60 px-3 py-2">
                       <p className="text-label text-ink">
                         {s.name || s.code}（{s.code}）· 综合 {fmtNum(s.overall, 1)} · {s.action}

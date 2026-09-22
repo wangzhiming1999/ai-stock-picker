@@ -2174,10 +2174,25 @@ export interface SanduItem {
   dimensions: SanduDimension[];
 }
 
+/** 与后端 SanduScanResult 对齐（items/count/notice） */
 export interface SanduScanResult {
-  results: SanduItem[];
+  count: number;
   /** 实际成功取到历史 K 的股票数 */
   scanned: number;
-  /** 输入总数 */
-  total: number;
+  items: SanduItem[];
+  notice: string | null;
+}
+
+/** 自动候选（东财资金流排行 · 批量单请求，非逐股） */
+export interface SanduAutoCandidate {
+  code: string;
+  name: string;
+  main_net: number | null;
+  change_pct: number | null;
+}
+
+export interface SanduAutoCandidatesResult {
+  source: string;
+  count: number;
+  candidates: SanduAutoCandidate[];
 }

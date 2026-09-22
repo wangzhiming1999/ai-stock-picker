@@ -28,6 +28,7 @@ import type {
   PredictionStats,
   QuadRankResult,
   SanduScanResult,
+  SanduAutoCandidatesResult,
   ScanStock,
   SimAccount,
   SimPerformance,
@@ -775,6 +776,16 @@ export async function sanduScan(codes: string[], minOverall = 6.5): Promise<Sand
     body: JSON.stringify({ codes, min_overall: minOverall }),
   });
   if (!res.ok) throw await errorFrom(res, "三度扫描失败");
+  return res.json();
+}
+
+/**
+ * 三度自动候选：取当日主力净流入榜前列（吸筹侧）作为扫描候选。
+ * 后端走东财资金流批量单请求，非逐股 —— 前端同样不需要 spotGuard 闸门。
+ */
+export async function sanduAutoCandidates(count = 20): Promise<SanduAutoCandidatesResult> {
+  const res = await fetch(`${API}/sandu/auto-candidates?count=${count}`);
+  if (!res.ok) throw await errorFrom(res, "自动候选获取失败");
   return res.json();
 }
 
