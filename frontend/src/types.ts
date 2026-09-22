@@ -503,12 +503,31 @@ export interface VanguardEvidence {
   registered?: boolean;
 }
 
+/** 宽池候选：廉价预筛（无 K 线）行，scored=false 时三维分字段为 null */
+export interface VanguardWideRow {
+  code: string;
+  name: string;
+  price: number;
+  change_pct: number;
+  amount_yi: number;
+  turnover: number | null;
+  volume_ratio: number | null;
+  sector: string | null;
+  main_pct: number | null;
+  pre_score: number;
+  scored: boolean;
+  overall_score: number | null;
+  sector_strength: number | null;
+  selection_score: number | null;
+}
+
 export interface VanguardBoard {
   date: string;
   source: "rule";
   generated_at: string;
   pool_size: number;
   scored_size: number;
+  wide_pool_size: number;
   evidence: VanguardEvidence;
   dims: { key: VanguardDimKey; label: string; desc: string }[];
   weights_note: string;
@@ -522,6 +541,7 @@ export interface VanguardBoard {
   sectors: VanguardSector[];
   herding: VanguardHerding;
   leaders: VanguardLeader[];
+  wide_pool: VanguardWideRow[];
   fund_map: Record<string, (number | null)[]>;
 }
 
