@@ -14,10 +14,12 @@
    换一个 `fid` 就按主力净流入排序返回整页个股 —— 一次请求覆盖数百只。
    逐股打 `stock_individual_fund_flow` 是 memory 里点名的风控主因，这里刻意绕开。
 
-2. **绝不给底层行情源传 `force=True`。**
-   全站最危险的动作是「跳过内存与 Supabase 热快照去直拉」，而**诊断线上恰好正是这句话
-   描述的故障**。所以本服务的 `refresh` 只穿透**本服务自己的三层缓存**
-   （内存 → DB 快照 → 重算），底层永远 `force=False`。
+2. **`refresh=True` 现在会穿透底层行情源（`force=True`）。**
+   这是用户显式选择的行为（「刷新按钮穿透到底层」）：refresh 不再只穿透本服务自己的三层缓存
+   （内存 → DB 快照 → 重算），还会一路 force 到全市场快照（跳过内存 5min 与 Supabase 6h 持久化快照）。
+   之所以敢放开，是因为底层 `_get_spot` 自带**跨实例冷却（180s）+ 最小间隔（60s）+ 共享失败标记**三重守卫，
+   且前端 refresh 走 `spotGuard` 的**二次确认 + 冷却倒计时**，连点不会拖长封禁。
+   非 forced 的每日路径（定时任务 / 冷启动）仍 `force=False`，只命中既有缓存与冷却。
 
 3. **诊断型输出不得带动作话术。**
    三维分是「今天的读数」，不是「买入信号」。买卖时机直接复用
@@ -966,8 +968,10 @@ async def generate_board(force_refresh: bool = False) -> dict:
         if hit:
             return hit
 
-    # ⚠️ 底层快照永远 force=False（见文件头约束 2）
-    spot = await quad_service.get_full_spot(force=False)
+    # refresh 穿透底层快照（选项 C：刷新按钮穿透到底层）。
+    # force_refresh=True 时跳过两层行情缓存直拉全市场快照；冷却/节流由 _get_spot 内部守卫，
+    # 触发风控时抛 RuntimeError（被路由转成 502 + 冷却文案）。前端 spotGuard 也会先二次确认 + 拦截冷却。
+    spot = await quad_service.get_full_spot(force=force_refresh)
     if not spot:
         raise RuntimeError("获取全市场行情失败")
 

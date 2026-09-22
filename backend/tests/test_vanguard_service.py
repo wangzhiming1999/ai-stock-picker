@@ -6,8 +6,9 @@
    本项目已经踩过一次同类坑（行情源缺 PE 时把候选池清空），所以
    `amount_yi is None` / `fund is None` / 资金维整体不可用三种情况各有独立断言。
 2. **权重归一化** —— 资金维不可用时综合分必须重新归一化，不能拿 0 分冒充缺失。
-3. **不 force 底层行情源** —— `refresh=True` 只穿透本服务缓存，底层快照永远
-   `force=False`。诊断线上「行情源被风控」的故障，正是「跳过缓存直拉」这句话本身。
+3. **refresh 穿透底层行情源** —— `refresh=True` 现在一路 force 到底层（全市场快照 force=True +
+   资金流批次），盘中数字随之更新；而每日非 forced 路径（定时任务 / 冷启动）仍 `force=False`，
+   只命中既有缓存与跨实例冷却。底层直拉由 `_get_spot` 的冷却/节流守卫兜底，前端走 spotGuard。
 4. **证据闸门** —— 三维榜是读数不是收益口径，必须停在 preliminary 且不可执行。
 """
 from __future__ import annotations
@@ -605,10 +606,12 @@ class BoardGenerationTests:
         monkeypatch.setattr(trade_calendar_service, "last_trading_day", fake_last_trading_day)
 
     @pytest.mark.asyncio
-    async def test_refresh_never_forces_the_underlying_spot(self, monkeypatch) -> None:
-        """refresh=True 只穿透本服务缓存；底层全市场快照永远 force=False。
+    async def test_refresh_forces_the_underlying_spot(self, monkeypatch) -> None:
+        """refresh=True 一路 force 到底层：全市场快照与资金流批次都被穿透。
 
-        这条约束是**诊断线上故障的定义本身**：跳过缓存直拉行情源会把 IP 封禁拖长。
+        这是用户显式选择的「刷新按钮穿透到底层」行为；底层直拉由 `_get_spot` 的
+        冷却/节流守卫兜底，前端 refresh 走 spotGuard 二次确认，因此这里只断言
+        force 标志确实透传到底层，不重复测冷却逻辑。
         """
         calls: dict = {}
         fund_rows = [_fund_row(f"6000{i:02d}", 1e8 * i, 2.0 * i, "半导体") for i in range(1, 7)]
@@ -616,8 +619,23 @@ class BoardGenerationTests:
 
         await V.generate_board(force_refresh=True)
 
-        assert calls["spot_force"] is False
+        assert calls["spot_force"] is True, "refresh 应当穿透底层全市场快照"
         assert calls["fund_force"] is True, "refresh 应当穿透本服务的资金流缓存"
+
+    @pytest.mark.asyncio
+    async def test_daily_path_never_forces_the_underlying_spot(self, monkeypatch) -> None:
+        """每日非 forced 路径（定时任务 / 冷启动）仍 force=False，只命中既有缓存。
+
+        避免把底层全市场快照的强制直拉误放到无人值守的每日生成上 —— 那会放大风控风险。
+        """
+        calls: dict = {}
+        fund_rows = [_fund_row(f"6000{i:02d}", 1e8 * i, 2.0 * i, "半导体") for i in range(1, 7)]
+        self._patch_environment(monkeypatch, calls, fund_rows)
+
+        await V.get_board(force_refresh=False)
+
+        assert calls["spot_force"] is False, "每日路径不应 force 底层全市场快照"
+        assert calls["fund_force"] is False, "每日路径不应 force 资金流批次"
 
     @pytest.mark.asyncio
     async def test_board_shape_and_gates(self, monkeypatch) -> None:

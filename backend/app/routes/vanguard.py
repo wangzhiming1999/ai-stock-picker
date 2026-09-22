@@ -22,8 +22,10 @@ async def vanguard_board(refresh: bool = False):
     ⚠️ 返回体的 `evidence.tier` 恒为 `preliminary`（三维分是当日读数，不是收益口径，
     从未跑过收益回测）。调用方**不得**把它渲染成买点或动作指令。
 
-    refresh=true 只穿透本服务自己的缓存（内存 / DB 快照），底层行情源仍走既有缓存与冷却，
-    不会触发全市场快照的强制直拉。
+    refresh=true 现在会**穿透底层行情源**（force=True）：跳过内存 / Supabase 两层快照直拉全市场，
+    并一并穿透资金流批次与本服务榜单缓存。底层直拉受 `_get_spot` 的跨实例冷却（180s）与
+    最小间隔（60s）守卫，触发风控会转成 502 + 冷却文案；前端 refresh 按钮因此必须走 `spotGuard`
+    的二次确认 + 冷却倒计时，禁止连点。
     """
     try:
         return await vanguard_service.get_board(force_refresh=refresh)
