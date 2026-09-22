@@ -83,7 +83,7 @@ export function TacticTakeaway({ tactics }: { tactics?: TacticResult[] | null })
     return <>{executable.map((t) => t.action).join("；")}</>;
   }
   const first = tactics[0];
-  return <span className="text-ink-soft">{first.gate_note || "观察池 · 尚未通过回测验证"}</span>;
+  return <span className="text-ink-soft">{first.gate_note || "尚未通过回测验证（观察池）"}</span>;
 }
 
 /** 单条形态的证据等级（供需要自行排版的地方复用兜底逻辑）。 */

@@ -292,7 +292,7 @@ export default function TacticPanel({ onPick, onImport }: Props) {
                         s.best_action
                       ) : (
                         <span className="text-ink-faint">
-                          {s.best_gate_note || "观察池 · 尚未通过回测验证"}
+                          {s.best_gate_note || "尚未通过回测验证（观察池）"}
                         </span>
                       )}
                     </td>

@@ -1593,10 +1593,12 @@ export interface SpotStatus {
   /** 剩余冷却秒数，0 表示可安全刷新 */
   cooldown_seconds: number;
   in_cooldown: boolean;
-  /** 进程内快照缓存年龄（秒），无缓存时为 null */
+  /** 底层行情快照的真实年龄（秒）：含 serve-stale 时下层快照自身的陈旧度，无缓存时为 null */
   snapshot_age_seconds: number | null;
   /** 缓存快照条数（全市场规模约 5400） */
   snapshot_size: number;
+  /** 快照是否偏旧（真实年龄 > 6h 热窗口）：为 true 时数据可能不是实时，UI 应明示 */
+  snapshot_stale: boolean | null;
   /** 后端冷却窗口总长（用于展示口径，当前 180s） */
   cooldown_window_seconds: number;
   /** 强制刷新最小间隔（当前 60s） */

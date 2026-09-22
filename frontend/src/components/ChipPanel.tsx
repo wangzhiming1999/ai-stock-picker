@@ -188,7 +188,7 @@ export default function ChipPanel({ onPick }: Props) {
                       )}
                     </td>
                     <td className={`${CELL} text-ink-soft`}>
-                      <span className="text-ink-soft">{s.best_gate_note || "观察池 · 尚未通过回测验证"}</span>
+                      <span className="text-ink-soft">{s.best_gate_note || "尚未通过回测验证（观察池）"}</span>
                     </td>
                     <td className={CELL}>
                       <button
