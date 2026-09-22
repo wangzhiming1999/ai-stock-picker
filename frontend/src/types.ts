@@ -1,3 +1,14 @@
+/**
+ * 决策动作 —— 全站唯一的 6 态动作契约，镜像后端 `app/services/decision.py`。
+ *
+ * 用户可见的动作只有这 6 个：买 / 加 / 持有 / 减 / 卖 / 不参与。
+ * `skip`（不参与）与买卖并列，是**一等公民**：证据不足时输出的是「不参与」这个明确结论，
+ * 而不是「观察」「关注」「留意」「继续跟踪」这类没有结论的措辞 —— 空仓也是一种决策。
+ *
+ * 展示文案与配色见 `lib/decision.ts`，组件不得自行拼「建议减仓」这类中文串。
+ */
+export type Decision = "buy" | "add" | "hold" | "reduce" | "sell" | "skip";
+
 export interface StockQuote {
   code: string;
   name: string;
@@ -1195,6 +1206,11 @@ export interface BriefingStock {
   price?: number;
   change_pct?: number;
   reason: string;
+  /**
+   * 决策动作（见 `Decision`）。早盘推荐池恒为 `buy`（到价才买）或 `skip`（无可执行标的）。
+   * 此前这条数据只有 reason 没有动作，用户读完理由也不知道「所以到底买不买」。
+   */
+  action?: Decision;
   confidence?: number;
   /** 同 DailyRecommendation.confidence_source：不区分就等于把自评当成分数 */
   confidence_source?: "llm_self_report" | "rule_score";

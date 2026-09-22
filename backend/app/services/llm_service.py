@@ -30,7 +30,7 @@ ANALYSIS_SYSTEM_PROMPT = """你是一位经验丰富的 A 股买方研究员，�
     {"name": "消息面", "score": 0-10, "comment": "60字以内的分析，评价新闻影响"}
   ],
   "risks": ["列出2-4条具体风险，避免空话，如估值偏高/趋势破位/消息不及预期等"],
-  "suggestions": ["给出2-4条可操作建议，包括是否值得关注、介入方式、止损思路"],
+  "suggestions": ["给出2-4条可操作建议。第一条必须是决策动作，从这6个里选且只选一个：买入/加仓/持有不动/减仓/卖出/不参与，并写明价格条件（如「买入：回踩12.30企稳即挂单」「不参与：跌破20日线且无企稳信号，站回20日线再评估」）。禁止出现「关注/观察/留意/跟踪/观望/可考虑/酌情」这类没有结论的词——不买就明确说不参与，以及什么条件才转成买入"],
   "holding_advice": "综合研判后的持有建议，格式如：短期(1-4周)XXX；中期(1-3月)XXX；长期(3月+)XXX"
 }
 
@@ -39,6 +39,7 @@ ANALYSIS_SYSTEM_PROMPT = """你是一位经验丰富的 A 股买方研究员，�
 - 评分必须与评论文本中的论据一致，不得出现"给高分但点评负面"的矛盾
 - 宁缺毋滥，数据不足的维度给中性分并如实说明
 - 持有建议要分短期/中期/长期三个维度给出，分别说明逻辑
+- 建议必须落到动作与价格：说不出现价/触发价，就不许说「值得关注」
 - 个股分析仅供研究参考，不构成投资建议"""
 
 
@@ -207,12 +208,14 @@ def mock_analyze(quote: StockQuote, history: StockHistory | None, news: list[New
     if history and history.closes and (history.closes[-1] / history.closes[0] - 1) * 100 < -15:
         risks.append("近期累计跌幅较大，短期趋势偏弱")
 
+    # 决策动作按契约给结论（见 decision.py）：分数只决定档位，措辞必须落到动作+价格条件。
+    # 不买就是「不参与」并写明解锁条件 —— 不再用「关注/观察」这类没有结论的词。
     if overall >= 7:
-        suggestions.append("可考虑逢低分批关注")
+        suggestions.append("买入：评分达 7 分档，回踩近 5 日低点企稳即分批建仓，跌破建仓位止损")
     elif overall >= 5:
-        suggestions.append("可观察等待更好的介入时机")
+        suggestions.append("不参与：评分 5~7 分档，条件未齐；站上 MA20 且放量确认再评估买入")
     else:
-        suggestions.append("建议回避或等待企稳信号")
+        suggestions.append("不参与：评分不足 5 分，趋势或估值不达标；企稳放量收复 MA20 后重新评估")
     suggestions.append("严格控制仓位，设置止损")
 
     return StockAnalysis(

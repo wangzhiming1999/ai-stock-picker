@@ -475,7 +475,7 @@ def detect_intraday_divergence(ctx: dict) -> dict:
     if matched:
         action = "分时顶背离成立，分批止盈，可先减一半仓位"
     elif new_high:
-        action = "创阶段新高但未背离，持有观察，跌破分时均线再减"
+        action = "创阶段新高但未背离，持有不动，跌破分时均线即减仓"
     else:
         action = "未出现分时顶背离"
 
@@ -1006,7 +1006,7 @@ def detect_chip_single_peak(ctx: dict) -> dict:
     ]
     matched = all(c["passed"] for c in conditions)
     if matched:
-        action = "单峰密集，换手充分蓄势中，突破成本峰可关注"
+        action = "单峰密集，换手充分蓄势中：放量突破成本峰即买入，缩量回踩成本峰不破可分批建仓"
     else:
         action = "筹码未形成单峰密集结构"
     metrics = {
@@ -1059,7 +1059,7 @@ def detect_chip_low_profit(ctx: dict) -> dict:
     ]
     matched = all(c["passed"] for c in conditions)
     if matched:
-        action = "深跌后获利盘枯竭，抛压减轻，企稳信号需右侧确认"
+        action = "深跌后获利盘枯竭，抛压减轻：不参与左侧，右侧放量收复 5 日线再买"
     else:
         action = "获利盘结构未到低位特征"
     metrics = {"profit_ratio": pr_now, "off_low_pct": round(off_low, 1)}
@@ -1112,7 +1112,7 @@ def detect_chip_transfer_up(ctx: dict) -> dict:
     ]
     matched = all(c["passed"] for c in conditions)
     if matched:
-        action = "筹码温和转移向上，套牢盘消化中，可观察回踩成本峰"
+        action = "筹码温和转移向上，套牢盘消化中：回踩成本峰企稳即分批买入，跌破成本峰放弃"
     else:
         action = "筹码未形成向上转移结构"
     metrics = {
@@ -1123,7 +1123,7 @@ def detect_chip_transfer_up(ctx: dict) -> dict:
     return _pack(tactic, conditions, matched=matched, action=action, metrics=metrics)
 
 
-# 允许把「持有观察」升级为「建议减仓」的卖出形态。
+# 允许把「持有不动」升级为「减仓」的卖出形态。
 # 原则：只有回测达到显著（`tactic_evidence` 里 tier == "verified"）的技巧才有资格触发仓位动作。
 # 这张集合由证据登记表**推导**而不是手写 —— 手写会出现「表里写了已验证、代码里还是空集」这类
 # 静默不一致；首次回测（2026-09-13）与复跑（2026-09-16）都没有形态达到显著，故当前为空。

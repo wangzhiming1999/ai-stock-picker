@@ -39,11 +39,12 @@ export default function DailyBriefing({ onPick, onSettled }: Props) {
   const positionText = m?.position_suggestion?.match(/(\d+(?:\.\d+)?)成/)?.[1]
     ? `总仓位最多 ${Number(m.position_suggestion.match(/(\d+(?:\.\d+)?)成/)?.[1]) * 10}%`
     : m?.position_suggestion || "等待数据";
+  /** 主结论直接给动作。「今天先不买，耐心等信号」读起来像安慰，「不参与」才是决策。 */
   const mainAction = hasPicks
-    ? `今天有 ${picks.length} 只股票值得等买点`
-    : "今天先不买，耐心等信号";
+    ? `今天买入 ${picks.length} 只（到价才成交）`
+    : "今天不参与（空仓等待）";
   /** 三格关键数之三：今天要不要动持仓 */
-  const holdingAction = holdingCount > 0 ? `${holdingCount} 只待处理` : needLogin ? "登录后查看" : "无需操作";
+  const holdingAction = holdingCount > 0 ? `${holdingCount} 只待处理` : needLogin ? "登录后查看" : "持有不动";
   const reviewReady = Boolean(data?.review && (data.review.summary || data.review.alerts_today));
   const tacticsReady = Boolean(
     data?.tactics && (data.tactics.holdings.length > 0 || data.tactics.morning.length > 0)

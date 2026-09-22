@@ -15,6 +15,7 @@ import datetime as dt
 from app.services import (
     akshare_guard,
     data_service,
+    decision,
     market_prediction,
     pattern_service,
     portfolio_service,
@@ -99,9 +100,9 @@ def _relay_hold_hint(relay: dict) -> str:
     score = relay.get("score", 0)
     boards = relay.get("boards", 0)
     if score >= 3:
-        return f"{boards}板 · 资金面最强（三因子全达标），尾盘仍封死则明日观察封板质量"
+        return f"{boards}板 · 资金面最强（三因子全达标）：尾盘封死则持有不动，明日开盘看封板质量决定去留"
     if score >= 2:
-        return f"{boards}板 · 资金面较强，若明日开盘走弱优先留意"
+        return f"{boards}板 · 资金面较强：明日开盘走弱即减仓，走强则持有不动"
     return f"{boards}板 · 封板质量有短板（{relay.get('tier_note', '')}），开盘走弱时减仓优先级最高"
 
 # 风险等级 → 单只最大仓位占比（与 portfolio_service 对齐）
@@ -164,6 +165,8 @@ async def _enrich_morning_stock(
         "target": rec.get("target"),
         "valid_until": rec.get("valid_until"),
         "tactics": [],
+        # 决策动作（见 services/decision.py）。由下方统一判定，不用推荐理由反推。
+        "action": None,
     }
     try:
         code = base["code"]
@@ -191,6 +194,12 @@ async def _enrich_morning_stock(
         base["suggest_shares"] = max(shares, 0)
     except Exception as e:  # 单只失败不影响整体
         print(f"[briefing]  enrich {base.get('code')} 失败: {e}")
+    # 决策动作：这条链路回答的是「今天买什么」，所以动作是 buy —— 但 buy 必须带触发价，
+    # 说不出「什么价才动手」就不算一条决策，降级为明确的「不参与」（而不是含糊的「观察」）。
+    # 触发条件与买点取同一个数：文案说 12.30、价格给 12.85 这种自相矛盾是不允许的。
+    if base.get("buy_point") and not base.get("trigger"):
+        base["trigger"] = f"回踩 {base['buy_point']:.2f} 附近企稳即挂单"
+    base["action"] = decision.normalize("buy") if base.get("buy_point") else decision.normalize("skip")
     return base
 
 
@@ -301,13 +310,13 @@ def _enrich_tail_holding(h: dict) -> dict:
     out = dict(h)
     out["limit_price"] = None
     out["order_action"] = None
-    out["order_hint"] = "暂不操作，观望为主"
+    out["order_hint"] = "持有不动：未触发减仓或加仓条件，不挂单"
     price = h.get("price")
     if not price:
         return out
     try:
         price = float(price)
-        action = h.get("action") or "持有观察"
+        action = h.get("action") or decision.DECISION_LABEL["hold"]
         if "减仓" in action:
             limit = round(price * 1.005, 2)
             out["limit_price"] = limit

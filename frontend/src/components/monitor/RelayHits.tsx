@@ -30,7 +30,7 @@ export default function RelayHits({ hits }: Props) {
         ))}
       </div>
       <p className="mt-1.5 text-meta text-ink-muted">
-        分层是相对强弱读数，不是买卖指令；晋级了也常一字板买不进。开盘走弱时，封板质量最弱的优先留意。
+        分层是相对强弱读数，不是买卖指令；晋级了也常一字板买不进。开盘走弱时，先减封板质量最弱的那只。
       </p>
     </div>
   );

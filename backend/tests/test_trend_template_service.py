@@ -7,7 +7,7 @@ def test_strong_long_term_trend_is_ready_to_watch():
 
     assert result["status"] == "passed"
     assert result["passed"] == result["total"]
-    assert result["action"] == "进入候选，等待放量突破或缩量回踩"
+    assert result["action"] == "进入候选：放量突破平台高点或缩量回踩不破 MA50 时买入"
     assert result["score"] == 10.0
 
 
@@ -17,7 +17,7 @@ def test_weak_trend_is_rejected_instead_of_presented_as_buy_signal():
 
     assert result["status"] == "failed"
     assert result["passed"] < result["total"] / 2
-    assert result["action"] == "暂不参与，等待趋势重新转强"
+    assert result["action"] == "不参与：趋势未转强（达标不足一半），重新站上 MA200 且均线多头后再评估"
 
 
 def test_insufficient_history_is_reported_honestly():

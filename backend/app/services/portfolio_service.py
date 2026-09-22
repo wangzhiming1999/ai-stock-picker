@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 
-from app.services import concurrency, data_service, pattern_service, signal_service, supabase_store
+from app.services import concurrency, data_service, decision, pattern_service, signal_service, supabase_store
 
 RISK_LEVELS = {"保守", "稳健", "进取", "激进"}
 
@@ -389,43 +389,44 @@ async def get_portfolio_advice(user_id: str) -> dict:
 
         pos_pct = (h.get("market_value") or 0) / total_capital * 100 if total_capital else 0
 
-        # 逐项建议
-        tips = []
-        action = "持有观察"
+        # 逐项建议。动作词一律走 decision 契约（持有不动/减仓），不自拼措辞 ——
+        # 前端 DecisionBadge 与 tone 的正则都以契约词为锚，散装词会渲染错色。
+        tips: list[str] = []
+        action = decision.DECISION_LABEL["hold"]
         if signal:
             if price and stop_loss and price <= stop_loss * 1.02:
-                tips.append("已接近止损位，建议考虑减仓控制风险")
-                action = "建议减仓"
+                tips.append(f"已到止损区（止损位 {stop_loss:.2f}），减仓控制风险")
+                action = decision.DECISION_LABEL["reduce"]
             elif price and support and 0 < (price - support) / price < 0.05:
-                tips.append("临近支撑位，可关注企稳信号")
+                tips.append(f"现价距支撑 {support:.2f} 不足 5%：支撑守住企稳则持有不动，跌破支撑即触发上面减仓条件")
             if strength >= cfg["min_strength"]:
                 tips.append(f"信号强度 {strength:.1f} 达标（要求≥{cfg['min_strength']}）")
             else:
-                tips.append(f"信号强度 {strength:.1f} 偏弱（要求≥{cfg['min_strength']}），不宜加仓")
+                tips.append(f"信号强度 {strength:.1f} 偏弱（要求≥{cfg['min_strength']}），不加仓")
             if rr >= cfg["min_rr"]:
                 tips.append(f"风险收益比 {rr:.2f} 合理（要求≥{cfg['min_rr']}）")
             else:
                 tips.append(f"风险收益比 {rr:.2f} 偏低，盈亏空间有限")
         if pos_pct > cfg["max_position_pct"]:
-            tips.append(f"仓位占比 {pos_pct:.1f}% 超过上限（{cfg['max_position_pct']}%），建议减仓")
-            if action == "持有观察":
-                action = "建议减仓"
+            tips.append(f"仓位占比 {pos_pct:.1f}% 超过上限（{cfg['max_position_pct']}%），减仓至限额内")
+            if action == decision.DECISION_LABEL["hold"]:
+                action = decision.DECISION_LABEL["reduce"]
         elif pos_pct > cfg["max_position_pct"] * 0.7:
-            tips.append(f"仓位占比 {pos_pct:.1f}% 接近上限，谨慎加仓")
+            tips.append(f"仓位占比 {pos_pct:.1f}% 接近上限，暂不加仓")
         if pnl_pct is not None:
             if pnl_pct > 20:
-                tips.append(f"浮盈 {pnl_pct:.1f}%，可考虑部分止盈")
+                tips.append(f"浮盈 {pnl_pct:.1f}%：减仓 1/3~1/2 落袋，剩余仓位以成本价为止损线")
             elif pnl_pct < -8:
-                tips.append(f"浮亏 {pnl_pct:.1f}%，检查是否跌破止损逻辑")
+                tips.append(f"浮亏 {pnl_pct:.1f}%：核对止损价，跌破即按减仓/卖出执行，不补仓摊薄")
 
-        # 形态命中：只做风险 / 机会提示。是否升级为「建议减仓」由回测闸门决定 ——
+        # 形态命中：只做风险 / 机会提示。是否升级为「减仓」由回测闸门决定 ——
         # 只有 confidence == "significant" 的卖出形态才有资格触发仓位动作，
         # 避免未经验证的形态直接驱动减仓（首次回测中断头铡刀的收益超额为负）。
         for t in tactics:
             if t.get("direction") == "sell":
                 tips.append(f"形态风险：{t['name']} —— {t['action']}")
-                if t.get("key") in pattern_service.ESCALATE_SELL_KEYS and action == "持有观察":
-                    action = "建议减仓"
+                if t.get("key") in pattern_service.ESCALATE_SELL_KEYS and action == decision.DECISION_LABEL["hold"]:
+                    action = decision.DECISION_LABEL["reduce"]
             else:
                 tips.append(f"形态机会：{t['name']} —— {t['action']}")
 

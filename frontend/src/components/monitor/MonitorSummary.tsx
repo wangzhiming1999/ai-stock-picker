@@ -18,7 +18,7 @@ export default function MonitorSummary({ summary, onlyAction, onToggleOnlyAction
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-meta font-semibold text-ink">现在要不要动</span>
         {summary.act_now === 0 ? (
-          <span className="text-meta text-ink-muted">全部观望，暂无需要立刻操作的标的</span>
+          <span className="text-meta text-ink-muted">全部持有不动，没有标的触发止损或买卖条件</span>
         ) : (
           <>
             <span className="text-meta text-ink-soft">

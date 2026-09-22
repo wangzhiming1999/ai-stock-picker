@@ -356,7 +356,7 @@ def score_sandu(history) -> dict:
         else:
             action = "三度齐备：等待放量突破或缩量回踩均线的确认信号"
     elif status == "watch":
-        action = "观察：三度尚未齐备，继续跟踪量能与均线归位"
+        action = "不参与：三度尚未齐备，量能与均线归位（三度全≥6/6/5）后再评估买入"
     else:
         action = "暂不参与：量/线/速至少一项偏弱，等待结构重新转强"
 

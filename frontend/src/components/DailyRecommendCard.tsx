@@ -225,7 +225,7 @@ export default function DailyRecommendCard({ onPick, collapsed = false }: Props)
           <div className="flex items-center justify-between gap-3">
             <div>
               <div className="flex items-center gap-1.5 text-body font-semibold text-amber-200">
-                <Eye className="h-4 w-4" aria-hidden /> 先观察，别急着买
+                <Eye className="h-4 w-4" aria-hidden /> 暂不参与，等解锁条件
               </div>
             </div>
             <span className="rounded-full border border-state-warn-line bg-amber-500/10 px-2.5 py-1 text-meta text-state-warn-soft">

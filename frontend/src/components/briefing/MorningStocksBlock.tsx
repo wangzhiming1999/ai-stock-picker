@@ -6,6 +6,7 @@ import { DIVIDER, SUB, TEXT } from "../../lib/ui";
 import { CHIP, pnlTone } from "../../lib/tone";
 import { confidenceHint, confidenceLabel } from "../../lib/confidence";
 import { toast } from "sonner";
+import DecisionBadge from "../ui/DecisionBadge";
 import { AlgoTag, Money, simErrMsg } from "./shared";
 
 /** 关注池股票卡：主数字只留 3 个（买点 / 止损 / 建议手数），现价并入头部 */
@@ -77,7 +78,13 @@ function MorningStockCard({ s, onPick }: { s: BriefingStock; onPick: (c: string)
       {/* 头部：名称 + 现价涨跌 + 操作 */}
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="flex items-baseline gap-2">
+          {/* 动作先行：这张卡回答的是「买不买、什么价买」，而不是「这只票怎么样」。
+              此前只有理由没有动作，用户读完不知道结论。 */}
+          <div className="flex items-center gap-2">
+            <DecisionBadge
+              decision={s.action ?? "skip"}
+              note={s.buy_point != null ? `到 ${s.buy_point.toFixed(2)}` : undefined}
+            />
             <span className="text-body font-semibold text-white">{s.name}</span>
             <span className={TEXT.meta}>{s.code}</span>
           </div>
@@ -164,7 +171,7 @@ function MorningStockCard({ s, onPick }: { s: BriefingStock; onPick: (c: string)
       {(s.trigger || s.invalidation) && (
         <div className={`mt-2 space-y-1 ${DIVIDER} pt-2 text-meta`}>
           <div>
-            <span className={TEXT.meta}>满足才关注　</span>
+            <span className={TEXT.meta}>到价才买　</span>
             <span className="text-ink">{s.trigger}</span>
           </div>
           <div>
@@ -191,9 +198,10 @@ export function MorningStocksBlock({ stocks, onPick }: { stocks: BriefingStock[]
       >
         <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" aria-hidden />
         <div>
-          <div className="text-body font-medium text-amber-200">没有股票同时满足上涨趋势和风险控制要求</div>
+          <div className="text-body font-medium text-amber-200">今天不参与（空仓等待）</div>
           <p className="mt-1 text-meta leading-relaxed text-ink-muted">
-            先不新开仓。下方"先观察，别急着买"会列出接近条件的股票，以及还要等待什么。
+            没有股票同时满足上涨趋势与风控门槛，所以今天不开新仓。接近条件的股票会列在下方，
+            并写明各自还差什么才转为买入。
           </p>
         </div>
       </div>

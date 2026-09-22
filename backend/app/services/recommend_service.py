@@ -230,16 +230,16 @@ def _build_action_plan(candidate: dict, valid_until: str) -> dict:
         return {
             "trigger": f"放量突破 {breakout:.2f} 并站稳再行动，未突破不买",
             "invalidation": f"突破后跌回 {breakout:.2f} 下方则放弃，最迟跌破 {stop:.2f} 止损",
-            "target": f"突破路径第一观察目标 {projected_target:.2f}",
+            "target": f"第一目标位 {projected_target:.2f}",
             "risk_reward": 1.5,
             "valid_until": valid_until,
             "setup": "breakout",
             **price_cols,
         }
     return {
-        "trigger": f"回踩 {buy:.2f} 附近企稳，或放量确认后再关注",
+        "trigger": f"回踩 {buy:.2f} 附近企稳即挂单，放量走强同样可进",
         "invalidation": f"跌破 {stop:.2f} 则放弃，不补仓" if stop else "量价转弱则放弃",
-        "target": f"第一观察目标 {target:.2f}" if target else "目标位待信号确认",
+        "target": f"第一目标位 {target:.2f}" if target else "目标位待信号确认",
         "risk_reward": float(signal.get("rr_ratio") or 0),
         "valid_until": valid_until,
         "setup": "pullback",
@@ -397,7 +397,8 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
     # is close and exactly what still needs confirmation.
     #
     # 注意：观察层给的是「拦截原因 + 解锁条件」，不是买入计划。被风控拦下的票
-    # 若配上一句「回踩 X 附近企稳再关注」，就等于自相矛盾（用户明确反馈过）。
+    # 若配上 `_build_action_plan` 那份「回踩 X 企稳即挂单」的触发条件，就等于自相矛盾
+    # （用户明确反馈过）。
     accepted_codes = {candidate["code"] for candidate in qualified}
     watchlist = []
     for candidate in _build_watchlist_candidates(successful_results, accepted_codes)[:8]:

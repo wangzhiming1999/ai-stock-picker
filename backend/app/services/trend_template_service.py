@@ -46,13 +46,13 @@ def assess_trend_template(closes: list[float], current_price: float) -> dict:
     score = round(passed / len(checks) * 10, 1)
     if passed >= 6:
         status = "passed"
-        action = "进入候选，等待放量突破或缩量回踩"
+        action = "进入候选：放量突破平台高点或缩量回踩不破 MA50 时买入"
     elif passed >= 4:
         status = "watch"
-        action = "继续观察，尚未满足完整趋势条件"
+        action = "不参与：趋势条件 6/7 未齐（缺几条见上方勾选），补齐后重新评估买入"
     else:
         status = "failed"
-        action = "暂不参与，等待趋势重新转强"
+        action = "不参与：趋势未转强（达标不足一半），重新站上 MA200 且均线多头后再评估"
 
     return {
         "name": "长期趋势质量检查",
