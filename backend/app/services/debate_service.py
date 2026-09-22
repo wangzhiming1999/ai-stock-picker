@@ -307,7 +307,7 @@ _TRADER_SYSTEM = """你是一位 A 股买方机构的交易员。研究员团队
   "entry_price": 入场触发价数字或 null,
   "stop_price": 止损价数字或 null,
   "target_price": 目标价数字或 null,
-  "position_pct": 0到仓位上限的数字,
+  "position_pct": 0到仓位上限的纯数字（如 4 表示 4%，严禁带 % 或「成」等单位）,
   "batches": ["分批方案，每条一句话，1-3 条"],
   "rationale": "计划依据：引用辩论双方论据与技术位的具体数字，2-3 句",
   "invalidation": "计划失效条件，一句话"
@@ -369,13 +369,26 @@ def _parse_plan(raw: dict, price: float) -> TradePlan:
         except (TypeError, ValueError):
             return None
 
-    # 只防负数/NaN；100 是模型层物理上限（pydantic le=100 会硬抛 ValidationError）。
-    # **风险上限**（按风险等级压仓位）是终审职责，parse 阶段刻意不做 —— 提前压顶
-    # 会让 review_plan 的「仓位超限」判定永远测不到。
+    # 仓位解析：LLM 常输出 "4%" / "4成" / " 4 " 这类带单位/空白的值，
+    # 裸 float() 会 ValueError → 静默归 0（表现就是前端「仓位 0%」）。
+    # 先剥单位再解析；仍失败才是真 0，且看多计划归 0 时必须留痕（禁静默失效）。
+    raw_pct = raw.get("position_pct", 0)
+    if isinstance(raw_pct, str):
+        cleaned = raw_pct.strip().replace("%", "").replace("％", "")
+        if cleaned.endswith("成"):
+            cleaned = cleaned[:-1]
+            try:
+                raw_pct = float(cleaned) * 10  # X成 → X*10%
+            except (TypeError, ValueError):
+                raw_pct = 0
+        else:
+            raw_pct = cleaned or 0
     try:
-        pct = min(max(0.0, float(raw.get("position_pct", 0))), 100.0)
+        pct = min(max(0.0, float(raw_pct)), 100.0)
     except (TypeError, ValueError):
         pct = 0.0
+    if pct == 0 and action in {"buy", "add"}:
+        print(f"[debate] 交易员计划 action={action} 但 position_pct 解析为 0（原始值: {raw.get('position_pct')!r}），请核查 LLM 输出格式")
     return TradePlan(
         action=action,
         entry_price=_num("entry_price"),
