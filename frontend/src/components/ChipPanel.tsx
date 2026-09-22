@@ -160,7 +160,8 @@ export default function ChipPanel({ onPick }: Props) {
           </tr>
         }>
               {items.map((s) => {
-                const hits = (s.tactics as TacticResult[]).filter((t) => t.matched);
+                // tactics 缺失（后端部分成功/旧结构）时按无命中处理，不能让整页崩进 ErrorBoundary
+                const hits = ((s.tactics as TacticResult[] | undefined) ?? []).filter((t) => t.matched);
                 const best = hits[0];
                 return (
                   <tr key={s.code} className="border-t border-surface-line-soft hover:bg-surface-inset/40">

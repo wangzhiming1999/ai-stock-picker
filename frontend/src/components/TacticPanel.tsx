@@ -272,7 +272,7 @@ export default function TacticPanel({ onPick, onImport }: Props) {
                     </td>
                     <td className={CELL}>
                       <div className="flex flex-wrap items-center gap-1">
-                        {(s.tactics as TacticResult[]).map((t) => (
+                        {((s.tactics as TacticResult[] | undefined) ?? []).map((t) => (
                           <TacticChip key={t.key} t={t} />
                         ))}
                         <button
@@ -301,7 +301,7 @@ export default function TacticPanel({ onPick, onImport }: Props) {
                     <tr className="border-t border-surface-line-soft bg-surface-panel">
                       <td colSpan={6} className={CELL}>
                         <div className="space-y-2">
-                          {s.tactics.map((t: TacticResult) => (
+                          {((s.tactics as TacticResult[] | undefined) ?? []).map((t: TacticResult) => (
                             <div key={t.key}>
                               <div className="flex flex-wrap items-center gap-2">
                                 <span className="text-meta font-semibold text-ink">{t.name}</span>

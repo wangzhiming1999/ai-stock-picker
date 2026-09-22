@@ -109,7 +109,7 @@ export default function EvidenceLedgerPanel() {
       </div>
 
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-meta text-ink-muted">
-        {data.tier_order
+        {(data.tier_order ?? [])
           .filter((t) => (data.counts[t] ?? 0) > 0)
           .map((t) => (
             <span key={t}>
@@ -120,7 +120,7 @@ export default function EvidenceLedgerPanel() {
       </div>
 
       {namespaces.map((ns) => {
-        const items = data.items.filter((i) => i.namespace === ns);
+        const items = (data.items ?? []).filter((i) => i.namespace === ns);
         if (items.length === 0) return null;
         return (
           <div key={ns}>

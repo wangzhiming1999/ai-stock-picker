@@ -59,8 +59,8 @@ export function TacticChip({ t, title }: { t: TacticResult; title?: string }) {
   );
 }
 
-export function TacticChips({ tactics }: { tactics: TacticResult[] }) {
-  if (tactics.length === 0) return null;
+export function TacticChips({ tactics }: { tactics?: TacticResult[] | null }) {
+  if (!tactics || tactics.length === 0) return null;
   return (
     <div className="flex flex-wrap items-center gap-1">
       {tactics.map((t) => (
@@ -76,8 +76,8 @@ export function TacticChips({ tactics }: { tactics: TacticResult[] }) {
  * 后端已经保证 `executable` 与 `gate_note` 一致，这里不再自己判断 tier，
  * 避免前端另立一套证据口径。
  */
-export function TacticTakeaway({ tactics }: { tactics: TacticResult[] }) {
-  if (tactics.length === 0) return null;
+export function TacticTakeaway({ tactics }: { tactics?: TacticResult[] | null }) {
+  if (!tactics || tactics.length === 0) return null;
   const executable = tactics.filter((t) => normalize(t).executable);
   if (executable.length > 0) {
     return <>{executable.map((t) => t.action).join("；")}</>;

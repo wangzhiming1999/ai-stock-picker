@@ -60,9 +60,9 @@ export default function MonitorSummary({ summary, onlyAction, onToggleOnlyAction
           {onlyAction ? "显示全部" : "只看要操作的"}
         </button>
       </div>
-      {summary.top.length > 0 && (
+      {(summary.top ?? []).length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1.5">
-          {summary.top.map((t) => (
+          {(summary.top ?? []).map((t) => (
             <span
               key={t.code}
               title={t.do}

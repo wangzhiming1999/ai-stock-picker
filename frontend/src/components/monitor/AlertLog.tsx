@@ -26,7 +26,8 @@ export default function AlertLog({ alerts, onClear }: Props) {
           清空
         </button>
       </div>
-      <ul className="mt-2 space-y-1">
+      {/* 限高滚动：提醒会一直累积，不限高会把下方区块顶出屏幕 */}
+      <ul className="mt-2 max-h-[420px] space-y-1 overflow-y-auto pr-1">
         {alerts.map((a) => (
           <li key={a.id} className="flex flex-wrap items-center gap-2 text-meta">
             <span className="tabular-nums text-ink-muted">{fmtTime(a.at)}</span>
