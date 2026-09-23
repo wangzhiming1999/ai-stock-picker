@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { TEXT } from "../../lib/ui";
-import type { LimitUpPremiumSummary } from "../../types";
+import type { LimitUpPremiumSummary, Caliber } from "../../types";
 import { CaliberLine } from "../CaliberNote";
 import { signedPct } from "./format";
 
@@ -19,6 +19,36 @@ import { signedPct } from "./format";
  * 与「连板资金面」块的关系：那边讲能不能继续封板（状态），这边讲明天卖出赚多少（收益），
  * 两个口径不可相互换算、不可相加。
  */
+function PlanCard({ caliber }: { caliber?: Caliber }) {
+  if (!caliber?.plan_horizon) return null;
+  return (
+    <div className="rounded-lg border border-surface-line bg-surface-inset/40 px-3 py-2.5">
+      <div className="flex items-center gap-2">
+        <span className="text-meta font-semibold text-ink">系统制定计划 · 打板可成交档</span>
+        {caliber.registered && (
+          <span className="rounded-md bg-surface-line/60 px-1.5 py-0.5 text-meta text-ink-muted">preliminary</span>
+        )}
+      </div>
+      <div className="mt-1.5 grid grid-cols-2 gap-x-4 gap-y-1 text-meta text-ink-soft">
+        <span>
+          计划持有期：<span className="text-ink">{caliber.plan_horizon}</span>
+        </span>
+        <span>
+          历史赢面：<span className="text-ink">约 55–61%</span>
+        </span>
+      </div>
+      <p className="mt-1.5 text-meta leading-relaxed text-ink-soft">
+        操作：涨停价买入 → 次日集合竞价卖出。候选见下方「可打板」清单
+        （已剔除换手&lt;5% / 炸板≥3 / 尾盘封板）。这是统计读数转成的执行计划，非承诺；
+        按系统制定的周期到期结算赢 / 输。
+      </p>
+      {caliber.win_rate && (
+        <p className="mt-1 text-meta leading-relaxed text-ink-muted">{caliber.win_rate}</p>
+      )}
+    </div>
+  );
+}
+
 function PremiumSection({ summary }: { summary?: LimitUpPremiumSummary }) {
   const [open, setOpen] = useState<string | null>(null);
   if (!summary || summary.total === 0 || summary.buckets.length === 0) return null;
@@ -27,6 +57,7 @@ function PremiumSection({ summary }: { summary?: LimitUpPremiumSummary }) {
   return (
     <div>
       <h3 className={TEXT.label}>次日溢价读数（涨停价买入 → 次日竞价卖出 · 非买入指令）</h3>
+      <PlanCard caliber={summary.caliber} />
       <p className="mt-1.5 rounded-lg bg-surface-inset/50 px-3 py-2 text-meta leading-relaxed text-ink-soft">
         {summary.headline}
       </p>

@@ -55,7 +55,11 @@ function EvidenceTag({ evidence }: { evidence: TacticDef["evidence"] }) {
         : "bg-surface-line/70 text-ink-muted";
   return (
     <span
-      title={`${evidence.label} · ${evidence.summary}\n依据：${evidence.provenance}`}
+      title={`${evidence.label} · ${evidence.summary}\n依据：${evidence.provenance}${
+        evidence.plan_horizon || evidence.win_rate
+          ? `\n计划：${evidence.plan_horizon ?? "—"} · 赢面：${evidence.win_rate ?? "—"}`
+          : ""
+      }`}
       className={`rounded-md px-1.5 py-0.5 text-meta ${tone}`}
     >
       {evidence.label}
@@ -205,6 +209,12 @@ export default function TacticPanel({ onPick, onImport }: Props) {
                     {t.actionable ? <DirectionTag direction={t.direction} /> : <EvidenceTag evidence={t.evidence} />}
                   </div>
                   <div className="mt-0.5 text-meta text-ink-soft">{t.desc}</div>
+                  {t.evidence?.win_rate && (
+                    <div className="mt-0.5 text-meta text-ink-faint">
+                      赢面：{t.evidence.win_rate}
+                      {t.evidence.plan_horizon && <span className="ml-1">· 计划：{t.evidence.plan_horizon}</span>}
+                    </div>
+                  )}
                 </button>
               ))}
           </div>
@@ -311,6 +321,10 @@ export default function TacticPanel({ onPick, onImport }: Props) {
                                 </span>
                                 <span className="text-meta text-ink-soft">
                                   证据：{tacticEvidence(t).label} · {tacticEvidence(t).provenance}
+                                </span>
+                                <span className="text-meta text-ink-faint">
+                                  计划：{tacticEvidence(t).plan_horizon ?? "—"} · 赢面：
+                                  {tacticEvidence(t).win_rate ?? "—"}
                                 </span>
                               </div>
                               {t.gate_note && (

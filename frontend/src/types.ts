@@ -513,6 +513,10 @@ export interface VanguardEvidence {
   provenance: string;
   actionable: boolean;
   registered?: boolean;
+  /** 系统制定的计划持有期（如 "T+1（次日集合竞价卖出）"） */
+  plan_horizon?: string | null;
+  /** 该信号历史赢面短标签；赢面 <50% 的条目末尾含「不进操作路径」 */
+  win_rate?: string | null;
 }
 
 /** 宽池候选：廉价预筛（无 K 线）行，scored=false 时三维分字段为 null */
@@ -896,6 +900,10 @@ export interface Caliber {
   pitfall: string;
   /** false 表示后端未登记该口径，不要据此下结论 */
   registered?: boolean;
+  /** 系统制定的计划持有期（如 T+1）；由证据决定、不由用户自选 */
+  plan_horizon?: string;
+  /** 该口径下系统制定计划的历史赢面说明（含全样本与可成交档拆分） */
+  win_rate?: string;
 }
 
 export interface WinrateStats {
@@ -1390,6 +1398,10 @@ export interface TacticEvidence {
   provenance: string;
   /** 是否允许出现在买点 / 卖点位置（仅 verified 为 true） */
   actionable: boolean;
+  /** 系统制定的计划持有期（如 "T+1（次日集合竞价卖出）"）；由证据决定、不由用户自选 */
+  plan_horizon?: string | null;
+  /** 该信号历史赢面短标签；赢面 <50% 的条目末尾含「不进操作路径」 */
+  win_rate?: string | null;
 }
 
 /** 技巧定义（GET /api/market/tactics） */
@@ -1539,6 +1551,10 @@ export interface EvidenceLedgerItem {
   actionable: boolean;
   summary: string;
   provenance: string;
+  /** 系统制定的计划持有期（如 "T+1（次日集合竞价卖出）"） */
+  plan_horizon?: string | null;
+  /** 该信号历史赢面短标签；赢面 <50% 的条目末尾含「不进操作路径」 */
+  win_rate?: string | null;
 }
 
 /** 简报里的形态命中汇总 */

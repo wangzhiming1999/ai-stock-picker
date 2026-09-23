@@ -161,6 +161,16 @@ export function EvidenceNote({
       <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-1.5 text-ink-muted transition-colors hover:text-ink-soft">
         <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} aria-hidden />
         <span className="font-medium text-ink-soft">证据档位 {evidence.label}</span>
+        {evidence.win_rate &&
+          (evidence.win_rate.includes("不进操作路径") ? (
+            <span className="shrink-0 rounded-md bg-amber-500/15 px-1.5 py-0.5 text-meta text-amber-300">
+              不进操作路径
+            </span>
+          ) : (
+            <span className="shrink-0 rounded-md bg-surface-line/60 px-1.5 py-0.5 text-meta text-ink-muted">
+              赢面：{evidence.win_rate}
+            </span>
+          ))}
         <span className="min-w-0 flex-1 truncate text-ink-soft">{evidence.summary}</span>
         <ChevronDown
           className="h-3.5 w-3.5 shrink-0 text-ink-muted transition-transform group-open:rotate-180"
@@ -175,6 +185,9 @@ export function EvidenceNote({
         </div>
         <p className="text-ink-soft">{evidence.summary}</p>
         <p>出处：{evidence.provenance}</p>
+        <p className="text-ink-faint">
+          计划持有期：{evidence.plan_horizon ?? "—"} · 历史赢面：{evidence.win_rate ?? "—"}
+        </p>
         {extra && <p>{extra}</p>}
       </div>
     </details>

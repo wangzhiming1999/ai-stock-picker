@@ -59,6 +59,21 @@ class TestRegistryIntegrity:
             assert record.summary.strip(), key
             assert record.provenance.strip(), key
 
+    def test_every_record_declares_plan_horizon_and_win_rate(self) -> None:
+        """「计划持有期 + 赢面」是 B 任务给全站每个信号加的标签。
+
+        每条信号都必须**显式**声明这两个字段（要么给字符串、要么给 None），
+        不能留空字符串 —— 空字符串会被前端当成「有标签但没内容」静默吞掉。
+        赢面 <50% 的条目在 win_rate 末尾标注「不进操作路径」，让前端把它们
+        从买卖操作路径里摘出来。
+        """
+        for key, record in {**ev.EVIDENCE, **ev.STRATEGY_EVIDENCE}.items():
+            assert record.plan_horizon is None or record.plan_horizon.strip(), key
+            assert record.win_rate is None or record.win_rate.strip(), key
+            if record.win_rate and "不进操作路径" in record.win_rate:
+                # 明确不进操作路径的，必须确实不是可执行档
+                assert not record.actionable, key
+
     def test_snapshot_declares_the_run(self) -> None:
         snap = ev.SNAPSHOT
 

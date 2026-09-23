@@ -34,7 +34,13 @@ const NAMESPACE_LABEL: Record<string, string> = {
   strategy: "结构化口径（策略 / 盯盘 / 板块）",
 };
 
+/** 赢面 <50% 的信号被系统明确摘出操作路径（见后端 tactic_evidence 的 win_rate 标注）。 */
+function isOffPath(item: EvidenceLedgerItem): boolean {
+  return !item.actionable && !!item.win_rate && item.win_rate.includes("不进操作路径");
+}
+
 function LedgerRow({ item, open, onToggle }: { item: EvidenceLedgerItem; open: boolean; onToggle: () => void }) {
+  const offPath = isOffPath(item);
   return (
     <div>
       <button
@@ -51,15 +57,30 @@ function LedgerRow({ item, open, onToggle }: { item: EvidenceLedgerItem; open: b
         </span>
         <span className="text-meta text-ink">{item.key}</span>
         <span className="flex-1 text-meta text-ink-soft">{item.label}</span>
+        {offPath && (
+          <span className="shrink-0 rounded-md bg-amber-500/15 px-1.5 py-0.5 text-meta text-amber-300">
+            不进操作路径
+          </span>
+        )}
         <ChevronDown
           className={`h-3.5 w-3.5 shrink-0 text-ink-muted transition-transform ${open ? "rotate-180" : ""}`}
           aria-hidden
         />
+        {(item.plan_horizon || item.win_rate) && (
+          <span className="w-full text-meta text-ink-faint">
+            {item.plan_horizon && <span>计划：{item.plan_horizon}</span>}
+            {item.plan_horizon && item.win_rate && <span className="mx-1">·</span>}
+            {item.win_rate && <span>赢面：{item.win_rate}</span>}
+          </span>
+        )}
       </button>
       {open && (
         <div className="mt-1 space-y-1 px-3 pb-1">
           <p className="text-meta leading-relaxed text-ink-soft">{item.summary}</p>
           <p className="text-meta text-ink-faint">依据：{item.provenance}</p>
+          <p className="text-meta text-ink-faint">
+            计划持有期：{item.plan_horizon ?? "—"} · 历史赢面：{item.win_rate ?? "—"}
+          </p>
         </div>
       )}
     </div>

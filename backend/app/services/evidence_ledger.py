@@ -45,6 +45,8 @@ async def build() -> dict:
                     "actionable": ev.actionable,
                     "summary": ev.summary,
                     "provenance": ev.provenance,
+                    "plan_horizon": ev.plan_horizon,
+                    "win_rate": ev.win_rate,
                 }
             )
     items.sort(key=lambda i: (_TIER_ORDER.index(i["tier"]) if i["tier"] in _TIER_ORDER else 9, i["key"]))

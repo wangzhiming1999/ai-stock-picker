@@ -73,6 +73,12 @@ class Evidence:
     tier: str
     summary: str
     provenance: str
+    # 系统制定的计划持有期（如 "T+1（次日集合竞价卖出）"）与历史赢面短标签。
+    # 由证据决定、不由用户自选；赢面<50% 的条目在 win_rate 末尾标注「不进操作路径」，
+    # 让前端能把它们从买卖操作路径里明确摘出来。无收益口径的条目（未回测/不可回测）
+    # 给中性说明，不给假赢率。
+    plan_horizon: str | None = None
+    win_rate: str | None = None
 
     @property
     def label(self) -> str:
@@ -94,6 +100,8 @@ class Evidence:
             "summary": self.summary,
             "provenance": self.provenance,
             "actionable": self.actionable,
+            "plan_horizon": self.plan_horizon,
+            "win_rate": self.win_rate,
         }
 
 
@@ -124,6 +132,8 @@ EVIDENCE: dict[str, Evidence] = {
             "但 5 次远达不到判定门槛（需要 30 次以上），这些数字不可靠 —— 值得跟踪，不能当结论。"
         ),
         provenance=_RUN + "；且 2026-09-16 才改为按周期取真实周线/月线",
+        plan_horizon="回测持有 5/10/20 日",
+        win_rate="样本仅 5 次 · 仅线索，无系统计划",
     ),
     "intraday_divergence": Evidence(
         tier="not_testable",
@@ -132,6 +142,8 @@ EVIDENCE: dict[str, Evidence] = {
             "因此给不出任何有效性结论。"
         ),
         provenance="数据源能力限制（长期有效）",
+        plan_horizon=None,
+        win_rate="无分钟线数据 · 不可回测",
     ),
     "wash_scrub": Evidence(
         tier="unsupported",
@@ -141,6 +153,8 @@ EVIDENCE: dict[str, Evidence] = {
             "和随机波动没有区别，z 值只有 0.56 / 0.30 / 0.10。"
         ),
         provenance=_RUN,
+        plan_horizon="回测持有 5/10/20 日",
+        win_rate="超额≈0（z 0.1~0.6）· 不进买点",
     ),
     "guillotine": Evidence(
         tier="unsupported",
@@ -150,6 +164,8 @@ EVIDENCE: dict[str, Evidence] = {
             "个百分点，样本只有 22 次）。跌得多，不等于躲开它就能多赚。"
         ),
         provenance=_RUN,
+        plan_horizon="回测持有 5/10/20 日",
+        win_rate="卖出不更赚 · 非卖点",
     ),
     "volume_floor": Evidence(
         tier="preliminary",
@@ -160,6 +176,8 @@ EVIDENCE: dict[str, Evidence] = {
             "但 20 日那一档只有 5 次采样且全部猜对，纯属巧合。"
         ),
         provenance=_RUN + "（阈值为 30% 校准后口径）",
+        plan_horizon="回测持有 5/10/20 日",
+        win_rate="样本不足 · 仅线索",
     ),
     "volume_peak": Evidence(
         tier="unsupported",
@@ -169,6 +187,8 @@ EVIDENCE: dict[str, Evidence] = {
             "现在规则多了这道条件、命中只会更少，所以这组数字不能再代表当前形态。"
         ),
         provenance=_RUN + "；该次跑批为旧口径（缺换手率条件）；换手率已接入，结论待重跑覆盖",
+        plan_horizon="回测持有 5/10/20 日",
+        win_rate="符号翻转 · 待重跑",
     ),
     "macd_zone_cross": Evidence(
         tier="unsupported",
@@ -178,6 +198,8 @@ EVIDENCE: dict[str, Evidence] = {
             "收益少 0.27 / 0.46 / 1.00 个百分点。零轴上方金叉并不能让你多赚。"
         ),
         provenance=_RUN,
+        plan_horizon="回测持有 5/10/20 日",
+        win_rate="跑输大盘 · 不进买点",
     ),
     "ma10_break": Evidence(
         tier="unsupported",
@@ -187,6 +209,8 @@ EVIDENCE: dict[str, Evidence] = {
             "400 多次都测不出优势，说明是真的没用，不是样本不够。"
         ),
         provenance=_RUN,
+        plan_horizon="回测持有 5/10/20 日",
+        win_rate="无优势 · 不进买点",
     ),
     "ma20_slope": Evidence(
         tier="unsupported",
@@ -196,6 +220,8 @@ EVIDENCE: dict[str, Evidence] = {
             "要么重新调参数，要么直接放弃它。"
         ),
         provenance=_RUN,
+        plan_horizon="回测持有 5/10/20 日",
+        win_rate="跑输大盘 · 不进买点",
     ),
     # 筹码形态（2026-09-21 新增）：尚未回测，先挂 unknown 进观察池。
     # 数据链路：chip_service 自复刻东财 CYQ（已与 akshare 输出对齐，偏差 <2%）；
@@ -208,6 +234,8 @@ EVIDENCE: dict[str, Evidence] = {
             "「单峰密集蓄势」是流传很久的说法，各家算法不一样，得按本项目的算法跑过才算数。"
         ),
         provenance="2026-09-21 新增，数据=chip_service 自复刻 CYQ（与东财官方值偏差 <2%）",
+        plan_horizon=None,
+        win_rate="未回测 · 无收益口径",
     ),
     "chip_low_profit": Evidence(
         tier="unknown",
@@ -216,6 +244,8 @@ EVIDENCE: dict[str, Evidence] = {
             "（抄跌停、低开再买都是负期望），这个形态会不会不一样，得等回测回答。"
         ),
         provenance="2026-09-21 新增，数据=chip_service 自复刻 CYQ",
+        plan_horizon=None,
+        win_rate="未回测 · 无收益口径",
     ),
     "chip_transfer_up": Evidence(
         tier="unknown",
@@ -224,6 +254,8 @@ EVIDENCE: dict[str, Evidence] = {
             "市面上「筹码转移」的说法算法各不相同，得按本项目的算法跑过才算数。"
         ),
         provenance="2026-09-21 新增，数据=chip_service 自复刻 CYQ",
+        plan_horizon=None,
+        win_rate="未回测 · 无收益口径",
     ),
 }
 
@@ -257,6 +289,8 @@ STRATEGY_EVIDENCE: dict[str, Evidence] = {
             "有效窗口 2026-08-28 ~ 09-16 共 13 个交易日对 / 764 个样本"
             "（接口仅回溯约 15 个交易日，样本窗口天然受限）"
         ),
+        plan_horizon="T+1（看次日是否续板）",
+        win_rate="晋级率 16~40% · 非收益口径，不进买点",
     ),
     # 与 limitup_relay 是**同一批涨停池数据的两种口径**：relay 是「封板能不能延续」（状态），
     # 这边是「明天开盘卖出能赚多少」（收益）。两者不可相互换算、不可相加。
@@ -293,6 +327,8 @@ STRATEGY_EVIDENCE: dict[str, Evidence] = {
             "⚠️ 股票池是「近 14 天涨停过的活跃股」回溯 250 天，非随机样本"
             "（组间对照可缓解但未消除）；窗口只有 1 年，量级不可外推。"
         ),
+        plan_horizon="T+1（次日集合竞价卖出）",
+        win_rate="约 55–62% · 本项目唯一正期望方向",
     ),
     # 与 limitup_relay 的镜像关系：那边是涨停池的状态延续率（缺收益口径），
     # 这边**拿得到收益**（跌停价可直接成交，次日开盘价可查），因此能算出真实期望 ——
@@ -318,6 +354,8 @@ STRATEGY_EVIDENCE: dict[str, Evidence] = {
             "+ 腾讯日 K，有效窗口 2026-08-31 ~ 09-17 共 13 个交易日 / 133 个样本"
             "（跌停池与涨停池一样仅回溯约 15 个交易日，样本窗口天然受限）"
         ),
+        plan_horizon="T+1（次日集合竞价卖出）",
+        win_rate="胜率 4.5% / 期望 −4.47% · 不进操作路径",
     ),
     # 盯盘 monitor 的支撑/压力/买卖点是**另一条独立于形态的建议链路**
     # （signal_service.compute_signals），此前没有登记在这里 —— 属于治理缺口本身。
@@ -341,6 +379,8 @@ STRATEGY_EVIDENCE: dict[str, Evidence] = {
             "backtest_service.run_backtest；数据源 akshare 腾讯日 K；"
             "未计手续费与滑点，未做显著性检验（单次跑批无 n/z）。"
         ),
+        plan_horizon=None,
+        win_rate="无统一计划周期 · 无收益口径，不进买点",
     ),
     "monitor_levels": Evidence(
         tier="unsupported",
@@ -361,6 +401,8 @@ STRATEGY_EVIDENCE: dict[str, Evidence] = {
             "数据源为腾讯日 K 640 根（含 OHLC）；未计滑点与手续费。"
             "对照：同口径下「持有观察」档超额 ≈ 0（h5 −0.06%），可作基准噪声尺度。"
         ),
+        plan_horizon="当日收盘买卖（回踩可买档）",
+        win_rate="买入侧胜率 40~44% · 不进操作路径",
     ),
     # 决策先锋（vanguard_service）：暗盘资金 / 趋势 / 活跃度 三维打分榜。
     #
@@ -398,6 +440,8 @@ STRATEGY_EVIDENCE: dict[str, Evidence] = {
             "（出场 ≥ 买入日+1、减同期指数并换基准验符号翻转、只用开/收盘价、"
             "可成交性独立复核），样本 ≥30 且各持有期超额同号为正。"
         ),
+        plan_horizon=None,
+        win_rate="非收益口径（三维读数）· 不进买点",
     ),
 }
 
