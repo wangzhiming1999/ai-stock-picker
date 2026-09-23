@@ -399,7 +399,8 @@ export interface VanguardLevels {
   buy_point: number;
   sell_point: number;
   stop_loss: number;
-  rr_ratio: number;
+  /** 现价穿透 60 日区间（创新高/新低）时档位无效，后端给 null —— 前端必须显示「—」 */
+  rr_ratio: number | null;
   strength: number;
   bb_upper: number;
   bb_lower: number;

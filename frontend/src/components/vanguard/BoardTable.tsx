@@ -2,6 +2,7 @@ import { Fragment, useState } from "react";
 import { ChevronDown, ChevronRight, Stethoscope } from "lucide-react";
 import { pnlTone } from "../../lib/tone";
 import { CELL } from "../../lib/ui";
+import { fmtNum } from "../../lib/safe";
 import type { VanguardBoard, VanguardItem } from "../../types";
 import Button from "../ui/Button";
 import Table, { Th } from "../ui/Table";
@@ -67,8 +68,8 @@ function DetailRow({ item, colSpan }: { item: VanguardItem; colSpan: number }) {
                   <span className="ml-2 text-ink-soft">近 20 日 <PctText v={m.r20} /></span>
                 </div>
                 <div className="text-ink-soft">
-                  MA5 {m.ma5.toFixed(2)} · MA20 {m.ma20.toFixed(2)} · MA60 {m.ma60.toFixed(2)} · MA20 斜率{" "}
-                  {m.ma20_slope.toFixed(2)}%
+                  MA5 {fmtNum(m.ma5)} · MA20 {fmtNum(m.ma20)} · MA60 {fmtNum(m.ma60)} · MA20 斜率{" "}
+                  {fmtNum(m.ma20_slope)}%
                 </div>
               </div>
             )}
@@ -192,21 +193,21 @@ export default function BoardTable({ data, onPick, onDiagnose }: Props) {
                   <div className="text-meta text-ink-muted">
                     {it.code}
                     {it.sector && <span className="ml-1.5">{it.sector}</span>}
-                    {it.sector_strength != null && (
+                    {it.sector_strength != null && Number.isFinite(it.sector_strength) && (
                       <span className="ml-1.5">板块强度 {it.sector_strength.toFixed(1)}</span>
                     )}
                   </div>
                 </td>
                 <td className={`${CELL} text-right`}>
-                  <div className="text-ink">{it.price.toFixed(2)}</div>
+                  <div className="text-ink">{Number.isFinite(it.price) ? it.price.toFixed(2) : "—"}</div>
                   <div className={`text-meta ${pnlTone(it.change_pct)}`}>
                     {it.change_pct >= 0 ? "+" : ""}
-                    {it.change_pct.toFixed(2)}%
+                    {Number.isFinite(it.change_pct) ? it.change_pct.toFixed(2) : "—"}%
                   </div>
                   {/* 预期价格在主表就露出（展开明细里给完整说明）——
                       用户反馈「不知道怎么操作」，多半是不会点开每一行找价位。
                       缺值时不占位：旧快照（undefined）与算不出（null）都留空。 */}
-                  {it.expected_price && (
+                  {it.expected_price && Number.isFinite(it.expected_price.price) && (
                     <div className="text-meta text-ink-soft" title={it.expected_price.note}>
                       预期 {it.expected_price.price.toFixed(2)}
                       <span className="text-ink-soft">
@@ -231,7 +232,7 @@ export default function BoardTable({ data, onPick, onDiagnose }: Props) {
                     }`}
                     title={data.weights_note}
                   >
-                    {it.overall_score.toFixed(2)}
+                    {Number.isFinite(it.overall_score) ? it.overall_score.toFixed(2) : "—"}
                   </span>
                 </td>
                 <td className={`${CELL} text-right`} onClick={(e) => e.stopPropagation()}>

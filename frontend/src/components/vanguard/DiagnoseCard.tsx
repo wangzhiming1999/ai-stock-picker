@@ -22,15 +22,17 @@ function SectorCompare({ sector }: { sector: VanguardSector }) {
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <span className="font-medium text-ink">所属板块：{sector.sector}</span>
         <span className="text-ink-soft">
-          强度 <b className="text-ink">{sector.strength_score.toFixed(1)}</b> / 10
+          强度{" "}
+          <b className="text-ink">{Number.isFinite(sector.strength_score) ? sector.strength_score.toFixed(1) : "—"}</b>{" "}
+          / 10
         </span>
         <span className="text-ink-muted">
           成员 {sector.member_count} 只 · 上涨 {sector.up_count} 只 · 涨停 {sector.limitup_count} 家
         </span>
       </div>
       <div className="mt-1 text-ink-soft">
-        资金分位 {sector.dims.money.toFixed(1)} · 动量分位 {sector.dims.momentum.toFixed(1)} · 广度分位{" "}
-        {sector.dims.breadth.toFixed(1)} —— 分位是**当日横截面**排名，换日即换基准，不可跨日比较
+        资金分位 {sector.dims.money?.toFixed(1) ?? "—"} · 动量分位 {sector.dims.momentum?.toFixed(1) ?? "—"} · 广度分位{" "}
+        {sector.dims.breadth?.toFixed(1) ?? "—"} —— 分位是**当日横截面**排名，换日即换基准，不可跨日比较
       </div>
     </div>
   );
@@ -106,10 +108,10 @@ export default function DiagnoseCard({ code, requestId }: Props) {
             <span className="text-head font-semibold text-ink-strong">{item.name || data.code}</span>
             <span className="text-meta text-ink-muted">{data.code}</span>
             <span className="text-body text-ink">
-              {item.price.toFixed(2)}{" "}
+              {Number.isFinite(item.price) ? item.price.toFixed(2) : "—"}{" "}
               <span className={pnlTone(item.change_pct)}>
                 {item.change_pct >= 0 ? "+" : ""}
-                {item.change_pct.toFixed(2)}%
+                {Number.isFinite(item.change_pct) ? item.change_pct.toFixed(2) : "—"}%
               </span>
             </span>
             <span className="text-meta text-ink-muted">
@@ -124,7 +126,8 @@ export default function DiagnoseCard({ code, requestId }: Props) {
           <div className="grid gap-3 lg:grid-cols-[1fr_1fr_1.1fr]">
             <div className={`${SUB} px-3 py-2`}>
               <p className="mb-1.5 text-meta font-semibold text-ink-muted">
-                三维分 · 综合 <b className="text-ink">{item.overall_score.toFixed(2)}</b>
+                三维分 · 综合{" "}
+                <b className="text-ink">{Number.isFinite(item.overall_score) ? item.overall_score.toFixed(2) : "—"}</b>
               </p>
               <div className="space-y-1">
                 {(["dark_money", "trend", "activity"] as const).map((k) => (

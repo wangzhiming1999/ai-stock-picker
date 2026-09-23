@@ -22,7 +22,9 @@ function StrengthBar({ score }: { score: number }) {
       <div className="h-1.5 w-16 overflow-hidden rounded-full bg-surface-raised">
         <div className={`h-full rounded-full ${scoreBg(score)}`} style={{ width: `${pct}%` }} />
       </div>
-      <span className="w-8 text-right text-meta font-semibold text-ink">{score.toFixed(1)}</span>
+      <span className="w-8 text-right text-meta font-semibold text-ink">
+        {Number.isFinite(score) ? score.toFixed(1) : "—"}
+      </span>
     </div>
   );
 }
@@ -73,9 +75,9 @@ export function SectorTable({ data }: SectorProps) {
           <td className={CELL}>
             <span className="font-medium text-ink-strong">{s.sector}</span>
             <div className="text-meta text-ink-muted">
-              资金 <b className="text-ink-muted">{s.dims.money.toFixed(1)}</b> · 动量{" "}
-              <b className="text-ink-muted">{s.dims.momentum.toFixed(1)}</b> · 广度{" "}
-              <b className="text-ink-muted">{s.dims.breadth.toFixed(1)}</b>
+              资金 <b className="text-ink-muted">{s.dims.money?.toFixed(1) ?? "—"}</b> · 动量{" "}
+              <b className="text-ink-muted">{s.dims.momentum?.toFixed(1) ?? "—"}</b> · 广度{" "}
+              <b className="text-ink-muted">{s.dims.breadth?.toFixed(1) ?? "—"}</b>
             </div>
           </td>
           <td className={`${CELL} text-right`}>
@@ -182,16 +184,16 @@ export function LeadersList({ data, onPick, onDiagnose }: LeaderProps) {
             <span className="text-meta text-ink-muted">{l.code}</span>
             {l.sector && <span className="text-meta text-ink-muted">{l.sector}</span>}
             <span className="text-meta text-ink">
-              {l.price.toFixed(2)}{" "}
+              {Number.isFinite(l.price) ? l.price.toFixed(2) : "—"}{" "}
               <span className={pnlTone(l.change_pct)}>
                 {l.change_pct >= 0 ? "+" : ""}
-                {l.change_pct.toFixed(2)}%
+                {Number.isFinite(l.change_pct) ? l.change_pct.toFixed(2) : "—"}%
               </span>
             </span>
             <span className="text-meta text-ink-muted">
-              资金 <b className="text-ink">{l.dark_money.toFixed(1)}</b> · 趋势{" "}
-              <b className="text-ink">{l.trend.toFixed(1)}</b> · 综合{" "}
-              <b className="text-ink">{l.overall_score.toFixed(2)}</b>
+              资金 <b className="text-ink">{Number.isFinite(l.dark_money) ? l.dark_money.toFixed(1) : "—"}</b> · 趋势{" "}
+              <b className="text-ink">{Number.isFinite(l.trend) ? l.trend.toFixed(1) : "—"}</b> · 综合{" "}
+              <b className="text-ink">{Number.isFinite(l.overall_score) ? l.overall_score.toFixed(2) : "—"}</b>
             </span>
             <div className="ml-auto flex items-center gap-1">
               <Button variant="ghost" size="xs" onClick={() => onDiagnose(l.code)}>

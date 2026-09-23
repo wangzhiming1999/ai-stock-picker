@@ -185,7 +185,7 @@ function LevelChip({ label, value, tone }: { label: string; value: number; tone:
   return (
     <span className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-medium ${tone.bg} ${tone.text}`}>
       <span className="text-ink-muted">{label}</span>
-      {value.toFixed(2)}
+      {Number.isFinite(value) ? value.toFixed(2) : "—"}
     </span>
   );
 }
@@ -208,8 +208,9 @@ export function LevelChips({ levels }: { levels: VanguardLevels | null }) {
       <LevelChip label="卖出区" value={levels.sell_point} tone={CHIP.sell} />
       <LevelChip label="止损" value={levels.stop_loss} tone={CHIP.risk} />
       <span className="text-ink-soft">
-        风报比 <b className="text-ink-soft">{levels.rr_ratio.toFixed(2)}</b> · 信号强度{" "}
-        <b className="text-ink-soft">{levels.strength.toFixed(1)}</b>
+        风报比{" "}
+        <b className="text-ink-soft">{levels.rr_ratio != null ? levels.rr_ratio.toFixed(2) : "—"}</b> · 信号强度{" "}
+        <b className="text-ink-soft">{Number.isFinite(levels.strength) ? levels.strength.toFixed(1) : "—"}</b>
       </span>
     </div>
   );
@@ -250,12 +251,12 @@ export function ExpectedPriceChip({
       </span>
     );
   }
-  const gap = ep.gap_pct;
+  const gap = ep?.gap_pct;
   return (
     <span className={`inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-meta ${className}`}>
       <span className="text-ink-muted">预期价格</span>
-      <span className="rounded-md bg-surface-raised px-1.5 py-0.5 font-semibold text-ink" title={ep.note}>
-        {ep.price.toFixed(2)}
+      <span className="rounded-md bg-surface-raised px-1.5 py-0.5 font-semibold text-ink" title={ep?.note}>
+        {Number.isFinite(ep.price) ? ep.price.toFixed(2) : "—"}
       </span>
       <span className="text-ink-muted">（{ep.setup === "breakout" ? "突破位" : "回踩位"}）</span>
       {gap != null && Number.isFinite(gap) && (

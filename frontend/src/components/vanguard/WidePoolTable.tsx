@@ -60,7 +60,7 @@ export default function WidePoolTable({ data, onDiagnose }: Props) {
                 <span className="text-meta text-ink-faint">{r.code}</span>
               </div>
             </td>
-            <td className={`${CELL} text-right tabular-nums`}>{r.price.toFixed(2)}</td>
+            <td className={`${CELL} text-right tabular-nums`}>{Number.isFinite(r.price) ? r.price.toFixed(2) : "—"}</td>
             <td className={`${CELL} text-right tabular-nums`}>
               <PctText v={r.change_pct} />
             </td>
@@ -68,16 +68,18 @@ export default function WidePoolTable({ data, onDiagnose }: Props) {
               <YiText v={r.amount_yi} />
             </td>
             <td className={`${CELL} text-right tabular-nums text-ink-soft`}>
-              {r.turnover != null ? `${r.turnover.toFixed(2)}%` : "—"}
+              {r.turnover != null && Number.isFinite(r.turnover) ? `${r.turnover.toFixed(2)}%` : "—"}
             </td>
             <td className={`${CELL} text-right tabular-nums text-ink-soft`}>
-              {r.volume_ratio != null ? r.volume_ratio.toFixed(2) : "—"}
+              {r.volume_ratio != null && Number.isFinite(r.volume_ratio) ? r.volume_ratio.toFixed(2) : "—"}
             </td>
             <td className={`${CELL} text-right tabular-nums`}>
               {r.main_pct != null ? <PctText v={r.main_pct} /> : <span className="text-ink-faint">—</span>}
             </td>
             <td className={`${CELL} text-ink-soft`}>{r.sector ?? "—"}</td>
-            <td className={`${CELL} text-right tabular-nums text-ink-soft`}>{r.pre_score.toFixed(2)}</td>
+            <td className={`${CELL} text-right tabular-nums text-ink-soft`}>
+              {Number.isFinite(r.pre_score) ? r.pre_score.toFixed(2) : "—"}
+            </td>
             <td className={`${CELL} text-center`}>
               {r.scored ? (
                 <span className="rounded-full bg-state-success-surface px-2 py-0.5 text-meta text-state-success-soft">精算</span>
