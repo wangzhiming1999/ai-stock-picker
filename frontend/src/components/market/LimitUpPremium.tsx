@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { TEXT } from "../../lib/ui";
-import type { LimitUpPremiumSummary, Caliber } from "../../types";
+import type { LimitUpPremiumSummary } from "../../types";
 import { CaliberLine } from "../CaliberNote";
 import { signedPct } from "./format";
 
@@ -79,8 +79,8 @@ function PremiumSection({ summary }: { summary?: LimitUpPremiumSummary }) {
 
   return (
     <div>
-      <h3 className={TEXT.label}>次日溢价读数（涨停价买入 → 次日竞价卖出 · 非买入指令）</h3>
-      <PlanCard caliber={summary.caliber} />
+      <h3 className={TEXT.label}>次日溢价读数（涨停价买入 → 次日竞价卖出）</h3>
+      <TradeInstructionCard summary={summary} />
       <p className="mt-1.5 rounded-lg bg-surface-inset/50 px-3 py-2 text-meta leading-relaxed text-ink-soft">
         {summary.headline}
       </p>

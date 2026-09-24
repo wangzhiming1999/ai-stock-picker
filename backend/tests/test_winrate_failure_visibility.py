@@ -161,3 +161,76 @@ class WinrateFailureVisibilityTests:
         assert out["snapshot_error"] is None
         assert out["prediction"]["total"] == 2
         assert out["recommendation"]["total"] == 2
+
+
+class _FallbackQuery:
+    """首次查询 daily_recommendations 报「excess_return 列不存在」，第二次（降级查询）成功。"""
+
+    def __init__(self, sb, name):
+        self.sb = sb
+        self.name = name
+
+    def select(self, *_a, **_k):
+        return self
+
+    @property
+    def not_(self):
+        return self
+
+    def is_(self, *_a, **_k):
+        return self
+
+    def order(self, *_a, **_k):
+        return self
+
+    def limit(self, *_a, **_k):
+        return self
+
+    def eq(self, *_a, **_k):
+        return self
+
+    async def execute(self):
+        self.sb.calls[self.name] = self.sb.calls.get(self.name, 0) + 1
+        if self.name == "daily_recommendations" and self.sb.calls[self.name] == 1:
+            raise RuntimeError(
+                "Could not find the 'excess_return' column of 'daily_recommendations' in the schema cache"
+            )
+        return type("R", (), {"data": self.sb.sink.get(self.name, [])})()
+
+
+class _FallbackSB:
+    def __init__(self, sink):
+        self.sink = sink
+        self.calls: dict = {}
+
+    def table(self, name):
+        return _FallbackQuery(self, name)
+
+
+class _FallbackStore:
+    def __init__(self, sink):
+        self.sink = sink
+
+    def is_configured(self):
+        return True
+
+    async def get_service_client(self):
+        return _FallbackSB(self.sink)
+
+
+class WinrateExcessColumnMissingTests:
+    def test_reco_read_falls_back_when_v14_not_run(self, monkeypatch):
+        """v14 迁移未跑（excess_return 列不存在）时，读路径必须静默降级到旧字段，
+        不能把「列不存在」显示成「推荐记录查询失败」、把整个推荐块打空。"""
+        sink = {
+            "prediction_records": [{"direction": "up", "hit": True}, {"direction": "down", "hit": False}],
+            "daily_recommendations": [{"hit": True, "source": "llm"}, {"hit": False, "source": "rule"}],
+            "winrate_snapshot": [{"snapshot_date": "2026-09-21", "prediction_rate": 50.0, "recommend_rate": 50.0}],
+        }
+        monkeypatch.setattr(W, "supabase_store", _FallbackStore(sink))
+        out = _run(W.get_winrate_stats())
+        assert out["recommendation"]["error"] is None
+        assert out["recommendation"]["total"] == 2
+        # 降级后超额口径不可信：显式标记 unavailable，前端据此回退旧「次日胜率」。
+        assert out["recommendation"]["benchmark_available"] is False
+        assert out["recommendation"]["excess_hit_rate"] is None

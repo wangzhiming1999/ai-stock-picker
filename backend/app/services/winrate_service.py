@@ -6,63 +6,6 @@ import datetime as dt
 
 from app.services import backtest_service, calibers, concurrency, data_service, market_prediction, supabase_store, trade_calendar_service
 
-# 推荐胜率净口径常量（与前端口径、calibers 文案必须同值）。
-# A 股双边净交易成本上界（%）：卖出印花税 0.05% + 双边佣金约 0.05%（万2.5×2）
-# + 过户费约 0.002%（0.001%×2）+ 保守滑点。超过此值的净收益才算「真正赚到」。
-TRANSACTION_COST_PCT = 0.15
-# 对比基准：沪深300（与 backtest_service.BENCHMARK 一致）。
-BENCHMARK_CODE = "sh000300"
-
-
-# 净口径换算的纯函数，便于单测（见 tests/test_winrate_settlement.py）。
-def _index_window_return(bench_history, rec_date: str, next_date: str) -> float | None:
-    """基准在 rec_date 收盘 → next_date 收盘 的收益%（与个股持有期对齐）。
-
-    两日都必须出现在基准历史里，否则返回 None（无法对齐持有期 → 该样本不计入净口径）。
-    基准缺失或 rec/next 任一交易日不在历史里都视为不可对齐。
-    """
-    if bench_history is None or not getattr(bench_history, "dates", None):
-        return None
-    rec_close = next_close = None
-    for date, close in zip(bench_history.dates, bench_history.closes):
-        d = str(date)[:10]
-        if d == rec_date and close:
-            rec_close = float(close)
-        elif d == next_date and close:
-            next_close = float(close)
-    if rec_close is None or next_close is None:
-        return None
-    return next_close / rec_close - 1
-
-
-def _reco_outcome(next_return: float, bench_return: float | None, cost: float) -> tuple[float, float | None, bool]:
-    """把一条推荐的毛收益换算为净口径结论。
-
-    返回 (net, excess, hit)：
-    - net    个股扣费后的净收益（next_return - cost）
-    - excess 减基准后的收益（next_return - bench_return），基准缺失时为 None
-    - hit    赢的判断：有基准时看「减基准且扣费后为正」，无基准降级为「扣费后为正」
-    """
-    net = next_return - cost
-    excess = None if bench_return is None else next_return - bench_return
-    if bench_return is None:
-        hit = (next_return - cost) > 0
-    else:
-        hit = (next_return - bench_return - cost) > 0
-    return net, excess, hit
-
-
-def _first_trading_date_after(history, rec_date: str) -> str | None:
-    """返回 history 中 rec_date 之后的首个交易日（与个股 next_date 同交易日历）。"""
-    if history is None or not getattr(history, "dates", None):
-        return None
-    for date in history.dates:
-        d = str(date)[:10]
-        if d > rec_date:
-            return d
-    return None
-
-
 def _next_close_after(history, rec_date: str) -> tuple[str, float] | None:
     """返回推荐日后的首个真实交易日收盘，禁止用 Cron 执行时现价替代。"""
     if not history:
@@ -265,7 +208,21 @@ async def get_winrate_stats() -> dict:
         )
         rec_rows = rec_res.data or []
     except Exception as e:
-        rec_error = f"daily_recommendations: {_err_note(e)}"
+        # v14 迁移未跑时 excess_return 列不存在 → 静默降级为只取旧字段，
+        # 避免「列不存在」被显示成「推荐记录查询失败」、把整个推荐块打空。
+        if "excess_return" in str(e):
+            try:
+                rec_res = (
+                    await sb.table("daily_recommendations")
+                    .select("hit", "source")
+                    .not_.is_("settled_at", None)
+                    .execute()
+                )
+                rec_rows = rec_res.data or []
+            except Exception as e2:
+                rec_error = f"daily_recommendations: {_err_note(e2)}"
+        else:
+            rec_error = f"daily_recommendations: {_err_note(e)}"
 
     def _is_reco_source(src) -> bool:
         return src not in ("quad", "watch")
