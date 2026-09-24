@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RefreshCw, TrendingDown } from "lucide-react";
 import { fetchLimitDownRepair, fetchLimitDownSnapshot } from "../api/client";
-import { useBus } from "../lib/bus";
 import { downTone, sentimentTone } from "../lib/tone";
 import { DIVIDER, TEXT } from "../lib/ui";
 import type { LimitDownRepairResult, LimitDownSnapshot } from "../types";
@@ -40,10 +39,16 @@ import { fmtDownUpRatio } from "./limitDownLogic";
  *   - `TapeShell.tsx`       折叠条 + 展开面板外壳（与涨停带共用）
  */
 
-export default function LimitDownBar() {
+export default function LimitDownBar({
+  defaultOpen = false,
+  embedded = false,
+}: {
+  defaultOpen?: boolean;
+  embedded?: boolean;
+}) {
   const [snapshot, setSnapshot] = useState<LimitDownSnapshot | null>(null);
   const [snapError, setSnapError] = useState<string | null>(null);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [repair, setRepair] = useState<LimitDownRepairResult | null>(null);
   const [repairLoading, setRepairLoading] = useState(false);
   const [repairError, setRepairError] = useState<string | null>(null);
@@ -83,12 +88,6 @@ export default function LimitDownBar() {
     void loadRepair();
   }, [open, loadRepair]);
 
-  // 功能地图里「跌停观察层」的落点（结论是负期望，只读不推，展开即达）
-  useBus("limitdown", () => {
-    setOpen(true);
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  });
-
   const s = snapshot?.sentiment;
   const topSector = snapshot?.sectors[0];
 
@@ -96,6 +95,7 @@ export default function LimitDownBar() {
     <TapeShell
       open={open}
       onToggle={() => setOpen((v) => !v)}
+      embedded={embedded}
       icon={<TrendingDown className="h-4 w-4 shrink-0 text-ink-muted" aria-hidden />}
       header={
         <>

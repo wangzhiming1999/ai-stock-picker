@@ -37,7 +37,7 @@ export interface NavItem {
 
 export const NAV: NavItem[] = [
   { key: "today", label: "今日作战", icon: Zap, desc: "盯盘 · 简报" },
-  { key: "opportunity", label: "选机会", icon: Lightbulb, desc: "推荐 · 决策 · 扫描 · 形态" },
+  { key: "opportunity", label: "选机会", icon: Lightbulb, desc: "推荐 · 决策 · 扫描 · 形态 · 涨跌停" },
   { key: "holdings", label: "持仓", icon: Wallet, desc: "持仓 · 模拟盘 · 自选 · 历史" },
   { key: "research", label: "研究", icon: Microscope, desc: "证据台账 · 胜率 · 回测" },
 ];

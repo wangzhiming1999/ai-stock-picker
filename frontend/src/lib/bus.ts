@@ -4,13 +4,10 @@ import { useEffect, useRef } from "react";
  * 跨组件事件原语
  *
  * ## 为什么是 window 事件，而不是 Context / 状态提升
- * 有些功能的「落点」不在当前页面的组件树里：
- *   - 涨停 / 跌停两根常驻条挂在 `<main>` **外面**（`App.tsx` 顶层），
- *     任何页面想「把涨停条展开」都跨了子树；
- *   - 顶部搜索框同理。
- * 为这三件事把状态提升到 `App` 再透传五六层，换来的是一堆与业务无关的 props。
- * 事件是这类「无归属的全局副作用」最轻的载体 —— 而且项目里已有先例
- * （`stock:require-auth` 由 `WatchStar` 发出、`App` 监听）。
+ * 有些功能的「落点」不在当前页面的组件树里：顶部搜索框挂在顶栏，
+ * 任何页面想「聚焦搜索框」都跨了子树。为这一件事把状态提升到 `App`
+ * 再透传五六层，换来的是一堆与业务无关的 props。事件是这类「无归属的全局副作用」
+ * 最轻的载体 —— 而且项目里已有先例（`stock:require-auth` 由 `WatchStar` 发出、`App` 监听）。
  *
  * ## 纪律
  * 事件名一律 `ai:` 前缀，且**只在这里登记**。新增一个跨树事件就在这里加一条，
@@ -18,10 +15,6 @@ import { useEffect, useRef } from "react";
  * `featureMap.test.ts` 会核对功能地图里每个 anchor 都能在这里找到落点。
  */
 export const BUS = {
-  /** 展开顶部涨停梯队条（含次日溢价读数） */
-  limitup: "ai:open-limitup",
-  /** 展开顶部跌停观察条 */
-  limitdown: "ai:open-limitdown",
   /** 聚焦顶部全局搜索框（深度分析的入口） */
   search: "ai:focus-search",
 } as const;

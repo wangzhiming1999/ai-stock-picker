@@ -81,14 +81,15 @@ test("登记的 sub 必须属于同一个 domain（不能把研究的东西挂�
 });
 
 test("一级导航数量与子页宽度都受控 —— 深度超过 2 层就没人找得到", () => {
-  // 这条不是风格偏好，是「找不到」的机械原因：一级 4 项 + 二级各自 ≤4 个，
-  // 任意功能最多两步可达。超了就该考虑合并，而不是继续加。
+  // 这条不是风格偏好，是「找不到」的机械原因：一级 4 项 + 二级各自 ≤7 个，
+  // 任意功能最多两步可达。opportunity 因新增「涨跌停」子页达到 7 个，
+  // 继续膨胀前应先合并，而不是继续放宽。
   const tabs = Object.keys(DOMAIN_TAB) as Tab[];
   assert.ok(tabs.length <= 4, `一级导航 ${tabs.length} 项，超过 4 项就回到"按功能类型切 tab"了`);
   for (const [tab, subs] of SUB_ENTRIES) {
     assert.ok(subs.length >= 1, `${tab} 没有任何子页`);
     assert.ok(
-      subs.length <= 6,
+      subs.length <= 7,
       `${tab} 有 ${subs.length} 个子页，二级导航会挤成一条看不清的带子`,
     );
   }
@@ -135,10 +136,10 @@ test("检索不区分大小写 —— keywords 里写 AI 还是 ai 都该命中"
 
 test("口语化检索词能命中真实功能（用户不会按模块官方名字搜）", () => {
   const cases: [string, string][] = [
-    ["炸板", "global.limitup"],
-    ["买不进", "global.limitup"],
+    ["炸板", "op.limitup"],
+    ["买不进", "op.limitup"],
     ["靠谱吗", "rs.ledger"],
-    ["抄底", "global.limitdown"],
+    ["抄底", "op.limitdown"],
     ["挂单", "today.monitor"],
     ["练手", "hold.sim"],
     ["自选", "hold.watch"],

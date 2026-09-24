@@ -11,8 +11,6 @@ import Button, { buttonVariants } from "./components/ui/Button";
 import ErrorBoundary from "./components/ui/ErrorBoundary";
 import FeatureMapModal from "./components/FeatureMapModal";
 import HoldingsPanel from "./components/HoldingsPanel";
-import LimitDownBar from "./components/LimitDownBar";
-import LimitUpBar from "./components/LimitUpBar";
 import OpportunityPanel from "./components/OpportunityPanel";
 import ResearchPanel from "./components/ResearchPanel";
 import StockSearchInput from "./components/StockSearchInput";
@@ -241,12 +239,6 @@ export default function App() {
           </div>
         </nav>
       </header>
-
-      {/* 涨跌停两条常驻温度带：全局可见的市场情绪读数，展开看梯队 / 板块 / 回测。
-          刻意都不进 NAV —— 它们是「读市场」而非「做一件事」，不占一级入口。
-          跌停那条带的是**负期望**结论（跌停次日抄底实测 −4.47%/次），所以它只读不推。 */}
-      <LimitUpBar />
-      <LimitDownBar />
 
       <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} />
       <FeatureMapModal

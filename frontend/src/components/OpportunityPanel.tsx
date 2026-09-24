@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { Crosshair, Lightbulb, ScanSearch, Shapes, Layers, Gauge } from "lucide-react";
+import { Crosshair, Lightbulb, ScanSearch, Shapes, Layers, Gauge, Activity } from "lucide-react";
 import { subNavFor } from "../lib/subnav";
 import { useSubPage } from "../lib/useSubPage";
 import type { NavJump } from "../lib/featureMap";
@@ -15,6 +15,7 @@ const TacticView = lazyRetry(() => import("./TacticView"));
 const VanguardPanel = lazyRetry(() => import("./VanguardPanel"));
 const ChipPanel = lazyRetry(() => import("./ChipPanel"));
 const SanduPanel = lazyRetry(() => import("./sandu/SanduPanel"));
+const LimitUpDownPanel = lazyRetry(() => import("./opportunity/LimitUpDownPanel"));
 
 const SUB_ICON = {
   recommend: Lightbulb,
@@ -23,6 +24,7 @@ const SUB_ICON = {
   tactic: Shapes,
   chip: Layers,
   sandu: Gauge,
+  limit: Activity,
 } as const;
 const SUB_KEYS = {
   recommend: "recommend",
@@ -31,6 +33,7 @@ const SUB_KEYS = {
   tactic: "tactic",
   chip: "chip",
   sandu: "sandu",
+  limit: "limit",
 } as const;
 
 interface Props {
@@ -113,6 +116,14 @@ export default function OpportunityPanel({ onPick, jump }: Props) {
         <div className={isVisible(SUB_KEYS.sandu)}>
           <Suspense fallback={<PanelSkeleton label="正在加载三度扫描" />}>
             <SanduPanel onPick={onPick} />
+          </Suspense>
+        </div>
+      )}
+
+      {isMounted(SUB_KEYS.limit) && (
+        <div className={isVisible(SUB_KEYS.limit)}>
+          <Suspense fallback={<PanelSkeleton label="正在加载涨跌停" />}>
+            <LimitUpDownPanel />
           </Suspense>
         </div>
       )}

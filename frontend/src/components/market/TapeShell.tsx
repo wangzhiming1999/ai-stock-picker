@@ -20,6 +20,10 @@ import { PAGE_WRAP, SUB } from "../../lib/ui";
  *    此前这里写的是 `max-w-6xl`（1152px），而页面主体是 `max-w-[1360px]` ——
  *    两者相差 208px，温度带的左边界与页面标题的左边界肉眼可见对不齐，
  *    整页看起来像上下两块拼起来的。这是纯机械缺陷，不是审美判断。
+ *
+ * ## embedded 模式
+ * 默认用于顶部全局温度带；子页卡片内嵌时开启 `embedded`，去掉全宽通栏与外层边框，
+ * 只保留折叠按钮 + 内嵌底色面板，避免和卡片背景/内边距打架。
  */
 export function TapeShell({
   open,
@@ -27,44 +31,54 @@ export function TapeShell({
   icon,
   header,
   children,
+  embedded = false,
 }: {
   open: boolean;
   onToggle: () => void;
   icon: ReactNode;
   header: ReactNode;
   children: ReactNode;
+  embedded?: boolean;
 }) {
+  const shell = (
+    <>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex w-full items-center gap-3 py-2.5 text-left"
+      >
+        {icon}
+        <span className="flex flex-1 flex-wrap items-center gap-x-3 gap-y-1 text-meta">{header}</span>
+        <ChevronDown
+          className={`h-4 w-4 shrink-0 text-ink-muted transition-transform ${open ? "rotate-180" : ""}`}
+          aria-hidden
+        />
+      </button>
+
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <div className={`mb-3 ${SUB} space-y-4 p-4`}>{children}</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
+  );
+
+  if (embedded) {
+    return <div className={SUB}>{shell}</div>;
+  }
+
   return (
     <div className="border-b border-surface-line-soft bg-surface-panel/60">
-      <div className={PAGE_WRAP}>
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-expanded={open}
-          className="flex w-full items-center gap-3 py-2.5 text-left"
-        >
-          {icon}
-          <span className="flex flex-1 flex-wrap items-center gap-x-3 gap-y-1 text-meta">{header}</span>
-          <ChevronDown
-            className={`h-4 w-4 shrink-0 text-ink-muted transition-transform ${open ? "rotate-180" : ""}`}
-            aria-hidden
-          />
-        </button>
-
-        <AnimatePresence initial={false}>
-          {open && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="overflow-hidden"
-            >
-              <div className={`mb-3 ${SUB} space-y-4 p-4`}>{children}</div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
+      <div className={PAGE_WRAP}>{shell}</div>
     </div>
   );
 }

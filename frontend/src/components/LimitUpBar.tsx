@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Activity, RefreshCw } from "lucide-react";
 import { fetchLimitUpRelay, fetchLimitUpSnapshot } from "../api/client";
-import { useBus } from "../lib/bus";
 import { breakRateTone, sentimentTone, upTone } from "../lib/tone";
 import { DIVIDER, TEXT } from "../lib/ui";
 import type { LimitUpRelayResult, LimitUpSnapshot } from "../types";
@@ -47,10 +46,16 @@ import { PremiumSection } from "./market/LimitUpPremium";
  *   - `TapeShell.tsx`      折叠条 + 展开面板外壳（与跌停带共用）
  */
 
-export default function LimitUpBar() {
+export default function LimitUpBar({
+  defaultOpen = false,
+  embedded = false,
+}: {
+  defaultOpen?: boolean;
+  embedded?: boolean;
+}) {
   const [snapshot, setSnapshot] = useState<LimitUpSnapshot | null>(null);
   const [snapError, setSnapError] = useState<string | null>(null);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [relay, setRelay] = useState<LimitUpRelayResult | null>(null);
   const [relayLoading, setRelayLoading] = useState(false);
   const [relayError, setRelayError] = useState<string | null>(null);
@@ -90,13 +95,6 @@ export default function LimitUpBar() {
     void loadRelay();
   }, [open, loadRelay]);
 
-  // 功能地图里「涨停梯队 · 次日溢价读数」的落点：展开 + 滚回顶部。
-  // 它不在任何 tab 里，任何页面点都应该有反应，所以走全局事件而不是 props。
-  useBus("limitup", () => {
-    setOpen(true);
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  });
-
   const s = snapshot?.sentiment;
   const topSector = snapshot?.sectors[0];
 
@@ -104,6 +102,7 @@ export default function LimitUpBar() {
     <TapeShell
       open={open}
       onToggle={() => setOpen((v) => !v)}
+      embedded={embedded}
       icon={<Activity className="h-4 w-4 shrink-0 text-ink-muted" aria-hidden />}
       header={
         <>

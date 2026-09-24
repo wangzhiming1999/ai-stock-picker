@@ -35,8 +35,8 @@ import type { SubKey } from "./subnav";
 
 export type Domain = Tab | "global";
 
-/** global 类功能的落点：常驻条 / 抽屉 / 顶部搜索。 */
-export type FeatureAnchor = "limitup" | "limitdown" | "search";
+/** global 类功能的落点：抽屉 / 顶部搜索。 */
+export type FeatureAnchor = "search";
 
 /**
  * 可由功能地图**直达的区块**。
@@ -69,6 +69,8 @@ export type BlockId =
   | "scan_market" // 扫描 · 按条件筛选
   | "scan_tactics" // 形态 · 实战形态命中
   | "sandu_scan" // 三度 · 三度打分扫描
+  | "limitup" // 涨跌停 · 涨停梯队
+  | "limitdown" // 涨跌停 · 跌停观察层
   | "winrate" // 研究 · 胜率看板
   | "backtest" // 研究 · 策略回测
   | "tactic_backtest"; // 研究 · 形态回测验证
@@ -120,7 +122,7 @@ export const DOMAIN_TAB: Record<Exclude<Domain, "global">, Tab> = {
 /** 分组的展示顺序与标题。顺序 = 用户一天里的使用顺序，不是功能多少。 */
 export const DOMAINS: { key: Domain; label: string; desc: string }[] = [
   { key: "today", label: "今日作战", desc: "今天该做什么：盯盘 · 简报" },
-  { key: "opportunity", label: "选机会", desc: "今天买什么：推荐 · 决策 · 扫描 · 形态" },
+  { key: "opportunity", label: "选机会", desc: "今天买什么：推荐 · 决策 · 扫描 · 形态 · 涨跌停" },
   { key: "holdings", label: "持仓", desc: "我手里有什么：持仓 · 模拟盘 · 自选 · 历史" },
   { key: "research", label: "研究", desc: "这些方法靠不靠谱：台账 · 胜率 · 回测" },
   { key: "global", label: "全局读数", desc: "常驻在每一页顶部，不进任何 tab" },
@@ -320,6 +322,27 @@ export const FEATURES: FeatureEntry[] = [
     keywords: ["三度", "厚度", "力度", "速度", "均线归位", "吸筹", "主力", "三阳控三阴", "sandu"],
     isNew: true,
   },
+  {
+    key: "op.limitup",
+    label: "涨停梯队 · 次日溢价读数",
+    desc: "涨停 / 连板 / 炸板率 + 「可打板」时的候选清单（打板价与次日涨停价）+ 次日溢价读数",
+    domain: "opportunity",
+    sub: "limit",
+    block: "limitup",
+    keywords: [
+      "涨停", "连板", "梯队", "溢价", "打板", "打板价", "炸板", "接力",
+      "买不进", "打板候选", "预期价格", "次日涨停价", "limitup",
+    ],
+  },
+  {
+    key: "op.limitdown",
+    label: "跌停观察层",
+    desc: "跌停家数 / 封单额 + 次日竞价卖出实测；结论是负期望，只读不推",
+    domain: "opportunity",
+    sub: "limit",
+    block: "limitdown",
+    keywords: ["跌停", "抄底", "封单", "风险", "limitdown"],
+  },
 
   /* ── 研究 ────────────────────────────────────────────────── */
   {
@@ -402,26 +425,6 @@ export const FEATURES: FeatureEntry[] = [
   },
 
   /* ── 全局读数 ────────────────────────────────────────────── */
-  {
-    key: "global.limitup",
-    label: "涨停梯队 · 打板候选 · 次日溢价读数",
-    desc: "涨停 / 连板 / 炸板率 + 「可打板」时的候选清单（打板价与次日涨停价）+ 次日溢价读数",
-    domain: "global",
-    anchor: "limitup",
-    keywords: [
-      "涨停", "连板", "梯队", "溢价", "打板", "打板价", "炸板", "接力",
-      "买不进", "打板候选", "预期价格", "次日涨停价", "limitup",
-    ],
-    isNew: true,
-  },
-  {
-    key: "global.limitdown",
-    label: "跌停观察层",
-    desc: "跌停家数 / 封单额 + 次日竞价卖出实测；结论是负期望，只读不推",
-    domain: "global",
-    anchor: "limitdown",
-    keywords: ["跌停", "抄底", "封单", "风险", "limitdown"],
-  },
   {
     key: "global.search",
     label: "全局搜索 · 深度分析",
