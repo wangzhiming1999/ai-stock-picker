@@ -925,6 +925,14 @@ export interface WinrateStats {
     caliber?: Caliber;
     /** 按来源细分的结算数（quad=四维榜 / watch=观察层）；与主口径不可相加 */
     by_source?: Record<string, { total: number; hit: number; hit_rate: number | null; sample_status?: string }>;
+    /** 超额口径是否可信：存在带 excess_return 的已结算样本时为 true */
+    benchmark_available?: boolean | null;
+    /** 扣费后仍跑赢沪深300 的样本数 */
+    excess_hit?: number | null;
+    /** 超额胜率 %（跑赢指数的样本占比）；基准不可信时为 null */
+    excess_hit_rate?: number | null;
+    /** 平均超额收益 %；基准不可信时为 null */
+    avg_excess_return?: number | null;
     /** DB 查询失败时的错误信息 */
     error?: string | null;
   } | null;

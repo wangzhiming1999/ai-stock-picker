@@ -117,13 +117,15 @@ class TestIncomparability:
     def test_only_backtest_calibers_carry_a_benchmark(self) -> None:
         """只有真正做过基准对照的口径才允许写基准，其余一律显式写「无」。
 
-        `limitup_premium` 是第三个有资格的：它用「同股票池的非涨停日」做组间对照
-        （n=10694，期望 −0.06%），并换沪深300 / 中证1000 做符号翻转检验 ——
-        正因为做了这两件事，它才能说「涨停这个条件本身贡献约 2 个百分点」。
+        `limitup_premium` 用「同股票池的非涨停日」做组间对照（n=10694，期望 −0.06%），
+        并换沪深300 / 中证1000 做符号翻转检验 —— 正因为做了这两件事，它才能说
+        「涨停这个条件本身贡献约 2 个百分点」。
+        `recommendation` 在 v14 起也带基准：结算时取沪深300 同区间买入持有收益做对比
+        （excess_return = 扣费后净收益 − 基准收益），属于真实基准对照，故允许写基准。
         """
         with_benchmark = {k for k in EXPECTED_KEYS if not calibers.describe(k)["benchmark"].startswith("无")}
 
-        assert with_benchmark == {"strategy_backtest", "tactic_backtest", "limitup_premium"}
+        assert with_benchmark == {"strategy_backtest", "tactic_backtest", "limitup_premium", "recommendation"}
 
 
 class TestApiPayload:

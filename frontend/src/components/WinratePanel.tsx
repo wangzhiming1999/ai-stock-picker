@@ -126,6 +126,41 @@ export default function WinratePanel() {
                 暂无数据 · 每日收盘后自动结算（推荐生成后次日判定涨跌）
               </div>
             )}
+            {/* 超额口径（主口径）：扣费后对比沪深300，跑赢才算赢。 */}
+            {data.recommendation?.benchmark_available ? (
+              <div className="mt-2 grid grid-cols-3 gap-2">
+                <StatTile value={data.recommendation.excess_hit ?? 0} label="跑赢指数" />
+                <StatTile
+                  value={data.recommendation.excess_hit_rate != null ? `${data.recommendation.excess_hit_rate}%` : "-"}
+                  label="超额胜率"
+                  valueClass={pctTone(data.recommendation.excess_hit_rate)}
+                />
+                <StatTile
+                  value={
+                    data.recommendation.avg_excess_return != null
+                      ? `${data.recommendation.avg_excess_return > 0 ? "+" : ""}${data.recommendation.avg_excess_return}%`
+                      : "-"
+                  }
+                  label="平均超额"
+                  valueClass={pctTone(data.recommendation.avg_excess_return)}
+                />
+              </div>
+            ) : (
+              data.recommendation && data.recommendation.total > 0 && (
+                <p className="mt-2 text-meta text-amber-400">
+                  未跑赢指数：超额口径尚未结算（需运行后端 v14 迁移或指数数据缺失），上方「次日胜率」为旧口径（不扣费、不对比基准，偏
+                  高），不可作为有效性结论。
+                </p>
+              )
+            )}
+            {data.recommendation?.benchmark_available &&
+              data.recommendation.excess_hit_rate != null &&
+              data.recommendation.excess_hit_rate < 50 && (
+                <p className="mt-2 text-meta text-amber-400">
+                  注意：超额胜率 {data.recommendation.excess_hit_rate}% 低于 50%，即扣费并对比沪深300 后多数推荐跑不赢指数，
+                  旧「次日胜率」在此类行情下会系统性偏高。
+                </p>
+              )}
             {data.recommendation?.sample_status === "insufficient" && data.recommendation.total > 0 && (
               <p className="mt-2 text-meta text-amber-400">样本不足 30 只，暂不据此判断策略有效性。</p>
             )}

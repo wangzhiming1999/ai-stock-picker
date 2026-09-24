@@ -4,7 +4,63 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 
-from app.services import calibers, concurrency, data_service, market_prediction, supabase_store, trade_calendar_service
+from app.services import backtest_service, calibers, concurrency, data_service, market_prediction, supabase_store, trade_calendar_service
+
+# 推荐胜率净口径常量（与前端口径、calibers 文案必须同值）。
+# A 股双边净交易成本上界（%）：卖出印花税 0.05% + 双边佣金约 0.05%（万2.5×2）
+# + 过户费约 0.002%（0.001%×2）+ 保守滑点。超过此值的净收益才算「真正赚到」。
+TRANSACTION_COST_PCT = 0.15
+# 对比基准：沪深300（与 backtest_service.BENCHMARK 一致）。
+BENCHMARK_CODE = "sh000300"
+
+
+# 净口径换算的纯函数，便于单测（见 tests/test_winrate_settlement.py）。
+def _index_window_return(bench_history, rec_date: str, next_date: str) -> float | None:
+    """基准在 rec_date 收盘 → next_date 收盘 的收益%（与个股持有期对齐）。
+
+    两日都必须出现在基准历史里，否则返回 None（无法对齐持有期 → 该样本不计入净口径）。
+    基准缺失或 rec/next 任一交易日不在历史里都视为不可对齐。
+    """
+    if bench_history is None or not getattr(bench_history, "dates", None):
+        return None
+    rec_close = next_close = None
+    for date, close in zip(bench_history.dates, bench_history.closes):
+        d = str(date)[:10]
+        if d == rec_date and close:
+            rec_close = float(close)
+        elif d == next_date and close:
+            next_close = float(close)
+    if rec_close is None or next_close is None:
+        return None
+    return next_close / rec_close - 1
+
+
+def _reco_outcome(next_return: float, bench_return: float | None, cost: float) -> tuple[float, float | None, bool]:
+    """把一条推荐的毛收益换算为净口径结论。
+
+    返回 (net, excess, hit)：
+    - net    个股扣费后的净收益（next_return - cost）
+    - excess 减基准后的收益（next_return - bench_return），基准缺失时为 None
+    - hit    赢的判断：有基准时看「减基准且扣费后为正」，无基准降级为「扣费后为正」
+    """
+    net = next_return - cost
+    excess = None if bench_return is None else next_return - bench_return
+    if bench_return is None:
+        hit = (next_return - cost) > 0
+    else:
+        hit = (next_return - bench_return - cost) > 0
+    return net, excess, hit
+
+
+def _first_trading_date_after(history, rec_date: str) -> str | None:
+    """返回 history 中 rec_date 之后的首个交易日（与个股 next_date 同交易日历）。"""
+    if history is None or not getattr(history, "dates", None):
+        return None
+    for date in history.dates:
+        d = str(date)[:10]
+        if d > rec_date:
+            return d
+    return None
 
 
 def _next_close_after(history, rec_date: str) -> tuple[str, float] | None:
@@ -23,6 +79,66 @@ def _sample_status(total: int) -> str:
     if total < 100:
         return "developing"
     return "established"
+
+
+# 推荐结算口径：扣费后对比沪深300 同区间收益，超额为正才算「赢」。
+# RECO_FEE_PCT 是保守的 A 股双边成本估算（买入佣金 + 卖出佣金 + 印花税 + 滑点），
+# 作为四舍五入前的净收益扣减项；未来若拿到更精确的费率可在此单点调整。
+RECO_FEE_PCT = 0.15
+# 结算用的基准指数（与 backtest_service.BENCHMARK 同源，避免两处各写一份）。
+RECO_BENCHMARK = backtest_service.BENCHMARK
+
+
+def _index_window_return(bench_hist, rec_date: str, next_date: str) -> float | None:
+    """基准指数在 [推荐日收盘, 次一交易日收盘] 区间的收益率 %。
+
+    与推荐持有期严格对齐：推荐日(rec_date)收盘买入、次一交易日(next_date)收盘卖出，
+    基准做同样操作的买入持有收益。指数数据缺失时返回 None（上层静默回退到旧口径）。
+    """
+    if not bench_hist:
+        return None
+    closes = {str(d)[:10]: float(c) for d, c in zip(bench_hist.dates, bench_hist.closes)}
+    rec_close = closes.get(rec_date)
+    next_close = closes.get(next_date)
+    if rec_close and next_close:
+        return (next_close / rec_close - 1) * 100
+    return None
+
+
+def _reco_outcome(
+    next_return: float, benchmark_return: float | None, fee_pct: float
+) -> tuple[float | None, float | None, bool]:
+    """把「次日收益率」换算成扣费后、对比基准的结算结论。
+
+    返回 (net_return, excess_return, hit)：
+    - 基准可得时：net = 次日收益 − 费用；excess = net − 基准；hit = excess > 0（跑赢指数才算赢）。
+    - 基准不可得时（v14 迁移未跑 / 指数数据缺失）：降级为旧口径，hit = 次日收益 > 0，
+      excess_return 置空，由上层用 benchmark_available 标记「未跑赢指数」不可信。
+    """
+    net_return = round(next_return - fee_pct, 2)
+    if benchmark_return is None:
+        return net_return, None, next_return > 0
+    excess_return = round(net_return - benchmark_return, 2)
+    return net_return, excess_return, excess_return > 0
+
+
+async def _safe_reco_update(sb, row_id: int, fields: dict, bench_ok: bool) -> bool:
+    """写入结算结果；新列(benchmark_return/net_return/excess_return)不存在时静默降级只写旧字段。
+
+    返回 bench_ok：一旦发现列缺失就置 False，后续行不再尝试新列，避免每行都打一次失败请求。
+    """
+    if bench_ok and "benchmark_return" in fields:
+        try:
+            await sb.table("daily_recommendations").update(fields).eq("id", row_id).execute()
+            return True
+        except Exception as e:
+            if "does not exist" in str(e):
+                bench_ok = False
+            else:
+                raise
+    minimal = {k: v for k, v in fields.items() if k in ("next_close", "next_return", "hit", "settled_at")}
+    await sb.table("daily_recommendations").update(minimal).eq("id", row_id).execute()
+    return bench_ok
 
 
 async def settle_daily_recommendations() -> int:
@@ -50,30 +166,35 @@ async def settle_daily_recommendations() -> int:
         asyncio.to_thread(data_service.get_history, code, 200) for code in codes
     )
     history_map = dict(zip(codes, histories))
+    # 基准指数历史只需拉一次，所有推荐共用同一持有期对齐方式。
+    bench_hist = await data_service.get_history(RECO_BENCHMARK, 200)
 
     settled = 0
     settled_at = dt.datetime.now(dt.timezone.utc).isoformat()
+    bench_ok = True  # 新列是否存在；一旦缺失就降级为只写旧字段
     for row in rows:
-        settled_quote = _next_close_after(history_map.get(row["code"]), str(row.get("rec_date") or "")[:10])
+        rec_date = str(row.get("rec_date") or "")[:10]
+        settled_quote = _next_close_after(history_map.get(row["code"]), rec_date)
         if not settled_quote or not row.get("recommend_price"):
             continue
         recommend_price = row["recommend_price"]
         _next_date, next_close = settled_quote
         next_return = (next_close / recommend_price - 1) * 100
-        hit = next_return > 0
-        await (
-            sb.table("daily_recommendations")
-            .update(
-                {
-                    "next_close": round(next_close, 2),
-                    "next_return": round(next_return, 2),
-                    "hit": hit,
-                    "settled_at": settled_at,
-                }
-            )
-            .eq("id", row["id"])
-            .execute()
+        benchmark_return = (
+            _index_window_return(bench_hist, rec_date, _next_date) if bench_ok else None
         )
+        net_return, excess_return, hit = _reco_outcome(next_return, benchmark_return, RECO_FEE_PCT)
+        fields = {
+            "next_close": round(next_close, 2),
+            "next_return": round(next_return, 2),
+            "hit": hit,
+            "settled_at": settled_at,
+        }
+        if benchmark_return is not None:
+            fields["benchmark_return"] = round(benchmark_return, 2)
+            fields["net_return"] = net_return
+            fields["excess_return"] = excess_return
+        bench_ok = await _safe_reco_update(sb, row["id"], fields, bench_ok)
         settled += 1
 
     # 结算后刷新胜率快照
@@ -138,7 +259,7 @@ async def get_winrate_stats() -> dict:
     try:
         rec_res = (
             await sb.table("daily_recommendations")
-            .select("hit", "source")
+            .select("hit", "source", "excess_return")
             .not_.is_("settled_at", None)
             .execute()
         )
@@ -154,6 +275,21 @@ async def get_winrate_stats() -> dict:
     watch_rows = [r for r in rec_rows if r.get("source") == "watch"]
     rec_total = len(reco_rows)
     rec_hit = sum(1 for r in reco_rows if r.get("hit"))
+
+    # 超额口径（主口径）：只有带 excess_return 的行才参与，避免把旧口径的 hit 混进来。
+    # 全部缺 excess_return（v14 迁移未跑 / 老数据）时 benchmark_available=False，
+    # 前端据此标注「未跑赢指数」不可信，并回退展示旧次日胜率。
+    excess_rows = [r for r in reco_rows if r.get("excess_return") is not None]
+    benchmark_available = len(excess_rows) > 0
+    excess_hit = sum(1 for r in excess_rows if r["excess_return"] > 0)
+    avg_excess_return = (
+        round(sum(r["excess_return"] for r in excess_rows) / len(excess_rows), 2)
+        if excess_rows
+        else None
+    )
+    excess_hit_rate = (
+        round(excess_hit / len(excess_rows) * 100, 1) if excess_rows else None
+    )
 
     def _block(rows: list[dict]) -> dict:
         total = len(rows)
@@ -202,6 +338,11 @@ async def get_winrate_stats() -> dict:
                 "quad": _block(quad_rows),
                 "watch": _block(watch_rows),
             },
+            # 超额口径（主口径）：扣费后跑赢沪深300 才算赢。
+            "benchmark_available": benchmark_available,
+            "excess_hit": excess_hit,
+            "excess_hit_rate": excess_hit_rate,
+            "avg_excess_return": avg_excess_return,
             "error": rec_error,
         },
         "snapshot": snapshot,
@@ -222,17 +363,40 @@ async def refresh_winrate_snapshot() -> None:
     p = stats.get("prediction") or {}
     r = stats.get("recommendation") or {}
     sb = await supabase_store.get_service_client()
-    await sb.table("winrate_snapshot").insert(
-        {
-            "snapshot_date": dt.date.today().isoformat(),
-            "prediction_total": p.get("total", 0),
-            "prediction_hit": p.get("hit", 0),
-            "prediction_rate": p.get("hit_rate"),
-            "recommend_total": r.get("total", 0),
-            "recommend_hit": r.get("hit", 0),
-            "recommend_rate": r.get("hit_rate"),
-        }
-    ).execute()
+    row = {
+        "snapshot_date": dt.date.today().isoformat(),
+        "prediction_total": p.get("total", 0),
+        "prediction_hit": p.get("hit", 0),
+        "prediction_rate": p.get("hit_rate"),
+        "recommend_total": r.get("total", 0),
+        "recommend_hit": r.get("hit", 0),
+        "recommend_rate": r.get("hit_rate"),
+        # 超额口径快照（v14 新增列）；列不存在时静默降级只写旧字段。
+        "recommend_benchmark_available": r.get("benchmark_available"),
+        "recommend_excess_rate": r.get("excess_hit_rate"),
+        "recommend_avg_excess": r.get("avg_excess_return"),
+    }
+    try:
+        await sb.table("winrate_snapshot").insert(row).execute()
+    except Exception as e:
+        if "does not exist" in str(e):
+            minimal = {
+                k: v
+                for k, v in row.items()
+                if k
+                in (
+                    "snapshot_date",
+                    "prediction_total",
+                    "prediction_hit",
+                    "prediction_rate",
+                    "recommend_total",
+                    "recommend_hit",
+                    "recommend_rate",
+                )
+            }
+            await sb.table("winrate_snapshot").insert(minimal).execute()
+        else:
+            raise
 
 
 async def run_daily_cron() -> dict:
