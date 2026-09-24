@@ -51,3 +51,25 @@ async def relay(
         return await limitup_service.relay_backtest(days=days, force=force)
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/premium-backtest")
+async def premium_backtest(
+    days: int = Query(limitup_service.MAX_PREMIUM_DAYS, ge=2, le=40),
+    force: bool = False,
+) -> dict:
+    """可成交档（换手 ≥5%）次日溢价 walk-forward 实测。
+
+    ⚠️ **行情源高风险端点**：除涨停池外，会为每只可成交涨停股逐只拉一次日 K
+    （逐只请求 = 行情源风控主因，与 ``limitdown_service.repair_backtest`` 同量级）。
+    ``force=true`` 会真实打行情源、最多触发约 200 次逐只请求，**有 IP 封禁风险**，
+    请仅在需要刷新且确认行情源状态正常时调用，不要高频触发。结果缓存 6 小时。
+
+    这是 ROADMAP 第五节 🔴 最高主线「把可成交性从代理变实测」的落地接口；
+    返回体含 ``verified_candidate`` —— 当 n ≥ 30 且沪深300 / 中证1000 超额同号为正时为 true，
+    届时才允许把 ``calibers`` / ``tactic_evidence`` 的 ``limitup_premium`` 由 preliminary 升 verified。
+    """
+    try:
+        return await limitup_service.premium_backtest(days=days, force=force)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc

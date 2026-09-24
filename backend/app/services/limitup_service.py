@@ -36,7 +36,9 @@ from decimal import ROUND_HALF_UP, Decimal
 
 import requests
 
-from app.services import calibers, cache_utils, concurrency, tactic_evidence, trade_calendar_service
+import statistics
+
+from app.services import backtest_service, calibers, cache_utils, concurrency, data_service, tactic_evidence, trade_calendar_service
 
 try:  # supabase 未配置时落库/读回静默降级，不影响实时链路
     from app.services import supabase_store
@@ -79,6 +81,21 @@ _RELAY_CACHE: dict[str, tuple[float, dict]] = {}
 # 即**只覆盖最近约 15 个交易日（3 周）**。回测默认就取这个窗口 —— 取更大值只会
 # 白白多打十几次必然返回空池的请求，统计量不会有任何变化（这个坑实测踩过）。
 MAX_RELAY_DAYS = 15
+
+# 次日溢价「可成交档」walk-forward 回测（把可成交性从代理变实测）的常量。
+# 复用 relay_backtest 的池取数 + 累积表补样本 + 空池排除 + 缓存，但额外为每只**可成交**
+# 涨停股拉一次日 K（逐只请求 = 行情源风控主因，与 limitdown_service.repair_backtest 同量级风险），
+# 因此 _PREMIUM_MAX_SAMPLES 同时是「请求量上限」与「serverless 超时保护」——
+# 超出时按日期新→旧截断（most-recent 优先，因为越近的交易日样本越完整）。
+MAX_PREMIUM_DAYS = 15
+_PREMIUM_TTL = 6 * 3600
+_PREMIUM_CACHE: dict[str, tuple[float, dict]] = {}
+_PREMIUM_MAX_SAMPLES = 200
+_PREMIUM_HIST_DAYS = 60
+# 沪深300 作主基准；中证1000 作符号翻转检验（与 2026-09-18 原始研究一致）。
+# 任一基准取数失败都静默降级为 None，不阻断整体统计（缺基准的样本不参与超额聚合）。
+_PREMIUM_BENCHMARK = backtest_service.BENCHMARK      # sh000300
+_PREMIUM_BENCHMARK_FLIP = "sz000852"                 # 中证1000
 
 
 # ---------- 每日落库（解决 15 交易日回溯上限） ----------
@@ -1429,3 +1446,245 @@ def clear_caches() -> None:
     """清空模块缓存（测试与手动刷新用）。"""
     _SNAP_CACHE.clear()
     _RELAY_CACHE.clear()
+    _PREMIUM_CACHE.clear()
+
+
+# ---------- 次日溢价「可成交档」walk-forward 实测 ----------
+#
+# 这是 ROADMAP 第五节 🔴 最高主线的落地：把 limitup_premium 的「可成交性」从代理口径
+# （换手率 ≥5% 替代真实成交率）变成 walk-forward 实测。设计对齐 limitdown_service.repair_backtest
+# （同量级逐只 K 风险），并复用 relay_backtest 的池取数 + 累积表补样本 + 空池排除 + 缓存。
+#
+# ⚠️ 升级纪律：只有本函数**真实跑批**得到 n ≥ 30 且沪深300 / 中证1000 超额同号为正，
+# 才允许把 calibers / tactic_evidence 的 limitup_premium 由 preliminary 升 verified，
+# 并写入真实 provenance 日期。未跑批前代码保持 preliminary —— 收益为正**不构成**升级理由。
+
+
+def _norm_date(s) -> str:
+    return str(s)[:10]
+
+
+def _stock_premium(hist, d_iso: str, buy_price: float) -> float | None:
+    """单只：D 日涨停价买入 → D+1 集合竞价开盘卖出的真实收益率；缺 D+1 开盘返回 None。"""
+    if hist is None or not getattr(hist, "opens", None):
+        return None
+    dates = [_norm_date(x) for x in hist.dates]
+    try:
+        i = dates.index(_norm_date(d_iso))
+    except ValueError:
+        return None
+    if i + 1 >= len(hist.dates):
+        return None
+    o = hist.opens[i + 1]
+    if o <= 0 or buy_price <= 0:
+        return None
+    return o / buy_price - 1
+
+
+def _index_open_return(hist, d_iso: str) -> float | None:
+    """基准指数同口径收益：D 收盘买入 → D+1 开盘卖出（与溢价交易机制严格对齐）。
+
+    任一基准取数失败 / 缺 D 或 D+1 返回 None，上层静默降级（该样本不参与超额聚合）。
+    """
+    if hist is None or not getattr(hist, "opens", None) or not getattr(hist, "closes", None):
+        return None
+    dates = [_norm_date(x) for x in hist.dates]
+    try:
+        j = dates.index(_norm_date(d_iso))
+    except ValueError:
+        return None
+    if j + 1 >= len(hist.dates):
+        return None
+    c = hist.closes[j]
+    o = hist.opens[j + 1]
+    if c <= 0 or o <= 0:
+        return None
+    return o / c - 1
+
+
+def _aggregate_premium(rows: list[dict]) -> dict:
+    """纯函数：把 (ret_open / bench_ret / bench2_ret) 样本聚合成统计量 + 验证闸门。
+
+    完全离线可测 —— 不碰任何网络。验证闸门与 tactic_evidence 的 verified 判据对齐：
+    n ≥ 30 且各基准超额同号为正（主基准超额 >0、超额胜率 >50%、与翻转基准符号一致）。
+    """
+    n = len(rows)
+    empty = {
+        "n": 0,
+        "mean_premium_pct": None,
+        "win_rate_pct": None,
+        "benchmark_available": 0,
+        "mean_excess_pct": None,
+        "excess_win_rate_pct": None,
+        "flip_available": 0,
+        "sign_consistent": False,
+        "verified_candidate": False,
+    }
+    if n == 0:
+        return empty
+
+    premiums = [r["ret_open"] for r in rows]
+    mean_premium = round(statistics.fmean(premiums) * 100, 2)
+    win_rate = round(sum(1 for p in premiums if p > 0) / n * 100, 1)
+
+    bench_rows = [r for r in rows if r.get("bench_ret") is not None]
+    excess = [r["ret_open"] - r["bench_ret"] for r in bench_rows]
+    mean_excess = round(statistics.fmean(excess) * 100, 2) if excess else None
+    excess_win_rate = round(sum(1 for e in excess if e > 0) / len(excess) * 100, 1) if excess else None
+
+    flip_rows = [r for r in rows if r.get("bench2_ret") is not None]
+    flip_excess = [r["ret_open"] - r["bench2_ret"] for r in flip_rows]
+    mean_excess2 = statistics.fmean(flip_excess) if flip_excess else None
+    sign_consistent = (
+        mean_excess is not None
+        and mean_excess2 is not None
+        and (mean_excess > 0) == (mean_excess2 > 0)
+    )
+
+    verified_candidate = (
+        n >= 30
+        and mean_excess is not None
+        and mean_excess > 0
+        and excess_win_rate is not None
+        and excess_win_rate > 50.0
+        and sign_consistent
+    )
+    return {
+        "n": n,
+        "mean_premium_pct": mean_premium,
+        "win_rate_pct": win_rate,
+        "benchmark_available": len(bench_rows),
+        "mean_excess_pct": mean_excess,
+        "excess_win_rate_pct": excess_win_rate,
+        "flip_available": len(flip_rows),
+        "sign_consistent": sign_consistent,
+        "verified_candidate": verified_candidate,
+    }
+
+
+async def premium_backtest(days: int = MAX_PREMIUM_DAYS, force: bool = False) -> dict:
+    """可成交档（换手 ≥5%）次日溢价的 walk-forward 实测。
+
+    「把可成交性从代理变实测」的落地函数：不再依赖 ``_TURNOVER_BUCKETS`` 里手写的静态期望，
+    而是对近期涨停池里**真正换手 ≥5%** 的票，逐只拉 T+1 日 K，算「涨停价买入 → 次日集合竞价卖」
+    的真实收益，并与沪深300（主基准）/ 中证1000（符号翻转检验）对齐。
+
+    ⚠️ 成本与风险：除涨停池外，必须为每只可成交涨停股拉一次日 K（逐只请求 = 行情源风控主因，
+    与 limitdown_service.repair_backtest 同量级）。因此 ``_PREMIUM_MAX_SAMPLES`` 同时限制请求量与
+    serverless 超时；结果缓存 6 小时。**本函数不进任何常规轮询**，只能由显式端点 / 手动触发，
+    且 ``force=true`` 会真实打行情源 —— 线上频繁调用有 IP 封禁风险。
+
+    升级路径（见 ROADMAP 第五节 + tactic_evidence）：当本函数真实跑批得到
+    ``n ≥ 30`` 且各基准超额同号为正，才允许把 ``calibers`` / ``tactic_evidence`` 的
+    ``limitup_premium`` 由 ``preliminary`` 升 ``verified``（并写入真实 provenance 日期）。
+    未跑批前代码保持 ``preliminary``。
+    """
+    days = max(2, min(days, MAX_PREMIUM_DAYS))
+    cache_key = str(days)
+    now = time.monotonic()
+    if not force:
+        hit = _PREMIUM_CACHE.get(cache_key)
+        if hit and now - hit[0] < _PREMIUM_TTL:
+            return {**hit[1], "cached": True}
+
+    trading_days = await _completed_trading_days(days)
+    date_strs = [d.strftime("%Y%m%d") for d in trading_days]
+    pool_results = await concurrency.gather_limited(
+        [asyncio.to_thread(_fetch_pool_sync, "zt", s) for s in date_strs],
+        return_exceptions=True,
+    )
+
+    per_day: dict[str, list[dict]] = {}
+    skipped: list[str] = []
+    empty: list[str] = []
+    for d, res in zip(trading_days, pool_results):
+        if isinstance(res, Exception):
+            skipped.append(d.isoformat())
+            continue
+        if not res:
+            # 空池 = 超出接口回溯范围（见 relay_backtest docstring），不是「零涨停」，排除出样本。
+            empty.append(d.isoformat())
+            continue
+        per_day[d.isoformat()] = [normalize_limit_up(x) for x in res]
+
+    # 累积表补样本：接口回溯窗口外的日期若已每日落库则有真实数据（窗口自积累）。
+    accumulated_from = trading_days[0].isoformat() if trading_days else None
+    accumulated_to = trading_days[-1].isoformat() if trading_days else None
+    accumulated_days = 0
+    if accumulated_from and accumulated_to and empty:
+        saved = await load_accumulated_snapshots(accumulated_from, accumulated_to)
+        for d_key in list(empty):
+            rows = saved.get(d_key)
+            if rows:
+                per_day[d_key] = rows  # 落库行字段与 normalize_limit_up 输出对齐
+                empty.remove(d_key)
+                accumulated_days += 1
+
+    # 只保留可成交档（换手 ≥ _FOCUS_MIN_TURNOVER）—— 这是本条口径的边界，与 focus 同一条线。
+    samples: list[tuple[dt.date, dict]] = []
+    for d in trading_days:
+        for it in per_day.get(d.isoformat(), []):
+            if float(it.get("turnover") or 0.0) >= _FOCUS_MIN_TURNOVER:
+                samples.append((d, it))
+    candidate_size = len(samples)
+    if candidate_size > _PREMIUM_MAX_SAMPLES:
+        samples = sorted(samples, key=lambda x: x[0], reverse=True)[:_PREMIUM_MAX_SAMPLES]
+
+    codes = sorted({it["code"] for _, it in samples})
+    hist_results = await concurrency.gather_limited(
+        [asyncio.to_thread(data_service.get_history, c, _PREMIUM_HIST_DAYS) for c in codes],
+        return_exceptions=True,
+    )
+    hist = {c: h for c, h in zip(codes, hist_results) if not isinstance(h, Exception) and h is not None}
+
+    bench_hist, bench2_hist = await asyncio.gather(
+        asyncio.to_thread(data_service.get_history, _PREMIUM_BENCHMARK, _PREMIUM_HIST_DAYS),
+        asyncio.to_thread(data_service.get_history, _PREMIUM_BENCHMARK_FLIP, _PREMIUM_HIST_DAYS),
+    )
+
+    rows: list[dict] = []
+    for d, it in samples:
+        code = it["code"]
+        h = hist.get(code)
+        if h is None:
+            continue
+        buy = float(it.get("price") or 0.0)  # D 日涨停价（池口径权威）=「涨停价买入」的买入价
+        ret_open = _stock_premium(h, d.isoformat(), buy)
+        if ret_open is None:
+            continue
+        bench_ret = _index_open_return(bench_hist, d.isoformat())
+        bench2_ret = _index_open_return(bench2_hist, d.isoformat())
+        rows.append(
+            {
+                "d": d.isoformat(),
+                "code": code,
+                "name": it.get("name", ""),
+                "sector": it.get("sector", "其他"),
+                "turnover": float(it.get("turnover") or 0.0),
+                "ret_open": ret_open,
+                "bench_ret": bench_ret,
+                "bench2_ret": bench2_ret,
+            }
+        )
+
+    stats = _aggregate_premium(rows)
+    covered = sorted(per_day)
+    _tradable_expects = [expect for _, _, expect, _, tradable in _TURNOVER_BUCKETS if tradable]
+    data = {
+        "caliber": calibers.describe("limitup_premium"),
+        "evidence": tactic_evidence.describe("limitup_premium"),
+        "days": days,
+        "date_range": [trading_days[0].isoformat(), trading_days[-1].isoformat()] if trading_days else [],
+        "data_window": [covered[0], covered[-1]] if covered else [],
+        "effective_days": len(covered),
+        "empty_dates": empty,
+        "skipped_dates": skipped,
+        "accumulated_days": accumulated_days,
+        "candidate_size": candidate_size,
+        "samples_used": len(rows),
+        # 静态口径（calibers 登记的换手≥5% 档期望，作对照，不替代实测）。
+        "static_tradable_expectation_pct": round(statistics.fmean(_tradable_expects), 2) if _tradable_expects else None,
+        **stats,
+    }
+    cache_utils.put_bounded(_PREMIUM_CACHE, cache_key, (now, data), max_entries=_SNAP_CACHE_MAX)
+    return {**data, "cached": False}
