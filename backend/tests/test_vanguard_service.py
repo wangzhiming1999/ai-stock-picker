@@ -10,6 +10,9 @@
    资金流批次），盘中数字随之更新；而每日非 forced 路径（定时任务 / 冷启动）仍 `force=False`，
    只命中既有缓存与跨实例冷却。底层直拉由 `_get_spot` 的冷却/节流守卫兜底，前端走 spotGuard。
 4. **证据闸门** —— 三维榜是读数不是收益口径，必须停在 preliminary 且不可执行。
+5. **实时行情提鲜** —— 榜单价格取自收盘后刷新的全市场快照，盘中必须用腾讯实时价覆盖，
+   并且在**命中当日榜单缓存**的路径上也生效（否则下午重开页面还是早盘价格）。
+   提鲜失败只能降级为「沿用快照价」，不得让榜单 502。
 """
 from __future__ import annotations
 
@@ -19,7 +22,7 @@ import re
 
 import pytest
 
-from app.models import StockHistory
+from app.models import StockHistory, StockQuote
 from app.routes import market as market_routes
 from app.services import data_service
 from app.services import limitup_service as L
@@ -601,6 +604,11 @@ class BoardGenerationTests:
         monkeypatch.setattr(quad_service, "get_full_spot", fake_full_spot)
         monkeypatch.setattr(V, "_load_fund_flow", fake_fund)
         monkeypatch.setattr(data_service, "get_history", lambda code, days=120, **k: _hist(_up_closes()))
+        # 实时提鲜是网络调用（腾讯批量行情），单测里绝不能真打；默认给「拉不到」，
+        # 需要断言提鲜行为的用例自行覆盖这个 patch。顺带重置模块级缓存，
+        # 否则上一个用例写入的行情会串到下一个用例。
+        monkeypatch.setattr(data_service, "get_spot_quote", lambda codes, **k: [])
+        monkeypatch.setattr(V, "_live_quote_cache", None)
         monkeypatch.setattr(L, "get_snapshot", fake_snapshot)
         monkeypatch.setattr(supabase_store, "is_configured", lambda: False)
         monkeypatch.setattr(trade_calendar_service, "last_trading_day", fake_last_trading_day)
@@ -770,6 +778,116 @@ class BoardGenerationTests:
             assert "主线" in it["tags"]
             # 三维分本身含义不变（仍是纯读数）
             assert set(it["scores"]) == {"dark_money", "trend", "activity"}
+
+
+# ───────────────────────── 实时行情提鲜 ─────────────────────────
+
+
+def _quote(code: str, price: float, change_pct: float, name: str = "测试") -> StockQuote:
+    return StockQuote(
+        code=code,
+        name=name,
+        price=price,
+        change_pct=change_pct,
+        quote_time="2026-09-30T14:41:44+08:00",
+    )
+
+
+class LiveQuoteTests:
+    """榜单价格提鲜：快照只在收盘后由 cron 刷新，盘中价格必须拿实时价覆盖。
+
+    实测背景（2026-09-30 14:41）：`spot-status` 报 snapshot_age 17659s（当日 09:47 那份），
+    榜单上写着「襄阳轴承 -2.47%」而实时已 +9.98% 涨停。这不是数据源坏了，
+    是 `market.py::_get_spot` 的 serve-stale 策略决定刷新节奏。四条不变量：
+
+      1. 实时价覆盖 price / change_pct；拿不到就沿用快照价并标 live=false（不编数）；
+      2. 预期锚点随新现价重算 —— levels 是日线结构，重算不需要再拉 K 线；
+      3. 实时已涨停的票必须标出来（挂什么价都买不进），且按板块用不同上限；
+      4. 提鲜失败降级为「沿用快照价」，不能让整榜变成 502。
+    """
+
+    def test_apply_overwrites_price_and_recomputes_anchor(self) -> None:
+        row: dict = {
+            "code": "601579",
+            "name": "会稽山",
+            "price": 39.16,
+            "change_pct": 3.98,
+            "levels": {"resistance": 108.0, "buy_point": 101.0},
+            "expected_price": {"price": 101.0, "setup": "pullback"},
+        }
+
+        hit, latest = V._apply_live_quotes([row], {"601579": _quote("601579", 38.19, 1.41)})
+
+        assert hit == 1
+        assert row["price"] == 38.19
+        assert row["change_pct"] == 1.41
+        assert row["live"] is True
+        assert row["quote_time"] == "2026-09-30T14:41:44+08:00"
+        assert latest == "2026-09-30T14:41:44+08:00"
+        # 现价 38.19 远低于压力 108 → 仍取回踩位；levels.price 与现价保持自洽
+        assert row["levels"]["price"] == 38.19
+        assert row["expected_price"]["setup"] == "pullback"
+
+    def test_missing_quote_keeps_snapshot_price_and_flags_not_live(self) -> None:
+        row: dict = {"code": "601579", "name": "会稽山", "price": 39.16, "change_pct": 3.98}
+
+        hit, latest = V._apply_live_quotes([row], {})
+
+        assert hit == 0
+        assert latest is None
+        assert row["price"] == 39.16, "拿不到实时价必须沿用快照价，不能编一个"
+        assert row["live"] is False
+
+    def test_limit_up_now_flag_uses_board_specific_ceiling(self) -> None:
+        main_board: dict = {"code": "000678", "name": "襄阳轴承", "price": 11.43, "change_pct": -2.47}
+        gem: dict = {"code": "300001", "name": "特锐德", "price": 30.0, "change_pct": 10.0}
+
+        V._apply_live_quotes([main_board], {"000678": _quote("000678", 12.89, 9.98)})
+        V._apply_live_quotes([gem], {"300001": _quote("300001", 30.0, 10.0)})
+
+        assert main_board["limit_up_now"] is True
+        assert gem["limit_up_now"] is False, "创业板/科创板是 20% 涨停，+10% 不算涨停"
+
+    @pytest.mark.asyncio
+    async def test_refresh_failure_degrades_to_snapshot_prices(self, monkeypatch) -> None:
+        def boom(codes, **k):
+            raise RuntimeError("腾讯行情不可用")
+
+        monkeypatch.setattr(data_service, "get_spot_quote", boom)
+        monkeypatch.setattr(V, "_live_quote_cache", None)
+        board: dict = {
+            "items": [{"code": "601579", "name": "会稽山", "price": 39.16, "change_pct": 3.98}],
+            "leaders": [],
+            "wide_pool": [],
+        }
+
+        await V._refresh_live_quotes(board)
+
+        assert board["items"][0]["price"] == 39.16, "提鲜失败必须沿用快照价"
+        assert board["quote"]["live_count"] == 0
+        assert board["quote"]["quote_time"] is None
+
+    @pytest.mark.asyncio
+    async def test_get_board_refreshes_prices_on_the_cached_path(self, monkeypatch) -> None:
+        """命中当日榜单缓存的路径（盘中重开页面）也必须拿到实时价 —— 本次修复的核心。"""
+        calls: dict = {}
+        fund_rows = [_fund_row(f"6000{i:02d}", 1e8 * i, 2.0 * i, "半导体") for i in range(1, 7)]
+        BoardGenerationTests._patch_environment(monkeypatch, calls, fund_rows)
+
+        live_price = 99.5
+        monkeypatch.setattr(
+            data_service,
+            "get_spot_quote",
+            lambda codes, **k: [_quote(c, live_price, 7.7) for c in codes],
+        )
+
+        board = await V.get_board(force_refresh=False)
+
+        assert board["items"], "榜单必须出得来"
+        assert board["quote"]["live_count"] == len(board["items"]) + len(board["leaders"])
+        for it in board["items"]:
+            assert it["price"] == live_price, "盘中榜单价格必须被实时价覆盖"
+            assert it["live"] is True
 
 
 # ───────────────────────── 预期价格（执行锚点） ─────────────────────────

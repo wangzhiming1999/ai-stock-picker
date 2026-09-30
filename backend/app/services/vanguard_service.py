@@ -98,6 +98,22 @@ _BOARD_CACHE_MAX = 7
 # 资金快照映射持久化上限：把最极端的两侧各留一部分，避免整份 jsonb 过大
 _FUND_MAP_MAX = 400
 
+# 榜单实时行情提鲜。
+#
+# 为什么需要：榜单的 price / change_pct 取自**全市场快照**，而快照只在收盘后由
+# cron 刷新（`market.py::_get_spot` 的 serve-stale 策略：DB 命中即返回，盘中不重拉）。
+# 实测 14:41 时 snapshot_age 已 17659s（快照来自当日 09:47）——榜单上写着「-2.47%」
+# 的票，实时其实已涨停。这不是数据源坏了，是快照的刷新节奏决定的。
+#
+# 修法：返回榜单前，对**榜单真正展示的票**（三维榜 + 潜力龙头 + 宽池）补一次实时价。
+# 走腾讯批量行情（`data_service.get_spot_quote`，单批 ≤50 只、内部分批），
+# 不碰全市场快照、不新增逐股请求 → 对 IP 风控零影响。
+#
+# ⚠️ 排名不重算。三维分 / selection_score 是快照时刻的读数，提鲜只更新
+#    现价 / 涨幅 / 预期锚点；重排会让「分数」与「名次」互相矛盾。
+_LIVE_QUOTE_TTL = 60  # 实时价内存缓存（秒）
+_live_quote_cache: tuple[float, dict] | None = None  # (monotonic, {code: StockQuote})
+
 
 def clear_caches() -> None:
     """清空进程内缓存（测试与诊断用；跨实例的 DB 快照不受影响）。"""
@@ -723,6 +739,109 @@ async def _score_one(rich: dict, fund: dict | None, fund_available: bool) -> dic
     }
 
 
+# ---------------- 实时行情提鲜（盘中修正快照陈旧价） ----------------
+
+
+def _limit_up_pct(code: str, name: str) -> float:
+    """涨停幅度上限（%）。用于把「已涨停」标出来 —— 这类票挂什么价都买不进。"""
+    if "ST" in (name or "").upper():
+        return 5.0
+    if code.startswith(("30", "68")):
+        return 20.0
+    if code.startswith(("8", "4")):
+        return 30.0
+    return 10.0
+
+
+def _apply_live_quotes(rows: list[dict], quotes: dict) -> tuple[int, str | None]:
+    """用实时价覆盖快照价，并用实时价重算「预期价格」锚点。
+
+    levels（支撑 / 压力 / 买卖点）是**日线结构**，盘中不会变 —— 所以
+    「现价贴压力→取突破位，否则取回踩位」这条 auto 规则可以只换新现价重算，
+    不产生任何新请求（否则就得为提鲜再拉一轮 K 线，那才是真的贵）。
+
+    拿不到行情的行只标 `live=False`，保留快照价 —— 宁可用旧价并如实标注，
+    也不要把请求失败伪装成「这票没数据」。
+
+    返回 (命中行数, 最新行情时间)。
+    """
+    hit = 0
+    latest: str | None = None
+    for r in rows:
+        q = quotes.get((r.get("code") or "").strip())
+        price = getattr(q, "price", None) if q is not None else None
+        if not price or price <= 0:
+            r["live"] = False
+            r["quote_time"] = None
+            continue
+        r["price"] = round(price, 2)
+        r["change_pct"] = round(getattr(q, "change_pct", 0) or 0, 2)
+        r["quote_time"] = getattr(q, "quote_time", None)
+        r["live"] = True
+        r["limit_up_now"] = r["change_pct"] >= _limit_up_pct(r.get("code") or "", r.get("name") or "") - 0.02
+        if r["quote_time"] and (latest is None or r["quote_time"] > latest):
+            latest = r["quote_time"]
+        levels = r.get("levels")
+        if levels:
+            levels["price"] = round(price, 2)
+            r["expected_price"] = signal_service.expected_price_from_levels(price, levels, "auto")
+        hit += 1
+    return hit, latest
+
+
+async def _refresh_live_quotes(board: dict) -> None:
+    """给榜单展示的票补实时价（原地更新 board，并写入 board["quote"]）。
+
+    全程「尽力而为」：拉不到就沿用快照价并把 live_count 如实报成 0，
+    绝不让提鲜失败把整个榜单变成 502 —— 旧价 + 明确标注，好过没有榜单。
+    """
+    global _live_quote_cache
+    items = board.get("items") or []
+    leaders = board.get("leaders") or []
+    wide = board.get("wide_pool") or []
+
+    codes: list[str] = []
+    for group in (items, leaders, wide):
+        for r in group:
+            code = (r.get("code") or "").strip()
+            if code:
+                codes.append(code)
+    codes = list(dict.fromkeys(codes))
+    if not codes:
+        return
+
+    now = time.monotonic()
+    cache = _live_quote_cache
+    if cache and now - cache[0] < _LIVE_QUOTE_TTL:
+        quotes = cache[1]
+    else:
+        try:
+            got = await asyncio.to_thread(data_service.get_spot_quote, codes)
+        except Exception as e:  # noqa: BLE001 - 提鲜失败必须降级，不能影响榜单可用性
+            print(f"[vanguard] 实时行情不可用，榜单沿用快照价: {e}")
+            got = []
+        quotes = {q.code: q for q in got}
+        if quotes:
+            _live_quote_cache = (now, quotes)
+
+    _, latest = _apply_live_quotes(items, quotes)
+    _, l_time = _apply_live_quotes(leaders, quotes)
+    _, w_time = _apply_live_quotes(wide, quotes)
+    for t in (l_time, w_time):
+        if t and (latest is None or t > latest):
+            latest = t
+
+    hit = sum(1 for r in items + leaders if r.get("live"))
+    board["quote"] = {
+        "live_count": hit,
+        "total": len(items) + len(leaders),
+        "wide_live_count": sum(1 for r in wide if r.get("live")),
+        "wide_total": len(wide),
+        "quote_time": latest,
+        "source": "腾讯批量行情 qt.gtimg.cn（单批 ≤50 只，不碰全市场快照）",
+    }
+
+
 # ---------------- 板块强度 / 主力抱团 / 潜力龙头 ----------------
 
 
@@ -1108,14 +1227,17 @@ async def generate_board(force_refresh: bool = False) -> dict:
 
 
 async def get_board(force_refresh: bool = False) -> dict:
-    """入口：优先内存 → DB → 懒生成。"""
+    """入口：优先内存 → DB → 懒生成，最后统一做一次实时行情提鲜。
+
+    提鲜放在这里（而不是 generate_board 里），是为了让**命中当日快照缓存**的路径
+    也拿到实时价 —— 否则盘中重新打开页面仍是几小时前那份快照的价格。
+    """
     today = await trade_calendar_service.last_trading_day()
     key = str(today)
-    if not force_refresh:
-        cached = _board_cache.get(key)
-        if cached:
-            return cached[1]
-    return await generate_board(force_refresh=force_refresh)
+    cached = None if force_refresh else _board_cache.get(key)
+    board = cached[1] if cached else await generate_board(force_refresh=force_refresh)
+    await _refresh_live_quotes(board)
+    return board
 
 
 async def diagnose(code: str) -> dict:
