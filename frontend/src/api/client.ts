@@ -17,6 +17,7 @@ import type {
   LimitDownSnapshot,
   LimitUpRelayResult,
   LimitUpSnapshot,
+  SeizeRadar,
   MonitorInterval,
   MonitorResult,
   MarketPrediction,
@@ -380,6 +381,18 @@ export async function fetchLimitUpRelay(days?: number, force = false): Promise<L
   const query = qs.toString();
   const res = await fetch(`${API}/limitup/relay${query ? `?${query}` : ""}`);
   if (!res.ok) throw await errorFrom(res, "获取连板晋级率失败");
+  return res.json();
+}
+
+/**
+ * 封板雷达（抢封板观察层）：刚封板 / 回封候选 / 炸板预警。
+ *
+ * 数据源与涨停梯队同源（东财 push2ex），后端 15s 内存缓存，盘中高频轮询不会放大行情请求。
+ * 前端轮询频率应受返回的 `poll_interval_seconds` 约束。
+ */
+export async function fetchSeizeRadar(force = false): Promise<SeizeRadar> {
+  const res = await fetch(`${API}/seize/radar${force ? "?force=true" : ""}`);
+  if (!res.ok) throw await errorFrom(res, "获取封板雷达失败");
   return res.json();
 }
 

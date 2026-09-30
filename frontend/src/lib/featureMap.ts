@@ -155,6 +155,15 @@ export const FEATURES: FeatureEntry[] = [
     sub: "briefing",
     keywords: ["简报", "早盘", "方向", "尾盘", "复盘", "预读", "仓位", "briefing"],
   },
+  {
+    key: "today.seize",
+    label: "封板雷达（抢封板）",
+    desc: "封板瞬间观察层：刚封板与回封候选，附次日竞价卖出收益读数；只做观察不构成买卖指令",
+    domain: "today",
+    sub: "seize",
+    keywords: ["抢封板", "抢板", "封板", "打板", "涨停", "回封", "炸板", "次日竞价", "seize", "limitup_premium"],
+    isNew: true,
+  },
 
   /* ── 选机会 · 推荐 ───────────────────────────────────────── */
   {

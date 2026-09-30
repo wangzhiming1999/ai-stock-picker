@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { Activity, ClipboardList, Zap } from "lucide-react";
+import { Activity, ClipboardList, Flame, Zap } from "lucide-react";
 import DailyBriefing from "./DailyBriefing";
 import FeatureMapBar from "./FeatureMapBar";
 import MonitorPanel from "./MonitorPanel";
+import SeizeRadarPanel from "./seize/SeizeRadarPanel";
 import SubNav from "./ui/SubNav";
 import PageHeader from "./ui/PageHeader";
 import type { Domain, NavJump } from "../lib/featureMap";
@@ -18,9 +19,9 @@ interface Props {
   jump?: NavJump | null;
 }
 
-type MainView = "briefing" | "monitor";
+type MainView = "briefing" | "monitor" | "seize";
 
-const SUB_ICON = { monitor: Activity, briefing: ClipboardList } as const;
+const SUB_ICON = { monitor: Activity, briefing: ClipboardList, seize: Flame } as const;
 
 /** 每个时段告诉用户「现在该看什么」，而不是让他自己在一堆卡片里找 */
 const HINT: Record<SessionKey, string> = {
@@ -74,7 +75,7 @@ export default function TodayPanel({ onPick, onOpenMap, jump }: Props) {
   // ⚠️ 必须排在上面那条之后：挂载时两条都会跑一遍，
   //    顺序反了的话「跳转指定的主视图」会被「按时段复位」立刻冲掉。
   useEffect(() => {
-    if (jump?.tab === "today" && (jump.sub === "monitor" || jump.sub === "briefing")) {
+    if (jump?.tab === "today" && (jump.sub === "monitor" || jump.sub === "briefing" || jump.sub === "seize")) {
       setOverride(jump.sub);
     }
   }, [jump?.id, jump?.sub, jump?.tab]);
@@ -87,7 +88,7 @@ export default function TodayPanel({ onPick, onOpenMap, jump }: Props) {
   }, [view]);
 
   const changeSub = (k: string) => {
-    if (k === "monitor" || k === "briefing") setOverride(k);
+    if (k === "monitor" || k === "briefing" || k === "seize") setOverride(k);
   };
 
   const items = subNavFor("today").map((s) => ({
@@ -124,6 +125,9 @@ export default function TodayPanel({ onPick, onOpenMap, jump }: Props) {
       <SubNav id="today" items={items} value={view} onChange={changeSub} />
 
       <div className={view === "monitor" ? "" : "hidden"}>{mounted.has("monitor") && <MonitorPanel />}</div>
+      <div className={view === "seize" ? "" : "hidden"}>
+        {mounted.has("seize") && <SeizeRadarPanel />}
+      </div>
       <div className={view === "briefing" ? "" : "hidden"}>
         {mounted.has("briefing") && <DailyBriefing onPick={onPick} />}
       </div>

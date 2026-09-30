@@ -34,6 +34,7 @@ export interface SubNavDef {
 export const SUB_NAV = {
   today: [
     { key: "monitor", label: "盯盘", desc: "实时买卖点 · 挂单价 · 提醒" },
+    { key: "seize", label: "抢板", desc: "封板雷达 · 刚封板/回封候选 · 次日竞价卖出" },
     { key: "briefing", label: "简报", desc: "早盘方向 · 尾盘动作 · 复盘" },
   ],
   opportunity: [

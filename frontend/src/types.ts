@@ -2282,3 +2282,92 @@ export interface SanduAutoCandidatesResult {
   count: number;
   candidates: SanduAutoCandidate[];
 }
+
+/* ---------- 封板雷达（抢封板观察层 · 口径 limitup_premium） ----------
+ *
+ * 与涨停梯队同源（东财 push2ex 涨停池 + 炸板池），但把「封板瞬间」拆成两个真实可下手窗口：
+ *   · 刚封板（just_sealed）：首封时间距今 ≤300s，最后封单窗口；
+ *   · 回封候选（reseal）：炸板池里仍贴着涨停价的票，拉升回封过程中买入；
+ *   · 炸板预警（broken_alert）：炸板池里已明显掉离涨停、振幅大的票。
+ *
+ * 卖出口径 = limitup_premium（涨停价买入 → 次日集合竞价卖出），前端纪律与涨停梯队一致：
+ *   · 读数不含动作词，不得渲染成买点 / 加仓 / 关注；
+ *   · 回封候选的 premium_if_sealed 是**条件性**读数（条件于回封成功），标注 conditional；
+ *   · 数字一律用后端下发的，前端不自己算、不自己换口径。
+ */
+
+/** 刚封板候选（买入价即涨停价，entry_discount=0）。premium 复用涨停梯队的次日溢价读数。 */
+export interface SeizeSealed {
+  code: string;
+  name: string;
+  price: number;
+  limit_price: number;
+  change_pct: number;
+  seal_time: string;
+  /** 首封时间距今秒数；越小越「新鲜」 */
+  seconds_since_seal: number;
+  seal_fund_yi: number | null;
+  seal_ratio: number | null;
+  break_count: number | null;
+  turnover: number | null;
+  sector: string;
+  limit_pct: number;
+  next_limit_price: number | null;
+  entry_discount_pct: number;
+  /** 次日竞价卖出读数（limitup_premium）；旧后端缺省 */
+  premium?: LimitUpPremium;
+}
+
+/** 回封候选（炸板池里仍贴涨停价）。收益条件于回封成功。 */
+export interface SeizeReseal {
+  code: string;
+  name: string;
+  price: number;
+  limit_price: number;
+  change_pct: number;
+  /** 距涨停 %（越小越接近回封） */
+  dist_to_limit_pct: number;
+  amplitude: number;
+  break_count: number;
+  sector: string;
+  limit_pct: number;
+  /** 与上一次轮询比是否向涨停回升（单实例近似信号） */
+  recovering: boolean;
+  price_trend_pct: number | null;
+  /** 条件性次日竞价卖出读数（conditional=true） */
+  premium_if_sealed: { expect_pct: number; conditional: boolean; note: string };
+}
+
+/** 炸板预警（已明显掉离涨停、振幅大）。 */
+export interface SeizeBroken {
+  code: string;
+  name: string;
+  price: number;
+  limit_price: number;
+  change_pct: number;
+  dist_to_limit_pct: number;
+  amplitude: number;
+  break_count: number;
+  sector: string;
+}
+
+/** 封板雷达实时数据（GET /api/seize/radar）。 */
+export interface SeizeRadar {
+  trade_date: string;
+  session: string;
+  updated_at: string;
+  market_open: boolean;
+  poll_interval_seconds: number;
+  just_sealed: SeizeSealed[];
+  reseal: SeizeReseal[];
+  broken_alert: SeizeBroken[];
+  counts: { just_sealed: number; reseal: number; broken_alert: number };
+  /** 炸板池是否取到；false 时回封/预警只反映部分信息 */
+  zb_ok: boolean;
+  /** 当日已封板票的次日竞价卖出读数（背景，复用涨停梯队口径）；旧后端缺省 */
+  premium_summary?: LimitUpPremiumSummary;
+  evidence: TacticEvidence;
+  caliber: Caliber;
+  note: string;
+  cached: boolean;
+}
