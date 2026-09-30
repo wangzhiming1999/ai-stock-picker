@@ -35,6 +35,11 @@ import time
 
 from app.services import calibers, data_service, limitup_service, tactic_evidence, trade_calendar_service
 
+try:  # supabase 未配置时落库/读回静默降级，不影响实时链路
+    from app.services import supabase_store
+except Exception:  # pragma: no cover
+    supabase_store = None
+
 # 复用涨停池模块里已经验证过的纯函数与常量，避免重复实现与口径漂移。
 from app.services.limitup_service import (
     _TURNOVER_BUCKETS,
