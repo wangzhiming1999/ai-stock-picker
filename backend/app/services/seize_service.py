@@ -482,7 +482,7 @@ async def _realize_pending(today_iso: str, cap: int = 30) -> int:
         res = await (
             sb.table("seize_radar_log")
             .select("id,code,trade_date,buy_price")
-            .eq("next_open", "null")
+            .is_("next_open", "null")
             .lt("trade_date", today_iso)
             .not_.is_("sealed_final", "null")
             .order("trade_date", desc=True)
@@ -533,8 +533,14 @@ async def get_history_log(days: int = 14) -> dict:
     """
     today = _cn_now().date()
     today_iso = today.isoformat()
-    radar = await get_radar()
-    if radar["trade_date"] == today_iso:
+    # 雷达失败不拖垮台账读回：跳过收盘判定，闭环照常返回（否则 push2ex 抖动会把整个
+    # history 端点打成 500，而台账本身不依赖行情源）。
+    try:
+        radar = await get_radar()
+    except Exception as e:  # noqa: BLE001
+        print(f"[seize] history 跳过收盘判定（雷达不可用）: {e}")
+        radar = None
+    if radar is not None and radar["trade_date"] == today_iso:
         zt_codes = set(radar.get("zt_codes") or [])
         # 收盘判定用全量涨停池成员（收盘后仍在池 = 封住）。
         if not _throttled("close_out", 600):
