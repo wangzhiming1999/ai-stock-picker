@@ -1,9 +1,10 @@
 import { Stethoscope } from "lucide-react";
+import { CHIP } from "../../lib/tone";
 import { CELL } from "../../lib/ui";
 import type { VanguardBoard, VanguardWideRow } from "../../types";
 import Button from "../ui/Button";
 import Table, { Th } from "../ui/Table";
-import { PctText, YiText } from "./shared";
+import { LiveQuoteTag, PctText, YiText } from "./shared";
 
 interface Props {
   data: VanguardBoard;
@@ -43,6 +44,9 @@ export default function WidePoolTable({ data, onDiagnose }: Props) {
           宽池 <b className="text-ink-soft">{data.wide_pool_size}</b> 只
         </span>
         <span className="text-ink-faint">其中 {rows.filter((r) => r.scored).length} 只进入 K 线精算</span>
+        {/* 宽池的价格同样来自快照，一并用实时价覆盖；命中数用 wide_* 两个字段，
+            与三维榜（items + leaders）不是同一组计数。 */}
+        <LiveQuoteTag quote={data.quote} count={data.quote?.wide_live_count} total={data.quote?.wide_total} />
         <span className="text-ink-faint">点行可送三维诊股</span>
       </div>
 
@@ -60,7 +64,17 @@ export default function WidePoolTable({ data, onDiagnose }: Props) {
                 <span className="text-meta text-ink-faint">{r.code}</span>
               </div>
             </td>
-            <td className={`${CELL} text-right tabular-nums`}>{Number.isFinite(r.price) ? r.price.toFixed(2) : "—"}</td>
+            <td className={`${CELL} text-right tabular-nums`}>
+              {Number.isFinite(r.price) ? r.price.toFixed(2) : "—"}
+              {r.limit_up_now && (
+                <span
+                  className={`ml-1 rounded-md px-1 py-0.5 text-meta leading-none ${CHIP.buy.bg} ${CHIP.buy.text}`}
+                  title="实时已涨停：挂任何价都买不进"
+                >
+                  涨停
+                </span>
+              )}
+            </td>
             <td className={`${CELL} text-right tabular-nums`}>
               <PctText v={r.change_pct} />
             </td>

@@ -13,7 +13,7 @@ import BoardTable from "./vanguard/BoardTable";
 import WidePoolTable from "./vanguard/WidePoolTable";
 import DiagnoseCard from "./vanguard/DiagnoseCard";
 import { HerdingCard, LeadersList, SectorTable } from "./vanguard/MarketLayer";
-import { EvidenceBadge, EvidenceNote, ExpectedPriceChip, FundFlowNotice, LevelChips } from "./vanguard/shared";
+import { EvidenceBadge, EvidenceNote, ExpectedPriceChip, FundFlowNotice, LevelChips, LiveQuoteTag } from "./vanguard/shared";
 
 interface Props {
   onPick: (codes: string[]) => void;
@@ -156,7 +156,7 @@ export default function VanguardPanel({ onPick }: Props) {
         icon={Crosshair}
         title="决策先锋"
         actions={refreshBtn}
-        meta={data ? `${data.date} 收盘 · ${data.headline}` : "每日更新"}
+        meta={data ? `${data.date} · ${data.headline}` : "每日更新"}
       >
         <div className={STACK_TIGHT}>
           {/* 三维口径说明：**一行 inline**，不是三张卡。
@@ -181,6 +181,18 @@ export default function VanguardPanel({ onPick }: Props) {
           </ul>
 
           {data && <FundFlowNotice status={data.fund_flow.status} covered={data.fund_flow.covered} note={data.fund_flow.note} />}
+          {/* 行情新鲜度：榜单现价来自「收盘后刷新的全市场快照」，盘中会明显滞后
+              （实测下午看到的是早盘价，个别票差 10%+）。后端已用腾讯批量行情覆盖成
+              实时价，但「名次与三维分未随实时价重排」这件事必须写出来 ——
+              否则用户会以为整张表都是实时的。 */}
+          {data && (
+            <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-meta text-ink-soft">
+              <LiveQuoteTag quote={data.quote} />
+              <span className="text-ink-faint">
+                现价 / 涨幅为腾讯实时行情；名次与三维分仍是当日快照时刻的读数，未随实时价重排。
+              </span>
+            </p>
+          )}
           {data && <EvidenceNote evidence={data.evidence} />}
         </div>
       </Panel>

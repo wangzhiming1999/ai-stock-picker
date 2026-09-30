@@ -444,6 +444,16 @@ export interface VanguardItem {
    */
   expected_price?: VanguardExpectedPrice | null;
   tags: string[];
+  /**
+   * 实时价提鲜标记：`price` / `change_pct` 是否已被腾讯实时行情覆盖。
+   * 榜单其余读数（三维分 / 名次 / selection_score）仍是快照时刻算出的 ——
+   * 提鲜只换价格，不重排，否则「分数」与「名次」会互相矛盾。
+   */
+  live?: boolean;
+  /** 该行实时行情的成交时间（ISO，含时区）；未提到实时价为 null */
+  quote_time?: string | null;
+  /** 实时涨幅已达所属板块涨停上限 —— 这个价挂出去买不进 */
+  limit_up_now?: boolean;
 }
 
 /** 预期价格（结构位锚点）。口径见 `signal_service.expected_price_from_levels`。 */
@@ -501,6 +511,9 @@ export interface VanguardLeader {
   pct_from_high: number;
   main_pct: number | null;
   reason: string;
+  live?: boolean;
+  quote_time?: string | null;
+  limit_up_now?: boolean;
 }
 
 /** 与后端 tactic_evidence.Evidence.as_dict() 同形 */
@@ -535,6 +548,31 @@ export interface VanguardWideRow {
   overall_score: number | null;
   sector_strength: number | null;
   selection_score: number | null;
+  live?: boolean;
+  quote_time?: string | null;
+  limit_up_now?: boolean;
+}
+
+/**
+ * 榜单实时行情提鲜结果。
+ *
+ * 背景：榜单 `price` 原取自**全市场快照**，而快照只在收盘后由 cron 刷新
+ * （`market.py::_get_spot` 的 serve-stale 策略），盘中重开页面拿到的可能是
+ * 早盘那份价。后端返回榜单前会用腾讯批量行情覆盖展示票的现价与涨幅。
+ *
+ * `live_count !== total` 就必须如实展示 —— 说明有票没提到实时价（仍显示快照价），
+ * 不能把「部分失败」渲染成「全部实时」。
+ */
+export interface VanguardQuote {
+  /** 三维榜 + 潜力龙头中成功提到实时价的行数 */
+  live_count: number;
+  /** 三维榜 + 潜力龙头的行数合计 */
+  total: number;
+  wide_live_count: number;
+  wide_total: number;
+  /** 最新一笔行情的成交时间（ISO）；一笔都没提到为 null */
+  quote_time: string | null;
+  source: string;
 }
 
 export interface VanguardBoard {
@@ -559,6 +597,11 @@ export interface VanguardBoard {
   leaders: VanguardLeader[];
   wide_pool: VanguardWideRow[];
   fund_map: Record<string, (number | null)[]>;
+  /**
+   * 实时行情提鲜结果。本次上线前落库的旧榜单没有这个字段 —— 前端必须容缺，
+   * 不能因为字段缺失就把「没有提鲜信息」渲染成「行情源故障」。
+   */
+  quote?: VanguardQuote;
 }
 
 export interface VanguardDiagnose {

@@ -1,13 +1,13 @@
 import { Fragment, useState } from "react";
 import { ChevronDown, ChevronRight, Stethoscope } from "lucide-react";
-import { pnlTone } from "../../lib/tone";
+import { CHIP, pnlTone } from "../../lib/tone";
 import { CELL } from "../../lib/ui";
 import { fmtNum } from "../../lib/safe";
 import type { VanguardBoard, VanguardItem } from "../../types";
 import Button from "../ui/Button";
 import Table, { Th } from "../ui/Table";
 import WatchStar from "../WatchStar";
-import { DIM_SHORT, DimChip, ExpectedPriceChip, LevelChips, PctText, YiText } from "./shared";
+import { DIM_SHORT, DimChip, ExpectedPriceChip, LevelChips, LiveQuoteTag, PctText, YiText } from "./shared";
 
 interface Props {
   data: VanguardBoard;
@@ -130,6 +130,9 @@ export default function BoardTable({ data, onPick, onDiagnose }: Props) {
         <span>
           上榜 <b className="text-ink-soft">{items.length}</b> 只
         </span>
+        {/* 现价由后端用腾讯批量行情覆盖为实时价，这里标出成交时间 ——
+            否则用户无法分辨「这个价是几点的」。快照价与实时的差别实测能到 10%+。 */}
+        <LiveQuoteTag quote={data.quote} />
         <span className="text-ink-faint">{data.weights_note}</span>
         {selected.size > 0 && (
           <Button variant="primary" size="xs" onClick={() => onPick(Array.from(selected))}>
@@ -199,7 +202,19 @@ export default function BoardTable({ data, onPick, onDiagnose }: Props) {
                   </div>
                 </td>
                 <td className={`${CELL} text-right`}>
-                  <div className="text-ink">{Number.isFinite(it.price) ? it.price.toFixed(2) : "—"}</div>
+                  <div className="text-ink">
+                    {Number.isFinite(it.price) ? it.price.toFixed(2) : "—"}
+                    {/* 实时已涨停必须标出来：这个价挂出去买不进，不标的话用户会按它挂单。
+                        用买点红（方向语义），不占质量色的蓝。 */}
+                    {it.limit_up_now && (
+                      <span
+                        className={`ml-1 rounded-md px-1 py-0.5 text-meta leading-none ${CHIP.buy.bg} ${CHIP.buy.text}`}
+                        title="实时已涨停：挂任何价都买不进"
+                      >
+                        涨停
+                      </span>
+                    )}
+                  </div>
                   <div className={`text-meta ${pnlTone(it.change_pct)}`}>
                     {it.change_pct >= 0 ? "+" : ""}
                     {Number.isFinite(it.change_pct) ? it.change_pct.toFixed(2) : "—"}%

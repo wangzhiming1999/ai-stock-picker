@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { AlertTriangle, ChevronDown } from "lucide-react";
 import { CHIP, pnlTone, scoreChip } from "../../lib/tone";
-import type { VanguardEvidence, VanguardExpectedPrice, VanguardLevels } from "../../types";
+import type { VanguardEvidence, VanguardExpectedPrice, VanguardLevels, VanguardQuote } from "../../types";
 
 /**
  * 决策先锋 · 共享展示件
@@ -23,6 +23,58 @@ export const DIM_SHORT: Record<string, string> = {
   trend: "趋势",
   activity: "活跃",
 };
+
+/** 行情时间的 HH:MM:SS。解析失败返回 null —— 宁可什么都不显示，也不猜一个时间出来。 */
+export function quoteClock(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+/**
+ * 「价格实时 · 成交时间」标记。
+ *
+ * 存在的理由：榜单的现价原本取自**全市场快照**，而快照只在收盘后由 cron 刷新
+ * （盘中 serve-stale 一直返回同一份）—— 所以上午看到的价可能整个下午都在沿用。
+ * 后端现在会用腾讯批量行情覆盖成实时价，但用户没法从数字本身分辨新旧，
+ * 因此这里把**成交时间**打出来。
+ *
+ * 只在真的提到实时价时显示（`live_count > 0`）：一笔都没提到时不给「实时」的假象，
+ * 而是让价格区域维持原样（此时数字就是快照价，标识出来反而误导）。
+ * 只提到一部分时必须显式写出比例 —— 部分失败不能被读成全部实时。
+ */
+export function LiveQuoteTag({
+  quote,
+  count,
+  total,
+  className = "",
+}: {
+  quote?: VanguardQuote | null;
+  /** 覆盖展示的命中数（宽池用的是 `wide_live_count`，不是榜单那两个字段） */
+  count?: number;
+  /** 覆盖展示的总数（宽池用的是 `wide_total`） */
+  total?: number;
+  className?: string;
+}) {
+  const clock = quoteClock(quote?.quote_time);
+  if (!clock || !quote) return null;
+  const liveCount = count ?? quote.live_count;
+  const totalCount = total ?? quote.total;
+  if (liveCount === 0) return null;
+  const partial = liveCount < totalCount;
+  return (
+    <span
+      className={`inline-flex items-center gap-1 text-meta text-ink-soft ${className}`}
+      title={`${quote.source}${partial ? ` · ${liveCount}/${totalCount} 只提到实时价，其余沿用快照价` : ""}`}
+    >
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-brand-light" aria-hidden />
+      价格实时 {clock}
+      {partial && <span className="text-amber-300">（{liveCount}/{totalCount}）</span>}
+    </span>
+  );
+}
 
 /** 三维分数芯片。null 显示「—」（未观测），与 0.0 分严格区分。 */
 export function DimChip({ v, title }: { v: number | null | undefined; title?: string }) {

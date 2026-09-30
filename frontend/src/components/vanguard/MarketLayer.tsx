@@ -1,10 +1,10 @@
 import { AlertTriangle, Crown, Users } from "lucide-react";
-import { pnlTone, scoreBg } from "../../lib/tone";
+import { CHIP, pnlTone, scoreBg } from "../../lib/tone";
 import { CELL, SUB, TEXT } from "../../lib/ui";
 import type { VanguardBoard, VanguardLeader, VanguardSector } from "../../types";
 import Button from "../ui/Button";
 import Table, { Th } from "../ui/Table";
-import { HERDING_LABEL, herdingTone, PctText, YiText } from "./shared";
+import { HERDING_LABEL, herdingTone, LiveQuoteTag, PctText, YiText } from "./shared";
 
 /**
  * 市场层三块：板块强度、主力抱团、潜力龙头。
@@ -176,6 +176,7 @@ export function LeadersList({ data, onPick, onDiagnose }: LeaderProps) {
 
   return (
     <div className="space-y-2">
+      <LiveQuoteTag quote={data.quote} />
       {leaders.map((l) => (
         <div key={l.code} className={`${SUB} px-3 py-2`}>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -189,6 +190,13 @@ export function LeadersList({ data, onPick, onDiagnose }: LeaderProps) {
                 {l.change_pct >= 0 ? "+" : ""}
                 {Number.isFinite(l.change_pct) ? l.change_pct.toFixed(2) : "—"}%
               </span>
+              {/* 龙头筛选用的是快照时刻的涨幅（<9%）；提鲜后可能已实时涨停 ——
+                  这类票买不进，必须当场标出来，否则用户照着挂单只会空等。 */}
+              {l.limit_up_now && (
+                <span className={`ml-1 rounded-md px-1 py-0.5 leading-none ${CHIP.buy.bg} ${CHIP.buy.text}`}>
+                  已涨停
+                </span>
+              )}
             </span>
             <span className="text-meta text-ink-muted">
               资金 <b className="text-ink">{Number.isFinite(l.dark_money) ? l.dark_money.toFixed(1) : "—"}</b> · 趋势{" "}
