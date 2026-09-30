@@ -80,3 +80,31 @@ def test_just_sealed_window_filters_stale_and_reuses_premium():
 
 def test_clear_cache_is_safe():
     s.clear_cache()  # 不抛异常即可
+
+
+def test_resolve_next_open_finds_first_later_day():
+    dates = ["2026-09-28", "2026-09-29", "2026-09-30", "2026-10-09"]
+    opens = [10.0, 10.5, None, 11.0]
+    # trade_date=09-29 → D+1 是 09-30，但开盘缺失 → 跳到再下一个有效日 10-09
+    assert s._resolve_next_open(dates, opens, "2026-09-29") == 11.0
+    # trade_date=09-28 → 09-29 开盘
+    assert s._resolve_next_open(dates, opens, "2026-09-28") == 10.5
+    # 之后没有有效日 → None（留待下次结算，不写 0 冒充）
+    assert s._resolve_next_open(dates, opens, "2026-10-09") is None
+    assert s._resolve_next_open([], [], "2026-09-29") is None
+
+
+def test_calc_return_pct_guards_illegal_input():
+    assert s._calc_return_pct(10.0, 10.8) == 8.0
+    assert s._calc_return_pct(0, 10.0) is None
+    assert s._calc_return_pct(10.0, -1) is None
+
+
+def test_log_rows_shape():
+    sealed = [{"code": "000001", "name": "A", "price": 10.0, "limit_price": 10.0}]
+    reseal = [{"code": "000002", "name": "B", "price": 9.95, "limit_price": 10.0, "dist_to_limit_pct": 0.5}]
+    rows = s._log_rows("2026-09-30", sealed, reseal)
+    kinds = {r["signal_kind"]: r for r in rows}
+    assert kinds["just_sealed"]["dist_to_limit_pct"] == 0.0
+    assert kinds["reseal"]["buy_price"] == 9.95
+    assert all(r["trade_date"] == "2026-09-30" for r in rows)

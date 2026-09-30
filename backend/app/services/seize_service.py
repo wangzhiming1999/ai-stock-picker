@@ -33,7 +33,7 @@ import asyncio
 import datetime as dt
 import time
 
-from app.services import calibers, limitup_service, tactic_evidence, trade_calendar_service
+from app.services import calibers, data_service, limitup_service, tactic_evidence, trade_calendar_service
 
 # 复用涨停池模块里已经验证过的纯函数与常量，避免重复实现与口径漂移。
 from app.services.limitup_service import (
@@ -316,6 +316,8 @@ async def get_radar(force: bool = False) -> dict:
         "just_sealed": just_sealed,
         "reseal": reseal,
         "broken_alert": broken_alert,
+        # 全量涨停池成员（收益闭环的收盘判定依据：收盘后仍在池 = 封住）
+        "zt_codes": [s["code"] for s in limit_up],
         "counts": {
             "just_sealed": len(just_sealed),
             "reseal": len(reseal),
@@ -333,11 +335,265 @@ async def get_radar(force: bool = False) -> dict:
     }
     from app.services import cache_utils
 
+    # 盘中信号落库（首 sighting；ignore_duplicates 跳过重复，节流 120s 压 Supabase 写量）。
+    if market_open and not _throttled("ingest", 120):
+        await _ingest_candidates(key, just_sealed, reseal)
+
     cache_utils.put_bounded(_RADAR_CACHE, key, (now_mono, data), max_entries=_RADAR_CACHE_MAX)
     return {**data, "cached": False}
+
+
+# ---------- 收益闭环：落库 → 收盘判定 → D+1 开盘结算 ----------
+#
+# 纪律：三条链路全部 best-effort（表未建/Supabase 未配置/网络失败 → 静默降级返回 0），
+# 绝不拖垮雷达实时链路 —— 「没跑迁移」与「跑挂了」都只影响闭环，不影响信号本身。
+
+
+def _resolve_next_open(
+    hist_dates: list[str], hist_opens: list[float | None], trade_date: str
+) -> float | None:
+    """从日 K 里找 trade_date 之后的第一个交易日的开盘价（纯函数，便于测试）。
+
+    D+1 停牌 / 数据缺失时返回 None（留待下次结算，不写 0 冒充）。
+    """
+    if not hist_dates or not hist_opens:
+        return None
+    for d, o in zip(hist_dates, hist_opens):
+        if d > trade_date and o is not None and o > 0:
+            return float(o)
+    return None
+
+
+def _calc_return_pct(buy_price: float, next_open: float) -> float | None:
+    """(D+1 开盘 - 信号买入价) / 信号买入价 × 100。buy_price 非法时返回 None。"""
+    if buy_price <= 0 or next_open <= 0:
+        return None
+    return round((next_open - buy_price) / buy_price * 100, 2)
+
+
+_THROTTLE: dict[str, float] = {}
+
+
+def _throttled(key: str, seconds: float) -> bool:
+    """距上次执行不足 seconds 秒则跳过（闭环是低频后台活，不值得每次雷达请求都跑）。"""
+    now = time.monotonic()
+    last = _THROTTLE.get(key, 0.0)
+    if now - last < seconds:
+        return True
+    _THROTTLE[key] = now
+    return False
+
+
+def _log_rows(trade_date: str, just_sealed: list[dict], reseal: list[dict]) -> list[dict]:
+    """把两类信号压成落库行（首 sighting 的 buy_price 固化 = 拉升过程中的入场价）。"""
+    now_iso = _cn_now().isoformat(timespec="seconds")
+    rows: list[dict] = []
+    for r in just_sealed:
+        rows.append(
+            {
+                "trade_date": trade_date,
+                "code": r["code"],
+                "name": r["name"],
+                "signal_kind": "just_sealed",
+                "buy_price": r["price"],
+                "limit_price": r["limit_price"],
+                "dist_to_limit_pct": 0.0,
+                "first_seen_at": now_iso,
+                "last_seen_at": now_iso,
+            }
+        )
+    for r in reseal:
+        rows.append(
+            {
+                "trade_date": trade_date,
+                "code": r["code"],
+                "name": r["name"],
+                "signal_kind": "reseal",
+                "buy_price": r["price"],
+                "limit_price": r["limit_price"],
+                "dist_to_limit_pct": r["dist_to_limit_pct"],
+                "first_seen_at": now_iso,
+                "last_seen_at": now_iso,
+            }
+        )
+    return rows
+
+
+async def _ingest_candidates(trade_date: str, just_sealed: list[dict], reseal: list[dict]) -> int:
+    """盘中信号落库（首 sighting）。返回写入行数；任何失败静默降级返回 0。"""
+    if supabase_store is None or not supabase_store.is_configured():
+        return 0
+    rows = _log_rows(trade_date, just_sealed, reseal)
+    if not rows:
+        return 0
+    try:
+        sb = await supabase_store.get_service_client()
+        res = await (
+            sb.table("seize_radar_log")
+            .upsert(rows, on_conflict="trade_date,code,signal_kind", ignore_duplicates=True)
+            .execute()
+        )
+        return len(res.data or [])
+    except Exception as e:  # noqa: BLE001 - 表未建/网络失败都是预期内降级
+        print(f"[seize] 候选落库失败({trade_date}): {e}")
+        return 0
+
+
+async def _close_out_today(trade_date: str, zt_codes: set[str]) -> int:
+    """收盘后判定：今天落库的票最终是否封住（= 收盘时仍在涨停池）。
+
+    零额外行情请求 —— 判定依据就是本次雷达已经拉到的涨停池成员。返回更新行数。
+    """
+    if supabase_store is None or not supabase_store.is_configured():
+        return 0
+    try:
+        sb = await supabase_store.get_service_client()
+        res = await (
+            sb.table("seize_radar_log")
+            .select("id,code")
+            .eq("trade_date", trade_date)
+            .is_("sealed_final", "null")
+            .execute()
+        )
+        pending = res.data or []
+        updated = 0
+        for row in pending:
+            sealed = row["code"] in zt_codes
+            up = await (
+                sb.table("seize_radar_log").update({"sealed_final": sealed}).eq("id", row["id"]).execute()
+            )
+            updated += len(up.data or [])
+        return updated
+    except Exception as e:  # noqa: BLE001
+        print(f"[seize] 收盘判定失败({trade_date}): {e}")
+        return 0
+
+
+async def _realize_pending(today_iso: str, cap: int = 30) -> int:
+    """给已判定但未结算的行补 D+1 开盘价并算实际收益。
+
+    逐只拉日 K（腾讯 newfqkline）＝行情源风控主因，所以：只补 `trade_date < 今天` 的行、
+    单次上限 cap 只、写入即固化（下次不再拉）。盘中/竞价阶段不拉（D+1 还没开盘）。
+    """
+    if supabase_store is None or not supabase_store.is_configured():
+        return 0
+    try:
+        sb = await supabase_store.get_service_client()
+        res = await (
+            sb.table("seize_radar_log")
+            .select("id,code,trade_date,buy_price")
+            .eq("next_open", "null")
+            .lt("trade_date", today_iso)
+            .not_.is_("sealed_final", "null")
+            .order("trade_date", desc=True)
+            .limit(cap)
+            .execute()
+        )
+        pending = res.data or []
+        if not pending:
+            return 0
+        realized = 0
+        for row in pending:
+            try:
+                hist = await asyncio.to_thread(data_service.get_history, row["code"], 15)
+            except Exception:  # noqa: BLE001
+                continue
+            if not hist or not hist.dates or not hist.opens:
+                continue
+            nxt = _resolve_next_open(hist.dates, hist.opens, row["trade_date"])
+            if nxt is None:
+                continue
+            ret = _calc_return_pct(float(row["buy_price"]), nxt)
+            up = await (
+                sb.table("seize_radar_log")
+                .update(
+                    {
+                        "next_open": nxt,
+                        "next_open_pct": round((nxt / float(row["buy_price"]) - 1) * 100, 2)
+                        if float(row["buy_price"]) > 0
+                        else None,
+                        "realized_return_pct": ret,
+                    }
+                )
+                .eq("id", row["id"])
+                .execute()
+            )
+            realized += len(up.data or [])
+        return realized
+    except Exception as e:  # noqa: BLE001
+        print(f"[seize] 收益结算失败: {e}")
+        return 0
+
+
+async def get_history_log(days: int = 14) -> dict:
+    """收益追踪：近 N 个自然日的落库记录 + 已结算汇总。
+
+    顺带触发收盘判定与结算（各自带节流：收盘判定 10 分钟一次、结算 30 分钟一次），
+    让前端打开一次就能看到最新结果，不需要独立维护 cron。
+    """
+    today = _cn_now().date()
+    today_iso = today.isoformat()
+    radar = await get_radar()
+    if radar["trade_date"] == today_iso:
+        zt_codes = set(radar.get("zt_codes") or [])
+        # 收盘判定用全量涨停池成员（收盘后仍在池 = 封住）。
+        if not _throttled("close_out", 600):
+            await _close_out_today(today_iso, zt_codes)
+    if not _throttled("realize", 1800):
+        await _realize_pending(today_iso)
+
+    enabled = True
+    rows: list[dict] = []
+    if supabase_store is None or not supabase_store.is_configured():
+        enabled = False
+    else:
+        try:
+            sb = await supabase_store.get_service_client()
+            since = (today - dt.timedelta(days=days)).isoformat()
+            res = await (
+                sb.table("seize_radar_log")
+                .select(
+                    "trade_date,code,name,signal_kind,buy_price,limit_price,"
+                    "dist_to_limit_pct,sealed_final,next_open,realized_return_pct"
+                )
+                .gte("trade_date", since)
+                .order("trade_date", desc=True)
+                .order("first_seen_at", desc=True)
+                .limit(300)
+                .execute()
+            )
+            rows = res.data or []
+        except Exception as e:  # noqa: BLE001 - 表未建时 v15 迁移还没跑
+            print(f"[seize] 收益读回失败: {e}")
+            enabled = False
+
+    settled = [r for r in rows if r.get("realized_return_pct") is not None]
+    wins = [r for r in settled if float(r["realized_return_pct"]) > 0]
+    summary = {
+        "total": len(rows),
+        "settled": len(settled),
+        "pending": len(rows) - len(settled),
+        "win_rate": round(len(wins) / len(settled) * 100, 1) if settled else None,
+        "avg_return": round(sum(float(r["realized_return_pct"]) for r in settled) / len(settled), 2)
+        if settled
+        else None,
+    }
+    return {
+        "enabled": enabled,
+        "days": days,
+        "summary": summary,
+        "rows": rows,
+        "note": (
+            "口径：realized_return_pct =（D+1 开盘价 − 信号时买入价）/ 信号时买入价。"
+            "信号时买入价是首次命中雷达那一刻的现价（拉升过程中），非涨停价；"
+            "因此与 limitup_premium（涨停价买入）口径不同、不可比、不可加。"
+            "样本为盘中自动记录，未含手续费与滑点，非投资建议。"
+        ),
+    }
 
 
 def clear_cache() -> None:
     """清空模块缓存（测试与手动刷新用）。"""
     _RADAR_CACHE.clear()
     _ZB_LAST.clear()
+    _THROTTLE.clear()

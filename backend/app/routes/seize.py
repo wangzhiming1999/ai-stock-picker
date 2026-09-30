@@ -6,7 +6,7 @@
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from app.services import seize_service
 
@@ -24,3 +24,14 @@ async def radar(force: bool = False) -> dict:
         return await seize_service.get_radar(force=force)
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/history")
+async def history(days: int = Query(14, ge=1, le=60)) -> dict:
+    """收益追踪：近 N 个自然日的落库记录 + 已结算汇总。
+
+    ⚠️ 会顺带触发结算：为「已判定未结算」的行逐只拉一次日 K（腾讯，单次上限 30 只，
+    写入即固化），带 30 分钟节流 —— 不会放大行情请求。落库未启用（v15 迁移未跑 /
+    Supabase 未配置）时返回 ``enabled:false``，前端降级隐藏，不报错。
+    """
+    return await seize_service.get_history_log(days=days)
