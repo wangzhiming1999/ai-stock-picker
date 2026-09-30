@@ -2371,3 +2371,35 @@ export interface SeizeRadar {
   note: string;
   cached: boolean;
 }
+
+/** 封板雷达落库行（GET /api/seize/history）。sealed/next_open/realized 未结算时为 null。 */
+export interface SeizeLogRow {
+  trade_date: string;
+  code: string;
+  name: string;
+  /** just_sealed = 刚封板命中；reseal = 回封候选 */
+  signal_kind: string;
+  buy_price: number;
+  limit_price: number;
+  dist_to_limit_pct: number | null;
+  /** 收盘判定：当天最终是否封住；null = 未判定 */
+  sealed_final: boolean | null;
+  next_open: number | null;
+  /** (D+1 开盘 − 信号时买入价)/信号时买入价 ×100 */
+  realized_return_pct: number | null;
+}
+
+export interface SeizeHistoryResult {
+  /** false = 落库未启用（v15 迁移未跑 / Supabase 未配置），前端降级隐藏 */
+  enabled: boolean;
+  days: number;
+  summary: {
+    total: number;
+    settled: number;
+    pending: number;
+    win_rate: number | null;
+    avg_return: number | null;
+  };
+  rows: SeizeLogRow[];
+  note: string;
+}

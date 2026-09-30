@@ -18,6 +18,7 @@ import type {
   LimitUpRelayResult,
   LimitUpSnapshot,
   SeizeRadar,
+  SeizeHistoryResult,
   MonitorInterval,
   MonitorResult,
   MarketPrediction,
@@ -393,6 +394,18 @@ export async function fetchLimitUpRelay(days?: number, force = false): Promise<L
 export async function fetchSeizeRadar(force = false): Promise<SeizeRadar> {
   const res = await fetch(`${API}/seize/radar${force ? "?force=true" : ""}`);
   if (!res.ok) throw await errorFrom(res, "获取封板雷达失败");
+  return res.json();
+}
+
+/**
+ * 封板雷达收益追踪：近 N 日落库记录 + 已结算汇总。
+ *
+ * 后端会顺带触发结算（逐只拉 D+1 日 K，单次上限 30 只、30 分钟节流）。
+ * 落库未启用时返回 enabled:false，前端降级隐藏而不是报错。
+ */
+export async function fetchSeizeHistory(days = 14): Promise<SeizeHistoryResult> {
+  const res = await fetch(`${API}/seize/history?days=${days}`);
+  if (!res.ok) throw await errorFrom(res, "获取收益追踪失败");
   return res.json();
 }
 

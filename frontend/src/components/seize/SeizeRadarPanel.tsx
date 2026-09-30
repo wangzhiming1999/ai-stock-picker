@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Flame, RefreshCw } from "lucide-react";
-import { fetchSeizeRadar } from "../../api/client";
+import { fetchSeizeHistory, fetchSeizeRadar } from "../../api/client";
 import { CaliberLine } from "../CaliberNote";
 import { pnlTone } from "../../lib/tone";
 import { TEXT, STACK, CELL } from "../../lib/ui";
 import { signedPct } from "../market/format";
 import Table, { Th } from "../ui/Table";
-import type { SeizeRadar, SeizeBroken, SeizeReseal, SeizeSealed } from "../../types";
+import type { SeizeHistoryResult, SeizeRadar, SeizeBroken, SeizeReseal, SeizeSealed } from "../../types";
 
 /**
  * 封板雷达（抢封板观察层）。
@@ -176,8 +176,75 @@ function BrokenTable({ rows }: { rows: SeizeBroken[] }) {
   );
 }
 
+/** 收益追踪：落库闭环的实际结果（口径与 limitup_premium 不同、不可比）。enabled=false 时整个隐藏。 */
+function HistorySection({ history }: { history: SeizeHistoryResult }) {
+  const { summary } = history;
+  return (
+    <div>
+      <h3 className={TEXT.label}>收益追踪（信号时买入 → 次日开盘）</h3>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-meta text-ink-muted">
+        <span>记录 {summary.total} 条</span>
+        <span className="text-ink-soft">已结算 {summary.settled} · 待结算 {summary.pending}</span>
+        {summary.win_rate != null && <span className="text-ink-soft">胜率 {summary.win_rate}%</span>}
+        {summary.avg_return != null && (
+          <span className="text-ink-soft">
+            平均 <span className={pnlTone(summary.avg_return)}>{signedPct(summary.avg_return)}</span>
+          </span>
+        )}
+      </div>
+      <Table
+        label="收益追踪"
+        maxHeight="sm"
+        minWidth={640}
+        isEmpty={history.rows.length === 0}
+        empty={<p className="text-meta text-ink-faint">暂无落库记录（信号在盘中出现后自动记录）。</p>}
+        head={
+          <tr>
+            <Th>日期</Th>
+            <Th>代码 / 名称</Th>
+            <Th>信号</Th>
+            <Th align="right">买入价</Th>
+            <Th>封住?</Th>
+            <Th align="right">次日开盘</Th>
+            <Th align="right">实际收益</Th>
+          </tr>
+        }
+      >
+        {history.rows.map((r) => (
+          <tr key={`${r.trade_date}-${r.code}-${r.signal_kind}`} className="border-t border-surface-line/60">
+            <td className={`${CELL} text-meta text-ink-soft`}>{r.trade_date}</td>
+            <td className={CELL}>
+              <span className="font-medium text-ink">{r.name}</span>
+              <span className="ml-1 text-meta text-ink-muted">{r.code}</span>
+            </td>
+            <td className={`${CELL} text-meta text-ink-soft`}>
+              {r.signal_kind === "reseal" ? "回封" : "刚封板"}
+            </td>
+            <td className={`${CELL} text-right tabular-nums text-ink-soft`}>{fmt(r.buy_price)}</td>
+            <td className={`${CELL} text-meta`}>
+              {r.sealed_final == null ? (
+                <span className="text-ink-faint">未判定</span>
+              ) : r.sealed_final ? (
+                <span className="text-brand-light">封住</span>
+              ) : (
+                <span className="text-amber-300">炸板</span>
+              )}
+            </td>
+            <td className={`${CELL} text-right tabular-nums text-ink-soft`}>{fmt(r.next_open)}</td>
+            <td className={`${CELL} text-right tabular-nums ${pnlTone(r.realized_return_pct)}`}>
+              {r.realized_return_pct != null ? signedPct(r.realized_return_pct) : "—"}
+            </td>
+          </tr>
+        ))}
+      </Table>
+      <p className="mt-1 text-meta text-ink-faint">{history.note}</p>
+    </div>
+  );
+}
+
 export default function SeizeRadarPanel() {
   const [radar, setRadar] = useState<SeizeRadar | null>(null);
+  const [history, setHistory] = useState<SeizeHistoryResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const timerRef = useRef<number | null>(null);
   const pollRef = useRef(15_000);
@@ -190,6 +257,21 @@ export default function SeizeRadarPanel() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "获取封板雷达失败");
     }
+  }, []);
+
+  // 收益追踪只在挂载时拉一次（后端结算有 30 分钟节流，轮询它只会白打）
+  useEffect(() => {
+    let stopped = false;
+    void fetchSeizeHistory()
+      .then((h) => {
+        if (!stopped && h.enabled) setHistory(h);
+      })
+      .catch(() => {
+        /* 静默：闭环未启用时整个区块隐藏 */
+      });
+    return () => {
+      stopped = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -294,6 +376,8 @@ export default function SeizeRadarPanel() {
             <h3 className={TEXT.label}>炸板预警（已掉离涨停）</h3>
             <BrokenTable rows={radar.broken_alert} />
           </div>
+
+          {history && <HistorySection history={history} />}
 
           <CaliberLine caliber={radar.caliber} />
           {radar.note && <p className="text-meta text-ink-faint">{radar.note}</p>}
