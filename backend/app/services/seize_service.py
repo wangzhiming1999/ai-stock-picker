@@ -249,6 +249,24 @@ def derive_broken_alert(
 # ---------- 聚合 ----------
 
 
+async def _fetch_pool(kind: str, date_str: str, retries: int = 1) -> list[dict]:
+    """带一次重试的池子拉取。
+
+    ``_fetch_pool_sync`` 本身无重试（与 ``limitup_service.get_snapshot`` 同口径），但雷达
+    定位是盘中高频轮询，冷实例首跳的偶发读超时（实测 push2ex 12s 边缘）不值得让整块
+    面板 502 —— 单次请求成本低，重试一次不构成风控压力。
+    """
+    last: Exception | None = None
+    for attempt in range(retries + 1):
+        try:
+            return await asyncio.to_thread(_fetch_pool_sync, kind, date_str)
+        except Exception as exc:  # noqa: BLE001
+            last = exc
+            if attempt < retries:
+                await asyncio.sleep(1)
+    raise last  # type: ignore[misc]
+
+
 async def get_radar(force: bool = False) -> dict:
     """封板雷达：刚封板 + 回封候选 + 炸板预警，附条件性次日竞价收益读数。
 
@@ -265,8 +283,8 @@ async def get_radar(force: bool = False) -> dict:
 
     date_str = today.strftime("%Y%m%d")
     zt_raw, zb_raw = await asyncio.gather(
-        asyncio.to_thread(_fetch_pool_sync, "zt", date_str),
-        asyncio.to_thread(_fetch_pool_sync, "zb", date_str),
+        _fetch_pool("zt", date_str),
+        _fetch_pool("zb", date_str),
         return_exceptions=True,
     )
     if isinstance(zt_raw, Exception):
