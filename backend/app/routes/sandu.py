@@ -50,10 +50,19 @@ async def auto_candidates(count: int = 20) -> dict:
     逐只日 K 仍由 /scan 按用户确认后的候选拉取。
 
     过滤：剔除 ST/退市、北交所（8/4/92 开头）；只留主力净流入 > 0 的吸筹侧。
-    失败时抛 RuntimeError → 500，由前端按行情源故障提示（不静默给空名单）。
+    失败时返回带 notice 的不可用状态，避免上游断连把页面打成 500；
+    source 明确标为 unavailable，不把故障伪装成「今天没有候选」。
     """
     count = max(5, min(count, 30))
-    rows = await asyncio.to_thread(fetch_fund_flow_rows, "f62", False, 1)
+    try:
+        rows = await asyncio.to_thread(fetch_fund_flow_rows, "f62", False, 1)
+    except Exception as e:  # noqa: BLE001 — 第三方行情故障必须在接口边界降级
+        return {
+            "source": "unavailable",
+            "count": 0,
+            "candidates": [],
+            "notice": f"资金流数据源暂不可用：{type(e).__name__}",
+        }
 
     candidates: list[dict] = []
     for row in rows:
@@ -143,7 +152,8 @@ async def scan_sandu(req: SanduScanRequest) -> SanduScanResult:
 
     return SanduScanResult(
         count=len(items),
-        scanned=len(codes),
+        requested=len(codes),
+        scanned=len(codes) - missing,
         items=items,
         notice=notice,
     )

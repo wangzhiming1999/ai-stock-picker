@@ -5,11 +5,54 @@ from app.services.winrate_service import (
     _index_window_return,
     _next_close_after,
     _reco_outcome,
+    _resolve_recommendation_trade,
     _sample_status,
 )
 
 
 class RecommendationSettlementTests(unittest.TestCase):
+    def test_pullback_plan_is_not_counted_when_next_day_never_reaches_entry(self) -> None:
+        history = StockHistory(
+            dates=["2026-09-04", "2026-09-07"],
+            opens=[10.0, 10.2], highs=[10.2, 10.8], lows=[9.8, 10.1], closes=[10.0, 10.6],
+        )
+
+        trade = _resolve_recommendation_trade(history, "2026-09-04", 10.0, 9.5)
+
+        self.assertEqual(trade["execution_status"], "not_triggered")
+        self.assertIsNone(trade["entry_price"])
+
+    def test_pullback_gap_down_fills_at_better_open_price(self) -> None:
+        history = StockHistory(
+            dates=["2026-09-04", "2026-09-07"],
+            opens=[10.0, 9.3], highs=[10.2, 9.9], lows=[9.8, 9.1], closes=[10.0, 9.8],
+        )
+
+        trade = _resolve_recommendation_trade(history, "2026-09-04", 10.0, 9.5)
+
+        self.assertEqual(trade["execution_status"], "filled")
+        self.assertEqual(trade["entry_price"], 9.3)
+        self.assertEqual(trade["exit_price"], 9.8)
+
+    def test_breakout_plan_only_fills_after_trading_through_trigger(self) -> None:
+        missed = StockHistory(
+            dates=["2026-09-04", "2026-09-07"],
+            opens=[10.0, 10.1], highs=[10.2, 10.4], lows=[9.8, 9.9], closes=[10.0, 10.3],
+        )
+        filled = StockHistory(
+            dates=["2026-09-04", "2026-09-07"],
+            opens=[10.0, 10.1], highs=[10.2, 10.7], lows=[9.8, 9.9], closes=[10.0, 10.6],
+        )
+
+        self.assertEqual(
+            _resolve_recommendation_trade(missed, "2026-09-04", 10.0, 10.5)["execution_status"],
+            "not_triggered",
+        )
+        self.assertEqual(
+            _resolve_recommendation_trade(filled, "2026-09-04", 10.0, 10.5)["entry_price"],
+            10.5,
+        )
+
     def test_uses_first_trading_close_after_recommendation_date(self) -> None:
         history = StockHistory(
             dates=["2026-09-04", "2026-09-07", "2026-09-08"],

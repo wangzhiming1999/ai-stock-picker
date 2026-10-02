@@ -54,6 +54,7 @@ EXPECTED_TABLES = [
     "market_source_state",
     "trade_calendar",
     "limitup_daily_snapshot",
+    "seize_radar_log",
     # 回测
     "backtest_results",
     # 结算与预警

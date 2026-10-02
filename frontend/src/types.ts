@@ -270,6 +270,11 @@ export interface DailyRecommendation {
    * 缺省代表历史数据未记录口径 —— 显示时必须区分，见 lib/confidence.ts。
    */
   confidence_source?: "llm_self_report" | "rule_score";
+  /** 推荐理由来源；只影响文案，不参与名单、排序或策略分。 */
+  explanation_source?: "llm" | "rule";
+  /** 生成时的四策略原始分，仅用于校准与审计。 */
+  strategy_scores?: Partial<Record<"momentum" | "trend" | "value" | "volume", number>>;
+  scoring_profile?: string;
   /** 关联 daily_recommendations.id，模拟盘买卖可回写 related_reco_id */
   id?: string | null;
   tags?: string[];
@@ -306,6 +311,8 @@ export interface DailyRecommendResult {
     change_pct: number;
     score: number;
     tags?: string[];
+    strategy_scores?: Partial<Record<"momentum" | "trend" | "value" | "volume", number>>;
+    scoring_profile?: string;
     /** 拦截原因（风控硬门槛 + 策略势头），卡片要如实展示，不能只给买入指令 */
     status: string;
     /** 拦截原因的结构化列表，供前端逐条转成白话 */
@@ -2263,6 +2270,8 @@ export interface SanduItem {
 /** 与后端 SanduScanResult 对齐（items/count/notice） */
 export interface SanduScanResult {
   count: number;
+  /** 本次请求扫描的股票数 */
+  requested?: number;
   /** 实际成功取到历史 K 的股票数 */
   scanned: number;
   items: SanduItem[];
@@ -2281,6 +2290,7 @@ export interface SanduAutoCandidatesResult {
   source: string;
   count: number;
   candidates: SanduAutoCandidate[];
+  notice?: string;
 }
 
 /* ---------- 封板雷达（抢封板观察层 · 口径 limitup_premium） ----------

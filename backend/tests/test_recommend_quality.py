@@ -1,8 +1,12 @@
 import unittest
 
+from app.models import StockHistory
+
 from app.services.recommend_service import (
     _build_action_plan,
+    _build_canonical_recommendations,
     _build_watchlist_candidates,
+    _compute_candidate_signal,
     _merge_blockers,
     _merge_strategy_results,
     _quality_gate,
@@ -14,6 +18,21 @@ from app.services.recommend_service import (
 
 
 class RecommendQualityTests(unittest.TestCase):
+    def test_candidate_signal_uses_real_intraday_highs_and_lows(self) -> None:
+        """推荐风控必须基于真实交易区间，不能把收盘价冒充最高/最低价。"""
+        history = StockHistory(
+            dates=[f"2026-01-{(i % 28) + 1:02d}" for i in range(61)],
+            closes=[10.0] * 61,
+            highs=[12.0] * 60 + [10.0],
+            lows=[8.0] * 60 + [10.0],
+        )
+
+        signal = _compute_candidate_signal(history, 10.0)
+
+        self.assertIsNotNone(signal)
+        self.assertEqual(signal["high60"], 12.0)
+        self.assertEqual(signal["low60"], 8.0)
+
     def test_legacy_empty_snapshot_is_regenerated_for_watchlist_support(self) -> None:
         self.assertFalse(
             _should_use_cached_recommendation({"source": "empty", "recommendations": []})
@@ -23,7 +42,46 @@ class RecommendQualityTests(unittest.TestCase):
         self.assertFalse(_should_use_cached_recommendation({"schema_version": 3, "source": "empty", "recommendations": [], "watchlist": []}))
         # v4 快照没有 expected_price 字段 —— 不重算就会整整一天给不出预期价格
         self.assertFalse(_should_use_cached_recommendation({"schema_version": 4, "source": "empty", "recommendations": [], "watchlist": []}))
-        self.assertTrue(_should_use_cached_recommendation({"schema_version": 5, "source": "empty", "recommendations": [], "watchlist": []}))
+        self.assertFalse(_should_use_cached_recommendation({"schema_version": 5, "source": "empty", "recommendations": [], "watchlist": []}))
+        self.assertFalse(_should_use_cached_recommendation({"schema_version": 6, "source": "empty", "recommendations": [], "watchlist": []}))
+        self.assertTrue(_should_use_cached_recommendation({"schema_version": 7, "source": "empty", "recommendations": [], "watchlist": []}))
+
+    def test_llm_can_explain_but_cannot_change_rule_selection_or_scores(self) -> None:
+        ranked = [
+            {
+                "code": "600001",
+                "name": "第一名",
+                "price": 10,
+                "change_pct": 1,
+                "strategy_score": 8.8,
+                "tags": ["趋势"],
+                "indicators": {"ma20": 9.5},
+                "signal": {"buy_point": 9.8, "stop_loss": 9.2, "sell_point": 11.2},
+            },
+            {
+                "code": "600002",
+                "name": "第二名",
+                "price": 20,
+                "change_pct": 2,
+                "strategy_score": 7.6,
+                "tags": ["动量"],
+                "indicators": {"rsi": 58},
+                "signal": {"buy_point": 19.5, "stop_loss": 18.8, "sell_point": 22},
+            },
+        ]
+        llm_output = [
+            {"code": "600002", "reason": "LLM 对第二名的解释", "confidence": 10},
+            {"code": "999999", "reason": "不在候选池", "confidence": 10},
+        ]
+
+        recs = _build_canonical_recommendations(ranked, "2026-10-09", llm_output)
+
+        self.assertEqual([rec["code"] for rec in recs], ["600001", "600002"])
+        self.assertEqual([rec["confidence"] for rec in recs], [8.8, 7.6])
+        self.assertTrue(all(rec["confidence_source"] == "rule_score" for rec in recs))
+        self.assertIn("策略分 8.8", recs[0]["reason"])
+        self.assertEqual(recs[1]["reason"], "LLM 对第二名的解释")
+        self.assertEqual(recs[1]["explanation_source"], "llm")
 
     def test_rejects_high_chase_candidate(self) -> None:
         candidate = {"price": 20, "change_pct": 8.5, "turnover": 4, "strategy_score": 8, "signal": {"rr_ratio": 2}}

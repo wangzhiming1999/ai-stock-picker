@@ -37,6 +37,8 @@ class _Table:
         rows = self._store.get(self._name, [])
         data = rows
         if self._pending_insert is not None:
+            for index, row in enumerate(self._pending_insert, 1):
+                row.setdefault("id", str(index))
             self._store.setdefault(self._name, []).extend(self._pending_insert)
             data = self._pending_insert
             self._pending_insert = None
@@ -145,7 +147,15 @@ class TestQuadToRecommendations:
 class TestWatchlistSave:
     def _watchlist(self) -> list[dict]:
         return [
-            {"code": "00000{i}".format(i=i), "name": f"观察{i}", "price": 8.0 + i, "score": 4.2, "status": "动量不足"}
+            {
+                "code": "00000{i}".format(i=i),
+                "name": f"观察{i}",
+                "price": 8.0 + i,
+                "strategy_score": 4.2,
+                "strategy_scores": {"momentum": 3.8, "trend": 4.0},
+                "scoring_profile": "baseline",
+                "status": "动量不足",
+            }
             for i in range(2)
         ]
 
@@ -161,6 +171,33 @@ class TestWatchlistSave:
         rows = store["daily_recommendations"]
         assert all(r["source"] == "watch" for r in rows)
         assert rows[0]["reason"] == "动量不足"  # 存拦截原因，不存买入文案
+        assert rows[0]["confidence"] == 4.2
+        assert rows[0]["strategy_scores"]["momentum"] == 3.8
+
+    @pytest.mark.asyncio
+    async def test_recommendation_persists_calibration_features(self, monkeypatch) -> None:
+        store: dict = {"daily_recommendations": []}
+        monkeypatch.setattr(recommend_service.supabase_store, "is_configured", lambda: True)
+        monkeypatch.setattr(recommend_service.supabase_store, "get_service_client", _make_client(store))
+
+        await recommend_service.save_recommendations(
+            "2026-09-18",
+            [
+                {
+                    "code": "600001",
+                    "name": "样本",
+                    "price": 10,
+                    "confidence": 7.2,
+                    "confidence_source": "rule_score",
+                    "strategy_scores": {"momentum": 7, "trend": 6},
+                    "scoring_profile": "baseline",
+                }
+            ],
+        )
+
+        row = store["daily_recommendations"][0]
+        assert row["strategy_scores"] == {"momentum": 7, "trend": 6}
+        assert row["scoring_profile"] == "baseline"
 
     @pytest.mark.asyncio
     async def test_watchlist_save_is_idempotent(self, monkeypatch) -> None:

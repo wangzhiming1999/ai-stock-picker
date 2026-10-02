@@ -61,7 +61,7 @@ async def daily_cron(request: Request):
         except Exception as ge:
             print(f"[cron] agent decisions settle failed: {ge}")
             result["agent_settled"] = None
-        # 每日收盘推荐：策略扫描 + AI 精选（落库 + 预热全市场快照缓存，用户白天访问秒回）
+        # 每日收盘推荐：规则选股 + AI 解释（落库 + 预热全市场快照缓存，用户白天访问秒回）
         try:
             result["recommendations"] = await recommend_service.generate_daily_recommendations(force_refresh=True)
         except Exception as re_:
@@ -79,7 +79,14 @@ async def daily_cron(request: Request):
         except Exception as le:
             print(f"[cron] limitup snapshot save failed: {le}")
             result["limitup_snapshot_rows"] = None
+        if not result.get("ok", True):
+            raise HTTPException(
+                status_code=502,
+                detail={"message": "核心结算部分失败，其余每日任务已继续执行", "result": result},
+            )
         return result
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"定时任务失败: {e}")
 

@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from app.services.backtest_service import BacktestParams, STRATEGY_BACKTEST_POOL, run_backtest
-from app.services import pattern_service, supabase_store, tactic_backtest_service
+from app.services import pattern_service, recommend_calibration_service, supabase_store, tactic_backtest_service
 
 router = APIRouter(prefix="/api/backtest", tags=["backtest"])
 
@@ -120,6 +120,58 @@ class TacticBacktestRequest(BaseModel):
     codes: list[str] | None = Field(None, description="股票池，缺省用形态回测默认池（42 只）")
     horizon_days: int = Field(10, ge=1, le=30, description="持有期（交易日）")
     eval_bars: int = Field(250, ge=60, le=400, description="每只票参与评估的最近交易日数")
+
+
+class RecommendCalibrationRequest(BaseModel):
+    min_train_days: int = Field(20, ge=10, le=120, description="首个训练窗口交易日数")
+    validation_days: int = Field(5, ge=2, le=30, description="每折样本外验证交易日数")
+    top_n: int = Field(10, ge=1, le=20, description="每个交易日模拟选取数量")
+    min_train_selections: int = Field(30, ge=20, le=1000, description="每折训练期最少有效记录")
+    min_oos_selections: int = Field(60, ge=30, le=1000, description="允许复核所需最少样本外记录")
+
+
+@router.post("/recommend-calibration")
+async def recommend_calibration_endpoint(req: RecommendCalibrationRequest):
+    """用生产推荐原始分数做扩展窗口训练和下一窗口样本外验证。
+
+    结果只提供参数复核建议，不自动替换线上参数。数据库需先执行 v17 迁移；迁移后
+    新增样本才具备原始四策略分，旧记录不会被伪造补值。
+    """
+    if not supabase_store.is_configured():
+        return {
+            "status": "storage_not_configured",
+            "deployment_eligible": False,
+            "deployment_reason": "Supabase 未配置，无法读取生产结算样本",
+        }
+    try:
+        sb = await supabase_store.get_service_client()
+        response = (
+            await sb.table("daily_recommendations")
+            .select("rec_date,code,strategy_scores,excess_return,execution_status,source")
+            .not_.is_("settled_at", None)
+            .execute()
+        )
+    except Exception as error:
+        if "strategy_scores" in str(error):
+            return {
+                "status": "migration_required",
+                "deployment_eligible": False,
+                "deployment_reason": "请先执行 backend/supabase-schema-v17.sql",
+            }
+        raise HTTPException(status_code=502, detail=f"推荐校准样本读取失败: {error}")
+
+    samples = recommend_calibration_service.prepare_calibration_samples(response.data or [])
+    result = recommend_calibration_service.calibrate_walk_forward(
+        samples,
+        min_train_days=req.min_train_days,
+        validation_days=req.validation_days,
+        top_n=req.top_n,
+        min_train_selections=req.min_train_selections,
+        min_oos_selections=req.min_oos_selections,
+    )
+    result["source_rows"] = len(response.data or [])
+    result["caliber"] = "按生产推荐/观察候选原始四策略分重排；T+1 已触发记录；收益口径为扣费后相对沪深300超额"
+    return result
 
 
 @router.post("/tactic")

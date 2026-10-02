@@ -16,6 +16,73 @@ def _next_close_after(history, rec_date: str) -> tuple[str, float] | None:
     return None
 
 
+def _resolve_recommendation_trade(
+    history, rec_date: str, recommend_price: float, expected_price: float | None
+) -> dict | None:
+    """Resolve whether the T+1 plan actually traded before scoring it.
+
+    Pullback plans use a buy limit below the recommendation price; breakout
+    plans use a stop trigger above it. A recommendation that never reaches its
+    trigger is not a loss and must not enter the win-rate denominator.
+    """
+    if not history:
+        return None
+    dates = list(history.dates or [])
+    closes = list(history.closes or [])
+    try:
+        idx = next(i for i, value in enumerate(dates) if str(value)[:10] > rec_date)
+    except StopIteration:
+        return None
+    if idx >= len(closes) or not closes[idx]:
+        return None
+
+    next_date = str(dates[idx])[:10]
+    exit_price = float(closes[idx])
+    if not expected_price or expected_price <= 0:
+        return {
+            "date": next_date,
+            "entry_price": float(recommend_price),
+            "exit_price": exit_price,
+            "execution_status": "legacy",
+        }
+
+    opens = list(history.opens or [])
+    highs = list(history.highs or [])
+    lows = list(history.lows or [])
+    if idx >= len(opens) or idx >= len(highs) or idx >= len(lows):
+        return {
+            "date": next_date,
+            "entry_price": None,
+            "exit_price": exit_price,
+            "execution_status": "unverifiable",
+        }
+
+    open_price = float(opens[idx] or 0)
+    high = float(highs[idx] or 0)
+    low = float(lows[idx] or 0)
+    trigger = float(expected_price)
+    is_pullback = trigger <= float(recommend_price)
+    triggered = low <= trigger if is_pullback else high >= trigger
+    if not triggered:
+        return {
+            "date": next_date,
+            "entry_price": None,
+            "exit_price": exit_price,
+            "execution_status": "not_triggered",
+        }
+
+    if is_pullback:
+        entry_price = min(trigger, open_price) if open_price > 0 else trigger
+    else:
+        entry_price = max(trigger, open_price) if open_price > 0 else trigger
+    return {
+        "date": next_date,
+        "entry_price": round(entry_price, 2),
+        "exit_price": exit_price,
+        "execution_status": "filled",
+    }
+
+
 def _sample_status(total: int) -> str:
     if total < 30:
         return "insufficient"
@@ -79,7 +146,18 @@ async def _safe_reco_update(sb, row_id: int, fields: dict, bench_ok: bool) -> bo
                 bench_ok = False
             else:
                 raise
-    minimal = {k: v for k, v in fields.items() if k in ("next_close", "next_return", "hit", "settled_at")}
+    minimal = {
+        k: v
+        for k, v in fields.items()
+        if k in (
+            "next_close",
+            "next_return",
+            "hit",
+            "settled_at",
+            "execution_status",
+            "entry_price",
+        )
+    }
     await sb.table("daily_recommendations").update(minimal).eq("id", row_id).execute()
     return bench_ok
 
@@ -92,13 +170,30 @@ async def settle_daily_recommendations() -> int:
 
     # 找未结算的推荐（rec_date 早于最近交易日，即已到结算时点）
     data_day = await trade_calendar_service.last_trading_day()
-    res = (
-        await sb.table("daily_recommendations")
-        .select("id", "code", "rec_date", "recommend_price")
-        .is_("settled_at", "null")
-        .lt("rec_date", data_day.isoformat())
-        .execute()
-    )
+    execution_tracking = True
+    try:
+        res = (
+            await sb.table("daily_recommendations")
+            .select(
+                "id", "code", "rec_date", "recommend_price", "expected_price",
+                "execution_status", "entry_price",
+            )
+            .is_("settled_at", "null")
+            .lt("rec_date", data_day.isoformat())
+            .execute()
+        )
+    except Exception as e:
+        if any(column in str(e) for column in ("expected_price", "execution_status", "entry_price")):
+            execution_tracking = False
+            res = (
+                await sb.table("daily_recommendations")
+                .select("id", "code", "rec_date", "recommend_price")
+                .is_("settled_at", "null")
+                .lt("rec_date", data_day.isoformat())
+                .execute()
+            )
+        else:
+            raise
     rows = res.data
     if not rows:
         return 0
@@ -117,12 +212,47 @@ async def settle_daily_recommendations() -> int:
     bench_ok = True  # 新列是否存在；一旦缺失就降级为只写旧字段
     for row in rows:
         rec_date = str(row.get("rec_date") or "")[:10]
-        settled_quote = _next_close_after(history_map.get(row["code"]), rec_date)
-        if not settled_quote or not row.get("recommend_price"):
+        recommend_price = row.get("recommend_price")
+        if not recommend_price:
             continue
-        recommend_price = row["recommend_price"]
-        _next_date, next_close = settled_quote
-        next_return = (next_close / recommend_price - 1) * 100
+        if execution_tracking:
+            trade = _resolve_recommendation_trade(
+                history_map.get(row["code"]),
+                rec_date,
+                float(recommend_price),
+                row.get("expected_price"),
+            )
+        else:
+            settled_quote = _next_close_after(history_map.get(row["code"]), rec_date)
+            trade = (
+                {
+                    "date": settled_quote[0],
+                    "entry_price": float(recommend_price),
+                    "exit_price": settled_quote[1],
+                    "execution_status": "legacy",
+                }
+                if settled_quote
+                else None
+            )
+        if not trade:
+            continue
+        _next_date = trade["date"]
+        next_close = trade["exit_price"]
+        entry_price = trade.get("entry_price")
+        if entry_price is None:
+            fields = {
+                "next_close": round(next_close, 2),
+                "next_return": None,
+                "hit": None,
+                "settled_at": settled_at,
+                "execution_status": trade["execution_status"],
+                "entry_price": None,
+            }
+            bench_ok = await _safe_reco_update(sb, row["id"], fields, bench_ok)
+            settled += 1
+            continue
+
+        next_return = (next_close / entry_price - 1) * 100
         benchmark_return = (
             _index_window_return(bench_hist, rec_date, _next_date) if bench_ok else None
         )
@@ -133,6 +263,9 @@ async def settle_daily_recommendations() -> int:
             "hit": hit,
             "settled_at": settled_at,
         }
+        if execution_tracking:
+            fields["execution_status"] = trade["execution_status"]
+            fields["entry_price"] = entry_price
         if benchmark_return is not None:
             fields["benchmark_return"] = round(benchmark_return, 2)
             fields["net_return"] = net_return
@@ -202,19 +335,26 @@ async def get_winrate_stats() -> dict:
     try:
         rec_res = (
             await sb.table("daily_recommendations")
-            .select("hit", "source", "excess_return")
+            .select("hit", "source", "excess_return", "execution_status")
             .not_.is_("settled_at", None)
             .execute()
         )
         rec_rows = rec_res.data or []
     except Exception as e:
-        # v14 迁移未跑时 excess_return 列不存在 → 静默降级为只取旧字段，
-        # 避免「列不存在」被显示成「推荐记录查询失败」、把整个推荐块打空。
-        if "excess_return" in str(e):
+        # v14 / v16 可能独立缺失。降级时只剥掉真正不存在的列，不能因为
+        # v16 尚未执行就连已经存在的 v14 超额收益也一起丢掉，反之亦然。
+        missing_execution = "execution_status" in str(e)
+        missing_excess = "excess_return" in str(e)
+        if missing_execution or missing_excess:
             try:
+                fallback_columns = ["hit", "source"]
+                if not missing_excess:
+                    fallback_columns.append("excess_return")
+                if not missing_execution:
+                    fallback_columns.append("execution_status")
                 rec_res = (
                     await sb.table("daily_recommendations")
-                    .select("hit", "source")
+                    .select(*fallback_columns)
                     .not_.is_("settled_at", None)
                     .execute()
                 )
@@ -227,9 +367,14 @@ async def get_winrate_stats() -> dict:
     def _is_reco_source(src) -> bool:
         return src not in ("quad", "watch")
 
-    reco_rows = [r for r in rec_rows if _is_reco_source(r.get("source"))]
-    quad_rows = [r for r in rec_rows if r.get("source") == "quad"]
-    watch_rows = [r for r in rec_rows if r.get("source") == "watch"]
+    scored_rows = [
+        r for r in rec_rows
+        if r.get("execution_status") not in ("not_triggered", "unverifiable")
+    ]
+    reco_rows = [r for r in scored_rows if _is_reco_source(r.get("source"))]
+    quad_rows = [r for r in scored_rows if r.get("source") == "quad"]
+    watch_rows = [r for r in scored_rows if r.get("source") == "watch"]
+    not_triggered = sum(1 for r in rec_rows if r.get("execution_status") == "not_triggered")
     rec_total = len(reco_rows)
     rec_hit = sum(1 for r in reco_rows if r.get("hit"))
 
@@ -300,6 +445,7 @@ async def get_winrate_stats() -> dict:
             "excess_hit": excess_hit,
             "excess_hit_rate": excess_hit_rate,
             "avg_excess_return": avg_excess_return,
+            "not_triggered": not_triggered,
             "error": rec_error,
         },
         "snapshot": snapshot,
@@ -357,12 +503,26 @@ async def refresh_winrate_snapshot() -> None:
 
 
 async def run_daily_cron() -> dict:
-    """每日收盘 Cron 任务：结算预测 + 结算推荐 + 刷新胜率快照。"""
-    settled_pred = await market_prediction.settle_predictions()
-    settled_rec = await settle_daily_recommendations()
-    stats = await get_winrate_stats()
-    return {
-        "settled_predictions": settled_pred,
-        "settled_recommendations": settled_rec,
-        "stats": stats,
+    """每日收盘 Cron：各结算步骤互相隔离，单点故障不跳过后续闭环。"""
+    result: dict = {
+        "ok": True,
+        "settled_predictions": None,
+        "settled_recommendations": None,
+        "stats": None,
     }
+    errors: dict[str, str] = {}
+
+    for key, operation in (
+        ("settled_predictions", market_prediction.settle_predictions),
+        ("settled_recommendations", settle_daily_recommendations),
+        ("stats", get_winrate_stats),
+    ):
+        try:
+            result[key] = await operation()
+        except Exception as e:
+            errors[key] = _err_note(e)
+
+    if errors:
+        result["ok"] = False
+        result["errors"] = errors
+    return result

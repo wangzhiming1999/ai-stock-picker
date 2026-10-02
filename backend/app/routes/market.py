@@ -772,7 +772,7 @@ async def winrate_endpoint():
 
 @router.get("/daily-recommend")
 async def daily_recommend_endpoint(refresh: bool = False):
-    """每日收盘推荐：策略扫描候选 + LLM 精选 10 只并给出推荐理由。
+    """每日收盘推荐：策略扫描并确定名单，LLM 仅增强推荐理由。
 
     refresh=true 时强制重跑（绕过当日缓存）。
     """

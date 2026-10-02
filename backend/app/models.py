@@ -154,6 +154,7 @@ class SanduScanRequest(BaseModel):
 class SanduScanResult(BaseModel):
     """三度扫描结果：按综合分降序。"""
     count: int
+    requested: int
     scanned: int
     items: list[SanduItem] = []
     notice: str | None = None

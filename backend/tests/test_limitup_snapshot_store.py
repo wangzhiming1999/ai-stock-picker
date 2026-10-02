@@ -58,7 +58,7 @@ class AccumulatedBackfillTests:
         monkeypatch.setattr(L, "supabase_store", None)
         import asyncio
 
-        out = asyncio.get_event_loop().run_until_complete(L.load_accumulated_snapshots("2026-09-01", "2026-09-17"))
+        out = asyncio.run(L.load_accumulated_snapshots("2026-09-01", "2026-09-17"))
         assert out == {}
 
     def test_backfill_replaces_empty_dates(self, monkeypatch):
@@ -83,7 +83,7 @@ class AccumulatedBackfillTests:
         monkeypatch.setattr(L, "load_accumulated_snapshots", fake_load)
         monkeypatch.setattr(L, "_RELAY_CACHE", {})
 
-        out = asyncio.get_event_loop().run_until_complete(L.relay_backtest(days=5, force=True))
+        out = asyncio.run(L.relay_backtest(days=5, force=True))
 
         # d2 有累积数据 → 有效；d1 无 → 仍 empty
         assert d2.isoformat() in str(out["data_window"])
@@ -113,7 +113,7 @@ class AccumulatedBackfillTests:
         monkeypatch.setattr(L, "load_accumulated_snapshots", fake_load)
         monkeypatch.setattr(L, "_RELAY_CACHE", {})
 
-        out = asyncio.get_event_loop().run_until_complete(L.relay_backtest(days=5, force=True))
+        out = asyncio.run(L.relay_backtest(days=5, force=True))
         assert out["empty_dates"] == [d1.isoformat(), d2.isoformat()]
         assert out["accumulated_days"] == 0
 

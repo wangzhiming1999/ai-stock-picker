@@ -1,4 +1,4 @@
-"""每日收盘推荐：策略扫描候选 + LLM 精选 10 只并给出推荐理由。"""
+"""每日收盘推荐：规则模型确定名单，LLM 仅增强推荐理由。"""
 from __future__ import annotations
 
 import asyncio
@@ -12,6 +12,7 @@ from app.config import get_settings
 from app.routes import market as market_routes
 from app.services import concurrency, data_service, signal_service, supabase_store, trade_calendar_service
 from app.services.cache_utils import put_bounded
+from app.services.recommend_calibration_service import BASELINE_PROFILE, score_strategy_components
 
 # 每日推荐缓存：key=日期，value=(生成时间, data)。一天只跑一次。
 _recommendation_cache: dict[str, tuple[str, dict]] = {}
@@ -21,12 +22,15 @@ _RECOMMENDATION_CACHE_MAX = 7
 # v5：推荐条目新增「预期价格」（expected_price / expected_price_note / gap）。v4 快照
 # 里没有这四个字段，前端会渲染成「—」而不是当真值 —— 但缓存按数据日共享，
 # 不升版本就会整整一天给不出预期价格，所以必须强制重算。
-_RECOMMENDATION_SCHEMA_VERSION = 5
+# v6：LLM 不再改变名单、顺序和置信分，只为固定的规则 top 10 补充解释。
+# 旧快照的 source/置信分统计口径不同，必须重算，不能混入胜率分档。
+# v7：推荐和观察候选携带四策略原始分及评分配置，供样本外校准。
+_RECOMMENDATION_SCHEMA_VERSION = 7
 
 # 盈亏比硬门槛：观察候选的解锁价按同一门槛反推，两处必须一致
 _RR_MIN_RATIO = 1.2
 
-RECOMMEND_SYSTEM_PROMPT = """你是一位资深的 A 股投资顾问，类似同花顺/指南针的"明日机会股"专栏主编，擅长从候选股票中挑选下一个交易日最值得关注的标的。
+RECOMMEND_SYSTEM_PROMPT = """你是一位资深的 A 股研究编辑。规则模型已经确定下一个交易日的关注名单和排序，你只负责为名单中的每只股票补充清晰、审慎的解释。
 
 【交易日语义】
 - 候选数据基于最近一个已收盘交易日（交易日 T）收盘
@@ -34,7 +38,7 @@ RECOMMEND_SYSTEM_PROMPT = """你是一位资深的 A 股投资顾问，类似同
 - 你的推荐是"T+1 日可跟踪观察"的清单，不是让用户盲目追高
 
 【任务】
-从用户提供的候选股票（含行情与技术信号）中，最多挑选 10 只最值得下一个交易日关注的股票，并为每只给出具体推荐理由；质量不足时不要凑数。
+为用户提供的每只股票分别给出具体推荐理由。不得增删股票、改变代码或对名单重新排序。
 
 【输出要求】
 只输出一个合法的 JSON 数组，不要任何其他文字。格式如下：
@@ -43,16 +47,12 @@ RECOMMEND_SYSTEM_PROMPT = """你是一位资深的 A 股投资顾问，类似同
   {
     "code": "600519",
     "name": "贵州茅台",
-    "reason": "80字以内的推荐理由，像专业股评：先说关注逻辑（技术形态/量能/催化剂），再给 T+1 日观察要点（如：回踩不破XX可关注、放量突破XX转强），结合提供的行情/技术数据",
-    "confidence": 0到10的置信分
+    "reason": "80字以内的推荐理由：先说关注逻辑，再给 T+1 观察条件"
   },
   ...
 ]
 
-【挑选原则】
-- 优先技术形态健康、量能配合、估值合理，且 T+1 日有明确观察点的标的
-- 兼顾不同风格（动量/趋势/低估值/放量），不要全部集中一个方向
-- 排除有明显风险信号（如已大幅上涨追高风险、停牌、ST）的标的
+【解释原则】
 - 理由要具体，引用候选数据中的价格/涨跌幅/信号/压力位支撑位，不要空话
 - 强调"T+1 日可跟踪观察"而非"盲目买入"，给出触发/止损的观察条件
 - 仅供研究参考，不构成投资建议"""
@@ -101,6 +101,24 @@ def _num(value) -> float | None:
         return out if math.isfinite(out) else None
     except (TypeError, ValueError):
         return None
+
+
+def _compute_candidate_signal(history, price: float) -> dict | None:
+    """Build recommendation levels from the full traded range when available.
+
+    Falling back to closes remains intentional for older or degraded providers,
+    but normal daily histories include OHLC and must not narrow the 60-day range
+    by silently discarding highs and lows.
+    """
+    closes = history.closes if history and history.closes else []
+    if not closes:
+        return None
+    return signal_service.compute_signals(
+        closes,
+        price,
+        highs=history.highs,
+        lows=history.lows,
+    )
 
 
 def _rr_unlock_price(signal: dict) -> float | None:
@@ -273,8 +291,11 @@ def _merge_strategy_results(strategy_results: list[tuple[str, list[dict]]]) -> l
         if momentum < 4 or trend < 3.5:
             continue
         votes = [name for name, score in scores.items() if score >= 3.5]
-        confirmation_bonus = 0.25 * sum(1 for name in ("value", "volume") if scores.get(name, 0) >= 4)
-        merged["strategy_score"] = round(min(10, momentum * 0.7 + trend * 0.3 + confirmation_bonus), 2)
+        calibrated_score = score_strategy_components(scores, BASELINE_PROFILE)
+        if calibrated_score is None:
+            continue
+        merged["strategy_score"] = round(calibrated_score, 2)
+        merged["scoring_profile"] = BASELINE_PROFILE.key
         merged["strategy_votes"] = votes
         if "多因子共振" not in merged["tags"]:
             merged["tags"].append("多因子共振")
@@ -326,8 +347,62 @@ def _build_watchlist_candidates(
     return sorted(watchlist, key=lambda item: item["strategy_score"], reverse=True)
 
 
+def _rule_recommendation_reason(candidate: dict) -> str:
+    """Build the auditable fallback explanation from the same data used to rank."""
+    indicators = candidate.get("indicators") or {}
+    levels = []
+    for key, label in (("ma5", "MA5"), ("ma20", "MA20"), ("ma60", "MA60"), ("rsi", "RSI")):
+        if indicators.get(key) is not None:
+            levels.append(f"{label} {indicators[key]}")
+    turnover = _num(candidate.get("turnover")) or 0
+    evidence = "、".join(levels[:3]) or f"换手 {turnover:.2f}%"
+    tags = candidate.get("tags", [])
+    return (
+        f"策略分 {candidate['strategy_score']}，依据：{'/'.join(tags) or '综合筛选'}，{evidence}。"
+        "T+1 仅在量价继续确认时关注，跌破关键均线或转弱则放弃。"
+    )
+
+
+def _build_canonical_recommendations(
+    ranked: list[dict],
+    target_day: str,
+    llm_explanations: list[dict] | None = None,
+) -> list[dict]:
+    """Keep membership, order and score deterministic; LLM may only add prose."""
+    explanation_map: dict[str, str] = {}
+    for item in llm_explanations or []:
+        if not isinstance(item, dict):
+            continue
+        code = str(item.get("code") or "").strip()
+        reason = str(item.get("reason") or "").strip()
+        if code and reason and code not in explanation_map:
+            explanation_map[code] = reason
+
+    recommendations: list[dict] = []
+    for candidate in ranked[:10]:
+        code = str(candidate["code"])
+        llm_reason = explanation_map.get(code)
+        recommendations.append(
+            {
+                "code": code,
+                "name": candidate["name"],
+                "price": candidate["price"],
+                "change_pct": candidate["change_pct"],
+                "reason": llm_reason or _rule_recommendation_reason(candidate),
+                "explanation_source": "llm" if llm_reason else "rule",
+                "confidence": candidate["strategy_score"],
+                "confidence_source": "rule_score",
+                "strategy_scores": candidate.get("strategy_scores", {}),
+                "scoring_profile": candidate.get("scoring_profile", BASELINE_PROFILE.key),
+                "tags": candidate.get("tags", []),
+                **_build_action_plan(candidate, target_day),
+            }
+        )
+    return recommendations
+
+
 async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
-    """生成每日收盘推荐：跑四个策略 → 合并候选 → LLM 精选 10 只。
+    """生成每日收盘推荐：跑四个策略 → 规则排名 → LLM 增强解释。
 
     缓存按"最近交易日"（data_day）而不是自然日：
     - 同一交易日的收盘后推荐，盘前/周末访问都命中同一份缓存
@@ -384,8 +459,7 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
     qualified = []
     for candidate in candidates.values():
         hist = hist_map.get(candidate["code"])
-        closes = hist.closes if hist and hist.closes else []
-        candidate["signal"] = signal_service.compute_signals(closes, float(candidate["price"])) if closes else None
+        candidate["signal"] = _compute_candidate_signal(hist, float(candidate["price"]))
         accepted, flags = _quality_gate(candidate)
         if accepted:
             qualified.append(candidate)
@@ -403,8 +477,7 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
     watchlist = []
     for candidate in _build_watchlist_candidates(successful_results, accepted_codes)[:8]:
         hist = hist_map.get(candidate["code"])
-        closes = hist.closes if hist and hist.closes else []
-        signal = signal_service.compute_signals(closes, float(candidate["price"])) if closes else None
+        signal = _compute_candidate_signal(hist, float(candidate["price"]))
         candidate["signal"] = signal
         _, flags = _quality_gate(candidate)
         blockers = _merge_blockers(candidate.get("blockers") or [], flags)
@@ -437,8 +510,8 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
             }
         )
 
-    # 2. 按策略分排序取 top 16，允许 LLM 精选但不强制凑满 10 只。
-    ranked = sorted(qualified, key=lambda x: x["strategy_score"], reverse=True)[:16]
+    # 2. 按策略分排序；前 10 名是最终名单，candidates 保留真实达标数量。
+    ranked = sorted(qualified, key=lambda x: x["strategy_score"], reverse=True)
     if not ranked:
         result = {"schema_version": _RECOMMENDATION_SCHEMA_VERSION, "date": today, "target_date": target_day, "source": "empty", "recommendations": [], "watchlist": watchlist, "candidates": 0, "watch_candidates": len(watchlist), "rejected": len(rejected), "message": "今天没有达到行动级别的标的。"}
         put_bounded(_recommendation_cache, today, (dt.datetime.now().isoformat(), result), max_entries=_RECOMMENDATION_CACHE_MAX)
@@ -453,9 +526,11 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
         await save_watchlist(today, watchlist)
         return result
 
-    # 3. 构造候选上下文
-    ctx_lines = ["以下是候选股票（含实时行情与技术信号），请从中挑选明日最值得关注的 10 只：\n"]
-    for i, c in enumerate(ranked, 1):
+    # 3. 规则模型先固定名单和顺序。LLM 只接收最终名单，避免它通过漏答或重排
+    # 悄悄改变可回测的选股结果。
+    selected = ranked[:10]
+    ctx_lines = ["以下名单和顺序已由规则模型确定。请逐只返回代码和推荐理由，不得增删或重排：\n"]
+    for i, c in enumerate(selected, 1):
         sig = c.get("indicators") or {}
         sig_txt = "，".join(f"{k}={v}" for k, v in sig.items() if v is not None) if sig else "无详细指标"
         ctx_lines.append(
@@ -465,8 +540,8 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
         )
     ctx = "\n".join(ctx_lines)
 
-    # 4. LLM 精选
-    recs: list[dict] = []
+    # 4. LLM 仅增强解释；名单、排序、confidence 始终来自规则模型。
+    llm_explanations: list[dict] | None = None
     source = "rule"
     llm_error: str | None = None
     if settings.deepseek_api_key:
@@ -489,62 +564,13 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
             if start != -1 and end > start:
                 parsed = json.loads(text[start : end + 1])
                 if isinstance(parsed, list):
-                    # 用候选中的真实行情数据补全
-                    info_map = {c["code"]: c for c in ranked}
-                    recs = []
-                    picked_codes: set[str] = set()
-                    for p in parsed[:10]:
-                        code = str(p.get("code", "")).strip()
-                        info = info_map.get(code)
-                        if info and code not in picked_codes:
-                            picked_codes.add(code)
-                            recs.append(
-                                {
-                                    "code": code,
-                                    "name": info["name"],
-                                    "price": info["price"],
-                                    "change_pct": info["change_pct"],
-                                    "reason": str(p.get("reason", "")),
-                                    "confidence": max(0, min(10, float(p.get("confidence", 5)))),
-                                    # 同为 0-10，但语义完全不同：这里是 LLM 自评把握，
-                                    # 规则分支那支是加权策略分。前端靠本字段决定怎么称呼这个数。
-                                    "confidence_source": "llm_self_report",
-                                    "tags": info.get("tags", []),
-                                    **_build_action_plan(info, target_day),
-                                }
-                            )
-                    source = "llm"
+                    llm_explanations = parsed
         except Exception as e:
             llm_error = f"{type(e).__name__}: {e}"
-            print(f"[recommend] LLM 失败，回退规则: {llm_error}")
+            print(f"[recommend] LLM 解释失败，使用规则解释: {llm_error}")
 
-    # 5. 回退：规则模式取 top 10
-    if not recs:
-        for c in ranked[:10]:
-            indicators = c.get("indicators") or {}
-            levels = []
-            for key, label in (("ma5", "MA5"), ("ma20", "MA20"), ("ma60", "MA60"), ("rsi", "RSI")):
-                if indicators.get(key) is not None:
-                    levels.append(f"{label} {indicators[key]}")
-            evidence = "、".join(levels[:3]) or f"换手 {c.get('turnover') or 0:.2f}%"
-            tags = c.get("tags", [])
-            recs.append(
-                {
-                    "code": c["code"],
-                    "name": c["name"],
-                    "price": c["price"],
-                    "change_pct": c["change_pct"],
-                    "reason": (
-                        f"策略分 {c['strategy_score']}，依据：{'/'.join(tags) or '综合筛选'}，{evidence}。"
-                        f"T+1 仅在量价继续确认时关注，跌破关键均线或转弱则放弃。"
-                    ),
-                    "confidence": c["strategy_score"],
-                    # 规则分支的 confidence 是加权策略分，不是 LLM 自评 —— 见 confidence_source
-                    "confidence_source": "rule_score",
-                    "tags": c.get("tags", []),
-                    **_build_action_plan(c, target_day),
-                }
-            )
+    # 5. 无论 LLM 返回什么，规则模型的 top 10 都完整保留且顺序不变。
+    recs = _build_canonical_recommendations(selected, target_day, llm_explanations)
 
     result = {
         "schema_version": _RECOMMENDATION_SCHEMA_VERSION,
@@ -558,10 +584,10 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
         "rejected": len(rejected),
         "generated_at": dt.datetime.now(dt.timezone(dt.timedelta(hours=8))).isoformat(timespec="seconds"),
     }
-    # 降级为规则推荐时，带上 AI 失败原因（供前端/排查透明展示）
-    if source == "rule" and llm_error:
+    # AI 解释降级时带上失败原因（供前端/排查透明展示）。
+    if llm_error:
         result["llm_error"] = llm_error
-        result["message"] = "AI 精选暂不可用，当前为规则推荐"
+        result["message"] = "AI 解释暂不可用，当前显示规则解释"
     put_bounded(_recommendation_cache, today, (dt.datetime.now().isoformat(), result), max_entries=_RECOMMENDATION_CACHE_MAX)
 
     # 保存推荐记录（胜率跟踪 + 当日缓存持久化），并取回每条 DB id 供模拟盘回写 related_reco_id
@@ -645,6 +671,33 @@ def db_source(rec: dict) -> str:
 # 为什么要降级重试而不是直接失败：迁移由用户在 Supabase 控制台跑，没跑完时直插会让
 # **整条推荐落库失败** —— 连带丢掉胜率跟踪，比少一个字段严重得多。
 _OPTIONAL_REC_COLUMNS: set[str] = set()
+_OPTIONAL_REC_COLUMN_NAMES = ("expected_price", "strategy_scores", "scoring_profile")
+
+
+def _missing_optional_column(error: Exception) -> str | None:
+    text = str(error)
+    return next((column for column in _OPTIONAL_REC_COLUMN_NAMES if column in text), None)
+
+
+async def _insert_recommendation_rows(sb, rows: list[dict], *, select_ids: bool):
+    """Insert while tolerating independently deployed optional migrations."""
+    for _ in range(len(_OPTIONAL_REC_COLUMN_NAMES) + 1):
+        payload = [
+            {key: value for key, value in row.items() if key not in _OPTIONAL_REC_COLUMNS}
+            for row in rows
+        ]
+        try:
+            query = sb.table("daily_recommendations").insert(payload)
+            if select_ids:
+                query = query.select("id, code")
+            return await query.execute()
+        except Exception as error:
+            missing = _missing_optional_column(error)
+            if not missing or missing in _OPTIONAL_REC_COLUMNS:
+                raise
+            _OPTIONAL_REC_COLUMNS.add(missing)
+            print(f"[recommend] daily_recommendations.{missing} 列不存在，本次降级写入")
+    raise RuntimeError("optional recommendation column fallback exhausted")
 
 
 async def save_recommendations(rec_date: str, recs: list[dict]) -> dict[str, str]:
@@ -677,21 +730,12 @@ async def save_recommendations(rec_date: str, recs: list[dict]) -> dict[str, str
             "confidence": r.get("confidence"),
             "source": db_source(r),
             "expected_price": r.get("expected_price"),
+            "strategy_scores": r.get("strategy_scores") or {},
+            "scoring_profile": r.get("scoring_profile") or BASELINE_PROFILE.key,
         }
         for r in recs
     ]
-    if "expected_price" in _OPTIONAL_REC_COLUMNS:
-        rows = [{k: v for k, v in row.items() if k != "expected_price"} for row in rows]
-    try:
-        res = await sb.table("daily_recommendations").insert(rows).select("id, code").execute()
-    except Exception as e:
-        if "expected_price" in str(e) and "expected_price" not in _OPTIONAL_REC_COLUMNS:
-            _OPTIONAL_REC_COLUMNS.add("expected_price")
-            print("[recommend] daily_recommendations.expected_price 列不存在（需执行 v13 迁移），本次降级写入")
-            stripped = [{k: v for k, v in row.items() if k != "expected_price"} for row in rows]
-            res = await sb.table("daily_recommendations").insert(stripped).select("id, code").execute()
-        else:
-            raise
+    res = await _insert_recommendation_rows(sb, rows, select_ids=True)
     return {row["code"]: str(row["id"]) for row in (res.data or [])}
 
 
@@ -727,15 +771,17 @@ async def save_watchlist(rec_date: str, watchlist: list[dict]) -> int:
                 "reason": w.get("status") or "",
                 # 观察层的 score 就是 strategy_score；落进 confidence 列只是列名沿用，
                 # 语义由同行的 source='watch' 界定（见本文件 _CONFIDENCE_SOURCE_TO_DB 注释）。
-                "confidence": w.get("score"),
+                "confidence": w.get("strategy_score"),
                 "source": "watch",
+                "strategy_scores": w.get("strategy_scores") or {},
+                "scoring_profile": w.get("scoring_profile") or BASELINE_PROFILE.key,
             }
             for w in watchlist
             if w.get("code") and w.get("price") and w["code"] not in have
         ]
         if not rows:
             return 0
-        res = await sb.table("daily_recommendations").insert(rows).execute()
+        res = await _insert_recommendation_rows(sb, rows, select_ids=False)
         return len(res.data or [])
     except Exception as e:
         print(f"[recommend] 观察层落库失败: {e}")

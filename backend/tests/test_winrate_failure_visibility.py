@@ -234,3 +234,116 @@ class WinrateExcessColumnMissingTests:
         # 降级后超额口径不可信：显式标记 unavailable，前端据此回退旧「次日胜率」。
         assert out["recommendation"]["benchmark_available"] is False
         assert out["recommendation"]["excess_hit_rate"] is None
+
+
+class _V16MissingQuery(_FallbackQuery):
+    def select(self, *cols, **_kwargs):
+        self.sb.selected.setdefault(self.name, []).append(cols)
+        self._cols = cols
+        return self
+
+    async def execute(self):
+        if self.name == "daily_recommendations" and any(
+            "execution_status" in str(col) for col in getattr(self, "_cols", ())
+        ):
+            raise RuntimeError(
+                "Could not find the 'execution_status' column of 'daily_recommendations' in the schema cache"
+            )
+        return type("R", (), {"data": self.sb.sink.get(self.name, [])})()
+
+
+class _V16MissingSB(_FallbackSB):
+    def __init__(self, sink):
+        super().__init__(sink)
+        self.selected: dict = {}
+
+    def table(self, name):
+        return _V16MissingQuery(self, name)
+
+
+class _V16MissingStore:
+    def __init__(self, sink):
+        self.sb = _V16MissingSB(sink)
+
+    def is_configured(self):
+        return True
+
+    async def get_service_client(self):
+        return self.sb
+
+
+class WinrateExecutionColumnMissingTests:
+    def test_v16_missing_keeps_v14_excess_metrics(self, monkeypatch):
+        """只缺 v16 时不能把已经存在的 v14 超额收益能力一起丢掉。"""
+        sink = {
+            "prediction_records": [],
+            "daily_recommendations": [
+                {"hit": True, "source": "rule", "excess_return": 1.25}
+            ],
+            "winrate_snapshot": [],
+        }
+        store = _V16MissingStore(sink)
+        monkeypatch.setattr(W, "supabase_store", store)
+
+        out = _run(W.get_winrate_stats())
+
+        assert out["recommendation"]["error"] is None
+        assert out["recommendation"]["benchmark_available"] is True
+        assert out["recommendation"]["avg_excess_return"] == 1.25
+        selected = store.sb.selected["daily_recommendations"]
+        assert any("excess_return" in str(cols) for cols in selected[1:])
+
+
+class DailyCronIsolationTests:
+    def test_prediction_failure_does_not_skip_recommendation_settlement(self, monkeypatch):
+        calls: list[str] = []
+
+        async def fail_predictions():
+            calls.append("prediction")
+            raise RuntimeError("prediction source down")
+
+        async def settle_recommendations():
+            calls.append("recommendation")
+            return 3
+
+        async def stats():
+            calls.append("stats")
+            return {"ok": True}
+
+        monkeypatch.setattr(W.market_prediction, "settle_predictions", fail_predictions)
+        monkeypatch.setattr(W, "settle_daily_recommendations", settle_recommendations)
+        monkeypatch.setattr(W, "get_winrate_stats", stats)
+
+        result = _run(W.run_daily_cron())
+
+        assert calls == ["prediction", "recommendation", "stats"]
+        assert result["ok"] is False
+        assert result["settled_recommendations"] == 3
+        assert "settled_predictions" in result["errors"]
+
+    def test_recommendation_failure_does_not_skip_stats_read(self, monkeypatch):
+        calls: list[str] = []
+
+        async def settle_predictions():
+            calls.append("prediction")
+            return 2
+
+        async def fail_recommendations():
+            calls.append("recommendation")
+            raise RuntimeError("recommendation DB down")
+
+        async def stats():
+            calls.append("stats")
+            return {"ok": True}
+
+        monkeypatch.setattr(W.market_prediction, "settle_predictions", settle_predictions)
+        monkeypatch.setattr(W, "settle_daily_recommendations", fail_recommendations)
+        monkeypatch.setattr(W, "get_winrate_stats", stats)
+
+        result = _run(W.run_daily_cron())
+
+        assert calls == ["prediction", "recommendation", "stats"]
+        assert result["ok"] is False
+        assert result["settled_predictions"] == 2
+        assert result["stats"] == {"ok": True}
+        assert "settled_recommendations" in result["errors"]

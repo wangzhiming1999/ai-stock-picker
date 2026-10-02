@@ -9,6 +9,7 @@ import ScoreBar from "../ui/ScoreBar";
 import { CELL } from "../../lib/ui";
 import { scoreChip, actionTone } from "../../lib/tone";
 import { fmtNum, fmtPct } from "../../lib/safe";
+import { autoCandidateEmptyMessage } from "../../lib/sandu";
 
 interface Props {
   onPick: (codes: string[]) => void;
@@ -97,7 +98,7 @@ export default function SanduPanel({ onPick }: Props) {
       const r = await sanduAutoCandidates(20);
       const cands = r.candidates;
       if (cands.length === 0) {
-        setError("主力净流入榜暂无可选候选（全部被过滤），稍后再试或手动输入代码");
+        setError(autoCandidateEmptyMessage(r));
         return;
       }
       setRaw(cands.map((c) => c.code).join(" "));
@@ -179,7 +180,7 @@ export default function SanduPanel({ onPick }: Props) {
       {!running && result && (
         <>
           <p className="mt-3 text-meta text-ink-muted">
-            输入 {result.count} 只 · 成功取到 K 线 {result.scanned} 只 · 三度齐备 {passed.length} 只
+            输入 {result.requested ?? result.scanned} 只 · 成功取到 K 线 {result.scanned} 只 · 过筛结果 {result.count} 只 · 三度齐备 {passed.length} 只
           </p>
 
           {result.scanned === 0 ? (

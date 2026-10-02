@@ -2,6 +2,11 @@
 
 import math
 
+import pytest
+
+from app.models import SanduScanRequest
+from app.routes import sandu as sandu_routes
+
 from app.services.sandu_service import (
     _detect_golden_cross,
     score_sandu,
@@ -136,3 +141,42 @@ def test_no_crash_when_volumes_none():
     assert "overall" in res
     assert isinstance(res["overall"], float)
     assert not math.isnan(res["overall"])
+
+
+@pytest.mark.asyncio
+async def test_auto_candidates_degrades_when_fund_flow_source_fails(monkeypatch):
+    """上游断连不能把候选接口打成 500。"""
+    def fail(*_args, **_kwargs):
+        raise RuntimeError("fund flow disconnected")
+
+    monkeypatch.setattr(sandu_routes, "fetch_fund_flow_rows", fail)
+
+    result = await sandu_routes.auto_candidates()
+
+    assert result["source"] == "unavailable"
+    assert result["count"] == 0
+    assert result["candidates"] == []
+    assert "资金流" in result["notice"]
+
+
+@pytest.mark.asyncio
+async def test_scan_reports_requested_and_successful_history_counts_separately(monkeypatch):
+    """请求两只但一只 K 线失败时，scanned 只能报成功的一只。"""
+    closes, vols = _build_bullish()
+    history = type("H", (), {"closes": closes, "volumes": vols})()
+
+    async def fake_gather(_coroutines, **_kwargs):
+        for coroutine in _coroutines:
+            coroutine.close()
+        return [history, None]
+
+    monkeypatch.setattr(sandu_routes, "gather_limited", fake_gather)
+    monkeypatch.setattr(sandu_routes.data_service, "get_spot_quote", lambda _codes: [])
+
+    result = await sandu_routes.scan_sandu(
+        SanduScanRequest(codes=["600000", "000001"], min_overall=0)
+    )
+
+    assert result.requested == 2
+    assert result.scanned == 1
+    assert result.count == 2  # 失败项仍以 insufficient_data 返回，不能静默消失
