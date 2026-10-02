@@ -363,6 +363,14 @@ export default function SeizeRadarPanel() {
 
           <div>
             <h3 className={TEXT.label}>回封候选（炸板池贴涨停价）</h3>
+            {radar.reseal_evidence && (
+              <p className="mb-1.5 rounded-lg bg-amber-500/10 px-3 py-2 text-meta leading-relaxed text-amber-300">
+                ⚠️ {radar.reseal_evidence.badge}：该信号历史回测为
+                <span className="font-semibold">负期望</span>
+                （−0.72%/次、胜率 32.1%，n=81）—— 炸板是分歧，回封不是机会，此表只作风险提示，
+                与上方「刚封板」的正期望口径严格区分。
+              </p>
+            )}
             {!radar.zb_ok && (
               <p className="text-meta text-amber-300">炸板池拉取失败，回封候选与炸板预警仅反映部分信息。</p>
             )}

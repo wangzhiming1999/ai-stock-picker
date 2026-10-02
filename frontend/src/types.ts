@@ -2364,6 +2364,8 @@ export interface SeizeRadar {
   counts: { just_sealed: number; reseal: number; broken_alert: number };
   /** 炸板池是否取到；false 时回封/预警只反映部分信息 */
   zb_ok: boolean;
+  /** 回封档历史回测结论（实测负期望，unsupported）；旧后端缺省 */
+  reseal_evidence?: TacticEvidence;
   /** 当日已封板票的次日竞价卖出读数（背景，复用涨停梯队口径）；旧后端缺省 */
   premium_summary?: LimitUpPremiumSummary;
   evidence: TacticEvidence;
