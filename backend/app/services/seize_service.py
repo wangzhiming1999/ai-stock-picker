@@ -699,21 +699,7 @@ async def reseal_backtest(days: int = 15, force: bool = False) -> dict:
                 }
             )
     candidates = candidates[:_BACKTEST_MAX_ROWS]
-
-    async def _settle(c: dict) -> dict:
-        out = {**c, "next_open": None, "return_pct": None}
-        try:
-            hist = await asyncio.to_thread(data_service.get_history, c["code"], 25)
-        except Exception:  # noqa: BLE001
-            return out
-        if hist and hist.dates and hist.opens:
-            nxt = _resolve_next_open(hist.dates, hist.opens, c["trade_date"])
-            if nxt is not None:
-                out["next_open"] = nxt
-                out["return_pct"] = _calc_return_pct(c["buy_price"], nxt)
-        return out
-
-    rows = await concurrency.gather_limited([_settle(c) for c in candidates])
+    rows = await _settle_candidates(candidates)
     summary = _aggregate_reseal(rows)
 
     data = {
@@ -730,6 +716,150 @@ async def reseal_backtest(days: int = 15, force: bool = False) -> dict:
             "入场价用 D 日收盘价做保守代理；结论只对「炸板但收在涨停附近 → 次日开盘」这一"
             "近似口径负责，与实时闭环（盘中 sighting 价入场）和 limitup_premium（涨停价买入）"
             "均不可比、不可加。"
+        ),
+    }
+    from app.services import cache_utils
+
+    cache_utils.put_bounded(_BACKTEST_CACHE, key, (now_mono, data), max_entries=2)
+    return {**data, "cached": False}
+
+
+async def _settle_candidates(candidates: list[dict]) -> list[dict]:
+    """为候选批量结算 D+1 开盘收益（逐只拉日 K，走全局并发配额）。"""
+    async def _settle(c: dict) -> dict:
+        out = {**c, "next_open": None, "return_pct": None}
+        try:
+            hist = await asyncio.to_thread(data_service.get_history, c["code"], 25)
+        except Exception:  # noqa: BLE001
+            return out
+        if hist and hist.dates and hist.opens:
+            nxt = _resolve_next_open(hist.dates, hist.opens, c["trade_date"])
+            if nxt is not None:
+                out["next_open"] = nxt
+                out["return_pct"] = _calc_return_pct(c["buy_price"], nxt)
+        return out
+
+    return await concurrency.gather_limited([_settle(c) for c in candidates])
+
+
+# 「刚封板」雷达口径回测：首封时间窗（雷达只能在盘中、非一字板时捕捉到）
+_SEALED_FBT_START = "093000"  # 排除集合竞价一字板（雷达不存在 sighting 时刻、也买不进）
+_SEALED_FBT_END = "143000"    # 排除尾盘板（limitup_premium 已实测唯一负期望档）
+_SEALED_HOURS = ("9:30-10:00", "10:00-11:00", "13:00-14:00", "14:00-14:30")
+
+
+def _fbt_bucket(fbt: str) -> str | None:
+    """首封时间（HHMMSS 或 HH:MM:SS）→ 时段桶；窗口外返回 None。"""
+    t = (fbt or "").replace(":", "")[:6]
+    if len(t) != 6 or not t.isdigit():
+        return None
+    if not (_SEALED_FBT_START <= t <= _SEALED_FBT_END):
+        return None
+    if t < "100000":
+        return _SEALED_HOURS[0]
+    if t < "110000":
+        return _SEALED_HOURS[1]
+    if t < "140000":
+        return _SEALED_HOURS[2]
+    return _SEALED_HOURS[3]
+
+
+def _aggregate_sealed(rows: list[dict]) -> dict:
+    """刚封板雷达口径聚合（纯函数）：按首封时段分桶。"""
+    settled = [r for r in rows if r.get("return_pct") is not None]
+    rets = [r["return_pct"] for r in settled]
+    wins = [v for v in rets if v > 0]
+    buckets: dict[str, list[float]] = {h: [] for h in _SEALED_HOURS}
+    for r in settled:
+        b = r.get("fbt_bucket")
+        if b in buckets:
+            buckets[b].append(r["return_pct"])
+    return {
+        "n": len(rows),
+        "settled": len(settled),
+        "win_rate": round(len(wins) / len(settled) * 100, 1) if settled else None,
+        "avg_return": round(sum(rets) / len(rets), 2) if settled else None,
+        "median_return": round(statistics.median(rets), 2) if settled else None,
+        "buckets": [
+            {
+                "label": h,
+                "n": len(v),
+                "avg_return": round(sum(v) / len(v), 2) if v else None,
+                "win_rate": round(sum(1 for x in v if x > 0) / len(v) * 100, 1) if v else None,
+            }
+            for h, v in buckets.items()
+        ],
+    }
+
+
+async def sealed_radar_backtest(days: int = 15, force: bool = False) -> dict:
+    """刚封板档的**雷达口径**回测：盘中首封（09:30-14:30，非一字非尾盘）以涨停价买入 → D+1 开盘卖。
+
+    与 limitup_premium 的差别：全池口径含集合竞价一字板（买不进）与尾盘板（唯一负期望档）；
+    这里只取雷达实际能捕捉的子集，是「抢封板」策略最贴近实盘的历史读数。
+    ⚠️ 逐只拉日 K（上限 200 只），结果缓存 6 小时。
+    """
+    key = f"sealed_bt:{days}"
+    now_mono = time.monotonic()
+    if not force:
+        hit = _BACKTEST_CACHE.get(key)
+        if hit and now_mono - hit[0] < _BACKTEST_TTL:
+            return {**hit[1], "cached": True}
+
+    day = await trade_calendar_service.last_trading_day()
+    trade_days: list[str] = []
+    while len(trade_days) < days:
+        trade_days.append(day.isoformat())
+        day = await trade_calendar_service.last_trading_day(day - dt.timedelta(days=1))
+
+    pool_results = await concurrency.gather_limited(
+        [asyncio.to_thread(_fetch_pool_sync, "zt", d.replace("-", "")) for d in trade_days],
+        return_exceptions=True,
+    )
+    candidates: list[dict] = []
+    for d, pools in zip(trade_days, pool_results):
+        if isinstance(pools, Exception):
+            continue
+        for raw in pools:
+            s = normalize_limit_up(raw)
+            fbt = s.get("seal_time") or ""
+            bucket = _fbt_bucket(fbt)
+            if bucket is None:
+                continue
+            candidates.append(
+                {
+                    "trade_date": d,
+                    "code": s["code"],
+                    "name": s.get("name") or "",
+                    "buy_price": s["price"],  # 已封板：现价即涨停价
+                    "fbt": fbt,
+                    "fbt_bucket": bucket,
+                    "boards": s.get("boards"),
+                    "turnover": s.get("turnover"),
+                }
+            )
+    candidates = candidates[:_BACKTEST_MAX_ROWS]
+    truncated = len(candidates) >= _BACKTEST_MAX_ROWS
+    rows = await _settle_candidates(candidates)
+    summary = _aggregate_sealed(rows)
+
+    data = {
+        "kind": "sealed_radar_backtest",
+        "days": days,
+        "trade_days": len(trade_days),
+        "window": f"{trade_days[-1]} ~ {trade_days[0]}",
+        "truncated": truncated,
+        "caliber": calibers.describe("limitup_premium"),
+        "evidence": tactic_evidence.describe("limitup_premium"),
+        "summary": summary,
+        "rows": sorted(rows, key=lambda r: (r["trade_date"], r["code"])),
+        "note": (
+            "口径：雷达口径子集 = 首封时间 09:30-14:30（排除集合竞价一字板与尾盘板），"
+            "以涨停价买入、D+1 开盘卖出 —— 母口径为 limitup_premium（registered），"
+            "此处只做更贴近雷达实盘的子集切分，不另立新口径。"
+            "样本受 push2ex 回溯窗口限制（约 15 个交易日）。"
+            + ("⚠️ 候选超出 200 只上限，按时间截断、保留了较近的交易日，早期日子未入样。"
+               if truncated else "")
         ),
     }
     from app.services import cache_utils

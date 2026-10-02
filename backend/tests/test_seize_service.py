@@ -131,3 +131,29 @@ def test_aggregate_reseal_buckets_and_stats():
 def test_aggregate_reseal_empty_is_safe():
     out = s._aggregate_reseal([])
     assert out["settled"] == 0 and out["win_rate"] is None and out["avg_return"] is None
+
+
+def test_fbt_bucket_windows():
+    assert s._fbt_bucket("09:31:00") == "9:30-10:00"
+    assert s._fbt_bucket("092500") is None          # 集合竞价一字板，雷达捕捉不到
+    assert s._fbt_bucket("10:30:00") == "10:00-11:00"
+    assert s._fbt_bucket("13:20:00") == "13:00-14:00"
+    assert s._fbt_bucket("14:10:00") == "14:00-14:30"
+    assert s._fbt_bucket("14:35:00") is None        # 尾盘板，唯一负期望档，排除
+    assert s._fbt_bucket("") is None
+    assert s._fbt_bucket("abc") is None
+
+
+def test_aggregate_sealed_buckets():
+    rows = [
+        {"return_pct": 2.0, "fbt_bucket": "9:30-10:00"},
+        {"return_pct": -1.0, "fbt_bucket": "9:30-10:00"},
+        {"return_pct": 1.5, "fbt_bucket": "13:00-14:00"},
+        {"return_pct": None, "fbt_bucket": "13:00-14:00"},
+    ]
+    out = s._aggregate_sealed(rows)
+    assert out["n"] == 4 and out["settled"] == 3
+    assert out["win_rate"] == 66.7
+    buckets = {b["label"]: b for b in out["buckets"]}
+    assert buckets["9:30-10:00"]["n"] == 2 and buckets["9:30-10:00"]["win_rate"] == 50.0
+    assert buckets["14:00-14:30"]["n"] == 0 and buckets["14:00-14:30"]["avg_return"] is None

@@ -50,3 +50,16 @@ async def reseal_backtest(
     数据窗口受 push2ex 回溯限制（约 15 个交易日），口径近似声明见返回体 ``note``。
     """
     return await seize_service.reseal_backtest(days=days, force=force)
+
+
+@router.get("/sealed-backtest")
+async def sealed_backtest(
+    days: int = Query(15, ge=2, le=15),
+    force: bool = False,
+) -> dict:
+    """刚封板档雷达口径回测（盘中首封 09:30-14:30，涨停价买入 → D+1 开盘卖）。
+
+    ⚠️ 与 reseal-backtest 同级风险：逐只拉日 K（上限 200 只），结果缓存 6 小时。
+    母口径为 limitup_premium；此处只做「雷达实际能捕捉子集」的切分。
+    """
+    return await seize_service.sealed_radar_backtest(days=days, force=force)
