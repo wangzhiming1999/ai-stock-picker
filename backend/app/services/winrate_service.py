@@ -365,7 +365,7 @@ async def get_winrate_stats() -> dict:
             rec_error = f"daily_recommendations: {_err_note(e)}"
 
     def _is_reco_source(src) -> bool:
-        return src not in ("quad", "watch")
+        return src not in ("quad", "watch", "calibration")
 
     scored_rows = [
         r for r in rec_rows

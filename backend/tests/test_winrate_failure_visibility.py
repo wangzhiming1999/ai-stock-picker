@@ -162,6 +162,17 @@ class WinrateFailureVisibilityTests:
         assert out["prediction"]["total"] == 2
         assert out["recommendation"]["total"] == 2
 
+    def test_calibration_holdouts_never_pollute_recommendation_winrate(self, patch_store):
+        patch_store.sink["daily_recommendations"] = [
+            {"hit": True, "source": "rule", "excess_return": 1.0, "execution_status": "filled"},
+            {"hit": True, "source": "calibration", "excess_return": 9.0, "execution_status": "filled"},
+        ]
+
+        out = _run(W.get_winrate_stats())
+
+        assert out["recommendation"]["total"] == 1
+        assert out["recommendation"]["excess_hit"] == 1
+
 
 class _FallbackQuery:
     """首次查询 daily_recommendations 报「excess_return 列不存在」，第二次（降级查询）成功。"""

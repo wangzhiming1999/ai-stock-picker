@@ -200,6 +200,24 @@ class TestWatchlistSave:
         assert row["scoring_profile"] == "baseline"
 
     @pytest.mark.asyncio
+    async def test_unselected_qualified_candidates_are_saved_only_for_calibration(self, monkeypatch) -> None:
+        store: dict = {"daily_recommendations": [{"code": "600001", "source": "rule"}]}
+        monkeypatch.setattr(recommend_service.supabase_store, "is_configured", lambda: True)
+        monkeypatch.setattr(recommend_service.supabase_store, "get_service_client", _make_client(store))
+        candidates = [
+            {"code": "600001", "name": "已推荐", "price": 10, "strategy_score": 8, "strategy_scores": {"momentum": 8, "trend": 5}},
+            {"code": "600002", "name": "留样", "price": 11, "strategy_score": 7, "strategy_scores": {"momentum": 7, "trend": 5}},
+        ]
+
+        saved = await recommend_service.save_calibration_candidates("2026-09-18", candidates)
+
+        assert saved == 1
+        row = next(item for item in store["daily_recommendations"] if item["code"] == "600002")
+        assert row["source"] == "calibration"
+        assert row["reason"] == "算法校准留样（非推荐）"
+        assert row["strategy_scores"] == {"momentum": 7, "trend": 5}
+
+    @pytest.mark.asyncio
     async def test_watchlist_save_is_idempotent(self, monkeypatch) -> None:
         store: dict = {"daily_recommendations": []}
         monkeypatch.setattr(recommend_service.supabase_store, "is_configured", lambda: True)

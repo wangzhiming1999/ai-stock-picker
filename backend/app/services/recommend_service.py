@@ -597,9 +597,23 @@ async def generate_daily_recommendations(force_refresh: bool = False) -> dict:
             rid = id_map.get(r["code"])
             if rid:
                 r["id"] = rid
-        await _save_db_recommendation(today, result)
     except Exception as e:
         print(f"[recommend] 保存推荐记录失败: {e}")
+    # 校准留样是旁路能力，失败不能阻断主推荐快照。
+    try:
+        result["calibration_candidates_saved"] = await save_calibration_candidates(
+            today,
+            ranked,
+            valid_until=target_day,
+        )
+    except Exception as e:
+        result["calibration_candidates_saved"] = 0
+        result["calibration_error"] = f"{type(e).__name__}: {e}"
+        print(f"[recommend] 保存校准留样失败: {e}")
+    try:
+        await _save_db_recommendation(today, result)
+    except Exception as e:
+        print(f"[recommend] 保存推荐快照失败: {e}")
     # 观察层独立落库（source='watch'，与主口径分开统计；同日已有行则幂等跳过）
     await save_watchlist(today, watchlist)
 
@@ -737,6 +751,54 @@ async def save_recommendations(rec_date: str, recs: list[dict]) -> dict[str, str
     ]
     res = await _insert_recommendation_rows(sb, rows, select_ids=True)
     return {row["code"]: str(row["id"]) for row in (res.data or [])}
+
+
+async def save_calibration_candidates(
+    rec_date: str,
+    candidates: list[dict],
+    *,
+    valid_until: str | None = None,
+) -> int:
+    """Persist qualified non-Top10 candidates as outcome-labelled holdouts.
+
+    These rows participate in settlement so alternative rank weights can be
+    evaluated on the full qualified universe.  ``source='calibration'`` keeps
+    them out of recommendation/watchlist win-rate reporting and user surfaces.
+    """
+    if not supabase_store.is_configured() or not candidates:
+        return 0
+    sb = await supabase_store.get_service_client()
+    existing = (
+        await sb.table("daily_recommendations")
+        .select("code")
+        .eq("rec_date", rec_date)
+        .execute()
+    )
+    have = {str(row.get("code")) for row in (existing.data or [])}
+    rows = []
+    for candidate in candidates:
+        code = str(candidate.get("code") or "")
+        if not code or code in have or not candidate.get("price"):
+            continue
+        plan = _build_action_plan(candidate, valid_until or rec_date)
+        rows.append(
+            {
+                "rec_date": rec_date,
+                "code": code,
+                "name": candidate.get("name") or "",
+                "recommend_price": candidate["price"],
+                "reason": "算法校准留样（非推荐）",
+                "confidence": candidate.get("strategy_score"),
+                "source": "calibration",
+                "expected_price": plan.get("expected_price"),
+                "strategy_scores": candidate.get("strategy_scores") or {},
+                "scoring_profile": candidate.get("scoring_profile") or BASELINE_PROFILE.key,
+            }
+        )
+    if not rows:
+        return 0
+    result = await _insert_recommendation_rows(sb, rows, select_ids=False)
+    return len(result.data or [])
 
 
 async def save_watchlist(rec_date: str, watchlist: list[dict]) -> int:

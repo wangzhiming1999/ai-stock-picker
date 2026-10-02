@@ -33,11 +33,12 @@ class RecommendCalibrationTests(unittest.TestCase):
             {"rec_date": "2026-01-01", "code": "B", "strategy_scores": {"momentum": 6}, "excess_return": 2, "source": "watch", "execution_status": "not_triggered"},
             {"rec_date": "2026-01-01", "code": "C", "strategy_scores": {}, "excess_return": 3, "source": "rule", "execution_status": "filled"},
             {"rec_date": "2026-01-01", "code": "D", "strategy_scores": {"momentum": 6}, "excess_return": 4, "source": "quad", "execution_status": "filled"},
+            {"rec_date": "2026-01-01", "code": "E", "strategy_scores": {"momentum": 7}, "excess_return": 5, "source": "calibration", "execution_status": "filled"},
         ]
 
         samples = prepare_calibration_samples(rows)
 
-        self.assertEqual([sample["code"] for sample in samples], ["A"])
+        self.assertEqual([sample["code"] for sample in samples], ["A", "E"])
 
     def test_baseline_score_matches_production_formula(self) -> None:
         score = score_strategy_components(

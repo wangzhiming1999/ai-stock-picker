@@ -21,10 +21,13 @@ import { signedPct } from "./format";
  * 与「连板资金面」块的关系：那边讲能不能继续封板（状态），这边讲明天卖出赚多少（收益），
  * 两个口径不可相互换算、不可相加。
  */
-function Step({ label, detail }: { label: string; detail: string }) {
+function PlanStep({ idx, label, detail }: { idx: number; label: string; detail: string }) {
   return (
-    <div className="rounded-lg bg-surface-inset/50 px-2 py-1.5 text-center">
-      <div className="text-meta font-semibold text-brand-light">{label}</div>
+    <div className="flex-1 rounded-lg border border-surface-line/70 bg-surface-inset/40 px-2 py-1.5 text-center">
+      <div className="flex items-center justify-center gap-1">
+        <span className="flex h-4 w-4 items-center justify-center rounded-full bg-surface-line text-meta font-semibold text-ink-muted">{idx}</span>
+        <span className="text-meta font-semibold text-brand-light">{label}</span>
+      </div>
       <div className="mt-0.5 text-meta leading-tight text-ink-soft">{detail}</div>
     </div>
   );
@@ -37,17 +40,26 @@ function TradeInstructionCard({ summary }: { summary?: LimitUpPremiumSummary }) 
   return (
     <div className="rounded-xl border border-brand/30 bg-surface-raised px-3 py-3">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-meta font-semibold text-brand-light">主交易指令 · 打板可成交档</span>
+        <span className="text-meta font-semibold text-brand-light">执行计划模板 · 打板可成交档</span>
         {caliber.registered && (
-          <span className="rounded-md bg-surface-line/60 px-1.5 py-0.5 text-meta text-ink-muted">preliminary</span>
+          <span className="rounded-md bg-surface-line/60 px-1.5 py-0.5 text-meta text-ink-muted">证据：初步（未验证）</span>
         )}
       </div>
 
-      {/* 指令三步：买 → 持 → 卖，周期由系统制定（非用户自选）。 */}
-      <div className="mt-2 grid grid-cols-3 gap-2">
-        <Step label="买" detail="涨停价买入" />
-        <Step label="持" detail={caliber.plan_horizon} />
-        <Step label="卖" detail="次日集合竞价" />
+      <p className="mt-1.5 text-meta leading-relaxed text-ink-soft">
+        这是<span className="font-semibold text-state-warn-soft">历史统计转成的执行计划模板</span>，
+        <span className="font-semibold text-state-warn-soft">不是买入指令、不是收益承诺</span>；具体买哪只看下方「可打板」清单。
+      </p>
+
+      <div className="mt-2">
+        <div className="text-meta text-ink-muted">执行节奏 · 系统定周期（非自选）</div>
+        <div className="mt-1 flex items-stretch gap-1">
+          <PlanStep idx={1} label="买" detail="涨停价打板" />
+          <span className="self-center text-meta text-ink-muted" aria-hidden>→</span>
+          <PlanStep idx={2} label="持" detail={caliber.plan_horizon} />
+          <span className="self-center text-meta text-ink-muted" aria-hidden>→</span>
+          <PlanStep idx={3} label="卖" detail="次日竞价" />
+        </div>
       </div>
 
       <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-meta text-ink-soft">
@@ -60,10 +72,8 @@ function TradeInstructionCard({ summary }: { summary?: LimitUpPremiumSummary }) 
         </span>
       </div>
 
-      <p className="mt-1.5 text-meta leading-relaxed text-ink-soft">
-        已剔除换手&lt;5% / 炸板≥3 / 尾盘封板。这是统计读数转成的执行计划，
-        <span className="text-ink-muted">非买入指令、非承诺</span>；按系统制定周期到期结算赢 / 输。
-        候选明细见下方「可打板」清单。
+      <p className="mt-1.5 text-meta leading-relaxed text-ink-muted">
+        已剔除换手&lt;5% / 炸板≥3 / 尾盘封板。到期按系统制定周期结算赢 / 输，胜率口径见下方 CaliberLine。
       </p>
       {caliber.win_rate && (
         <p className="mt-1 text-meta leading-relaxed text-ink-muted">{caliber.win_rate}</p>

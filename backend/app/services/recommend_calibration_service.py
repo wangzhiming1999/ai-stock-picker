@@ -37,7 +37,7 @@ def prepare_calibration_samples(rows: list[dict]) -> list[dict]:
     """Normalize settled production rows and reject incomparable observations."""
     samples: list[dict] = []
     for row in rows:
-        if row.get("source") not in ("rule", "watch"):
+        if row.get("source") not in ("rule", "calibration"):
             continue
         if row.get("execution_status") in ("not_triggered", "unverifiable"):
             continue

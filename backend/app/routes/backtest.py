@@ -170,7 +170,7 @@ async def recommend_calibration_endpoint(req: RecommendCalibrationRequest):
         min_oos_selections=req.min_oos_selections,
     )
     result["source_rows"] = len(response.data or [])
-    result["caliber"] = "按生产推荐/观察候选原始四策略分重排；T+1 已触发记录；收益口径为扣费后相对沪深300超额"
+    result["caliber"] = "按生产全量达标候选原始四策略分重排；T+1 已触发记录；收益口径为扣费后相对沪深300超额"
     return result
 
 
