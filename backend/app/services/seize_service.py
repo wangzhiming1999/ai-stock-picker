@@ -31,9 +31,10 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import statistics
 import time
 
-from app.services import calibers, data_service, limitup_service, tactic_evidence, trade_calendar_service
+from app.services import calibers, concurrency, data_service, limitup_service, tactic_evidence, trade_calendar_service
 
 try:  # supabase 未配置时落库/读回静默降级，不影响实时链路
     from app.services import supabase_store
@@ -134,8 +135,9 @@ def _conditional_premium() -> dict:
         "expect_pct": mean,
         "conditional": True,
         "note": (
-            f"若回封成功，按次日集合竞价卖出；同口径可成交档历史读数约 {mean:+.2f}%。"
-            "回封失败则无此收益，属条件性读数，非承诺。"
+            f"条件性读数：若回封成功按次日竞价卖出约 {mean:+.2f}%。"
+            "⚠️ 但回封档整体实测为负期望（2026-09-09~09-30 n=81：−0.72%/次、胜率 32.1%，"
+            "见口径 seize_reseal）—— 回封失败概率本身很高，整体不构成机会，仅作风险提示。"
         ),
     }
 
@@ -329,13 +331,16 @@ async def get_radar(force: bool = False) -> dict:
             "broken_alert": len(broken_alert),
         },
         "zb_ok": zb_ok,
+        # 回封档的历史回测结论（负期望）—— 雷达必须把它和「刚封板」的正期望分开说
+        "reseal_evidence": tactic_evidence.describe("seize_reseal"),
         "premium_summary": premium_summary,
         "evidence": tactic_evidence.describe("limitup_premium"),
         "caliber": calibers.describe("limitup_premium"),
         "note": (
-            "封板雷达只做观察与收益读数，不构成买卖指令。抢封板需在封板瞬间自行决策："
-            "T+1 竞价卖出口径见 limitup_premium（涨停价买入 → 次日集合竞价卖出，历史期望约 +2%、"
-            "胜率约 62%）。回封候选的收益条件于回封成功，属条件性读数。"
+            "封板雷达只做观察与收益读数，不构成买卖指令。两类信号**期望相反**：刚封板档"
+            "（limitup_premium 口径，涨停价买入 → 次日竞价，历史期望约 +2%、胜率约 62%）；"
+            "回封候选档实测为负期望（−0.72%/次、胜率 32.1%，口径 seize_reseal），仅作风险提示。"
+            "封板瞬间能否抢到取决于实时盘口，T+1 竞价卖出亦有隔夜风险。"
         ),
     }
     from app.services import cache_utils
@@ -603,8 +608,139 @@ async def get_history_log(days: int = 14) -> dict:
     }
 
 
+# ---------- 回封策略历史回测（回归测试） ----------
+#
+# 数据边界：push2ex 池子只回溯 ~15 个交易日。历史快照是**当日最终状态**，盘中雷达
+# sighting 时刻的价格不可回溯，因此回测口径做了明确近似：
+#   · 入场价 = D 日收盘价（对「收在涨停附近」的票，这是拉升过程中可成交价格的保守代理）；
+#   · 出场价 = D+1 开盘价（与实时闭环 realized_return_pct 同口径）；
+#   · 「刚封板」档不重复回测 —— 买入价=涨停价，与 limitup_premium（已回测，期望 +2%）
+#     完全同口径，此处只测新增的「回封候选」。
+# ⚠️ 逐只拉日 K = 行情源风控主因：单次上限 200 只、结果缓存 6 小时、force 需显式传。
+
+_BACKTEST_TTL = 6 * 3600
+_BACKTEST_CACHE: dict[str, tuple[float, dict]] = {}
+_BACKTEST_MAX_ROWS = 200
+
+
+def _aggregate_reseal(rows: list[dict]) -> dict:
+    """回测样本聚合（纯函数）。收益 = (D+1 开盘 − D 收盘) / D 收盘 × 100。"""
+    settled = [r["return_pct"] for r in rows if r.get("return_pct") is not None]
+    wins = [v for v in settled if v > 0]
+    buckets = {"≤1%": [0, 0.0], "1-3%": [0, 0.0]}  # label → [n, sum]
+    for r in rows:
+        if r.get("return_pct") is None:
+            continue
+        label = "≤1%" if r["dist_to_limit_pct"] <= 1.0 else "1-3%"
+        buckets[label][0] += 1
+        buckets[label][1] += r["return_pct"]
+    return {
+        "n": len(rows),
+        "settled": len(settled),
+        "win_rate": round(len(wins) / len(settled) * 100, 1) if settled else None,
+        "avg_return": round(sum(settled) / len(settled), 2) if settled else None,
+        "median_return": round(statistics.median(settled), 2) if settled else None,
+        "buckets": [
+            {
+                "label": label,
+                "n": n,
+                "avg_return": round(total / n, 2) if n else None,
+            }
+            for label, (n, total) in buckets.items()
+        ],
+    }
+
+
+async def reseal_backtest(days: int = 15, force: bool = False) -> dict:
+    """回封策略回测：炸板池里收在涨停 ±3% 的票，D 日收盘买 → D+1 开盘卖。
+
+    ⚠️ 首跑会为每只候选逐只拉一次日 K（上限 200 只）；结果缓存 6 小时，
+    ``force`` 穿透缓存请确认行情源状态正常。
+    """
+    key = f"reseal_bt:{days}"
+    now_mono = time.monotonic()
+    if not force:
+        hit = _BACKTEST_CACHE.get(key)
+        if hit and now_mono - hit[0] < _BACKTEST_TTL:
+            return {**hit[1], "cached": True}
+
+    # 回溯最近 days 个交易日（含最后一个已收盘交易日）
+    day = await trade_calendar_service.last_trading_day()
+    trade_days: list[str] = []
+    while len(trade_days) < days:
+        trade_days.append(day.isoformat())
+        day = await trade_calendar_service.last_trading_day(day - dt.timedelta(days=1))
+
+    # 各日炸板池 → 回封候选（收盘价距涨停 ≤3%）
+    pool_results = await concurrency.gather_limited(
+        [asyncio.to_thread(_fetch_pool_sync, "zb", d.replace("-", "")) for d in trade_days],
+        return_exceptions=True,
+    )
+    candidates: list[dict] = []
+    for d, pools in zip(trade_days, pool_results):
+        if isinstance(pools, Exception):
+            continue
+        for raw in pools:
+            b = normalize_broken(raw)
+            price = b.get("price") or 0.0
+            limit_price = b.get("limit_price") or 0.0
+            if limit_price <= 0 or price <= 0:
+                continue
+            dist = _dist_to_limit_pct(price, limit_price)
+            if dist > _RESEAL_MAX_DIST_PCT:
+                continue
+            candidates.append(
+                {
+                    "trade_date": d,
+                    "code": b["code"],
+                    "name": b.get("name") or "",
+                    "buy_price": price,
+                    "dist_to_limit_pct": dist,
+                }
+            )
+    candidates = candidates[:_BACKTEST_MAX_ROWS]
+
+    async def _settle(c: dict) -> dict:
+        out = {**c, "next_open": None, "return_pct": None}
+        try:
+            hist = await asyncio.to_thread(data_service.get_history, c["code"], 25)
+        except Exception:  # noqa: BLE001
+            return out
+        if hist and hist.dates and hist.opens:
+            nxt = _resolve_next_open(hist.dates, hist.opens, c["trade_date"])
+            if nxt is not None:
+                out["next_open"] = nxt
+                out["return_pct"] = _calc_return_pct(c["buy_price"], nxt)
+        return out
+
+    rows = await concurrency.gather_limited([_settle(c) for c in candidates])
+    summary = _aggregate_reseal(rows)
+
+    data = {
+        "kind": "reseal_backtest",
+        "days": days,
+        "trade_days": len(trade_days),
+        "window": f"{trade_days[-1]} ~ {trade_days[0]}",
+        "caliber": calibers.describe("seize_reseal"),
+        "evidence": tactic_evidence.describe("seize_reseal"),
+        "summary": summary,
+        "rows": sorted(rows, key=lambda r: (r["trade_date"], r["code"])),
+        "note": (
+            "口径近似声明：历史快照只有当日最终状态，无法还原雷达盘中 sighting 时刻的价格，"
+            "入场价用 D 日收盘价做保守代理；结论只对「炸板但收在涨停附近 → 次日开盘」这一"
+            "近似口径负责，与实时闭环（盘中 sighting 价入场）和 limitup_premium（涨停价买入）"
+            "均不可比、不可加。"
+        ),
+    }
+    from app.services import cache_utils
+
+    cache_utils.put_bounded(_BACKTEST_CACHE, key, (now_mono, data), max_entries=2)
+    return {**data, "cached": False}
+
+
 def clear_cache() -> None:
     """清空模块缓存（测试与手动刷新用）。"""
     _RADAR_CACHE.clear()
     _ZB_LAST.clear()
     _THROTTLE.clear()
+    _BACKTEST_CACHE.clear()

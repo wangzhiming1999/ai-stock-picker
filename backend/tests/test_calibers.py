@@ -28,6 +28,7 @@ EXPECTED_KEYS = {
     "limitup_relay",
     "limitup_premium",
     "limitdown_repair",
+    "seize_reseal",
     "agent_plan",
 }
 

@@ -108,3 +108,26 @@ def test_log_rows_shape():
     assert kinds["just_sealed"]["dist_to_limit_pct"] == 0.0
     assert kinds["reseal"]["buy_price"] == 9.95
     assert all(r["trade_date"] == "2026-09-30" for r in rows)
+
+
+def test_aggregate_reseal_buckets_and_stats():
+    rows = [
+        {"dist_to_limit_pct": 0.5, "return_pct": 2.0},
+        {"dist_to_limit_pct": 0.8, "return_pct": -1.0},
+        {"dist_to_limit_pct": 2.0, "return_pct": 1.0},
+        {"dist_to_limit_pct": 2.5, "return_pct": None},  # 未结算不进统计
+    ]
+    out = s._aggregate_reseal(rows)
+    assert out["n"] == 4
+    assert out["settled"] == 3
+    assert out["win_rate"] == 66.7
+    assert out["avg_return"] == 0.67
+    assert out["median_return"] == 1.0
+    buckets = {b["label"]: b for b in out["buckets"]}
+    assert buckets["≤1%"]["n"] == 2 and buckets["≤1%"]["avg_return"] == 0.5
+    assert buckets["1-3%"]["n"] == 1 and buckets["1-3%"]["avg_return"] == 1.0
+
+
+def test_aggregate_reseal_empty_is_safe():
+    out = s._aggregate_reseal([])
+    assert out["settled"] == 0 and out["win_rate"] is None and out["avg_return"] is None

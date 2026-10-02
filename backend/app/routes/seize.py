@@ -27,11 +27,24 @@ async def radar(force: bool = False) -> dict:
 
 
 @router.get("/history")
-async def history(days: int = Query(14, ge=1, le=60)) -> dict:
-    """收益追踪：近 N 个自然日的落库记录 + 已结算汇总。
+async def history(days: int = Query(14, ge=1, le=60)) -> dict:    """收益追踪：近 N 个自然日的落库记录 + 已结算汇总。
 
     ⚠️ 会顺带触发结算：为「已判定未结算」的行逐只拉一次日 K（腾讯，单次上限 30 只，
-    写入即固化），带 30 分钟节流 —— 不会放大行情请求。落库未启用（v15 迁移未跑 /
+    写入即固化），带 30 分钟节流 —— 不会放大行情请求。    落库未启用（v15 迁移未跑 /
     Supabase 未配置）时返回 ``enabled:false``，前端降级隐藏，不报错。
     """
     return await seize_service.get_history_log(days=days)
+
+
+@router.get("/reseal-backtest")
+async def reseal_backtest(
+    days: int = Query(15, ge=2, le=15),
+    force: bool = False,
+) -> dict:
+    """回封策略历史回测（炸板池收在涨停 ±3% → 次日开盘卖出）。
+
+    ⚠️ **行情源高风险端点**：首跑会为每只候选逐只拉一次日 K（上限 200 只）。
+    结果缓存 6 小时；``force=true`` 穿透缓存，请仅在确认行情源状态正常时使用。
+    数据窗口受 push2ex 回溯限制（约 15 个交易日），口径近似声明见返回体 ``note``。
+    """
+    return await seize_service.reseal_backtest(days=days, force=force)
