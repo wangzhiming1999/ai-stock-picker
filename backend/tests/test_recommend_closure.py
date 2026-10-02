@@ -191,6 +191,7 @@ class TestWatchlistSave:
                     "confidence_source": "rule_score",
                     "strategy_scores": {"momentum": 7, "trend": 6},
                     "scoring_profile": "baseline",
+                    "feature_snapshot": {"pe": 18.0, "pb": 2.0, "turnover": 1.5, "market_cap_yi": 800.0, "market_board": "main"},
                 }
             ],
         )
@@ -198,6 +199,7 @@ class TestWatchlistSave:
         row = store["daily_recommendations"][0]
         assert row["strategy_scores"] == {"momentum": 7, "trend": 6}
         assert row["scoring_profile"] == "baseline"
+        assert row["feature_snapshot"]["pe"] == 18.0
 
     @pytest.mark.asyncio
     async def test_unselected_qualified_candidates_are_saved_only_for_calibration(self, monkeypatch) -> None:
@@ -206,7 +208,7 @@ class TestWatchlistSave:
         monkeypatch.setattr(recommend_service.supabase_store, "get_service_client", _make_client(store))
         candidates = [
             {"code": "600001", "name": "已推荐", "price": 10, "strategy_score": 8, "strategy_scores": {"momentum": 8, "trend": 5}},
-            {"code": "600002", "name": "留样", "price": 11, "strategy_score": 7, "strategy_scores": {"momentum": 7, "trend": 5}},
+            {"code": "600002", "name": "留样", "price": 11, "strategy_score": 7, "strategy_scores": {"momentum": 7, "trend": 5}, "pe": 16.0, "pb": 1.8, "turnover": 2.2, "market_cap_yi": 500.0},
         ]
 
         saved = await recommend_service.save_calibration_candidates("2026-09-18", candidates)
@@ -216,6 +218,7 @@ class TestWatchlistSave:
         assert row["source"] == "calibration"
         assert row["reason"] == "算法校准留样（非推荐）"
         assert row["strategy_scores"] == {"momentum": 7, "trend": 5}
+        assert row["feature_snapshot"] == {"pe": 16.0, "pb": 1.8, "turnover": 2.2, "market_cap_yi": 500.0, "market_board": "main"}
 
     @pytest.mark.asyncio
     async def test_watchlist_save_is_idempotent(self, monkeypatch) -> None:

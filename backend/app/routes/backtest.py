@@ -6,7 +6,13 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from app.services.backtest_service import BacktestParams, STRATEGY_BACKTEST_POOL, run_backtest
-from app.services import pattern_service, recommend_calibration_service, supabase_store, tactic_backtest_service
+from app.services import (
+    pattern_service,
+    recommend_calibration_service,
+    recommend_history_replay_service,
+    supabase_store,
+    tactic_backtest_service,
+)
 
 router = APIRouter(prefix="/api/backtest", tags=["backtest"])
 
@@ -122,6 +128,19 @@ class TacticBacktestRequest(BaseModel):
     eval_bars: int = Field(250, ge=60, le=400, description="每只票参与评估的最近交易日数")
 
 
+class RecommendHistoryCalibrationRequest(BaseModel):
+    codes: list[str] | None = Field(
+        None,
+        min_length=1,
+        max_length=30,
+        description="历史校验股票池（最多30只），缺省使用策略回测池",
+    )
+    eval_days: int = Field(120, ge=40, le=300, description="每只股票最近评估交易日数")
+    top_n: int = Field(10, ge=1, le=20, description="每天模拟选择数量")
+    min_train_days: int = Field(20, ge=10, le=120, description="首个训练窗口交易日数")
+    validation_days: int = Field(5, ge=2, le=30, description="每折样本外验证交易日数")
+
+
 class RecommendCalibrationRequest(BaseModel):
     min_train_days: int = Field(20, ge=10, le=120, description="首个训练窗口交易日数")
     validation_days: int = Field(5, ge=2, le=30, description="每折样本外验证交易日数")
@@ -171,6 +190,53 @@ async def recommend_calibration_endpoint(req: RecommendCalibrationRequest):
     )
     result["source_rows"] = len(response.data or [])
     result["caliber"] = "按生产全量达标候选原始四策略分重排；T+1 已触发记录；收益口径为扣费后相对沪深300超额"
+    return result
+
+
+@router.post("/recommend-history-calibration")
+async def recommend_history_calibration_endpoint(req: RecommendHistoryCalibrationRequest):
+    """拉取历史日线进行无未来函数的技术因子研究校验。"""
+    result = await asyncio.to_thread(
+        recommend_history_replay_service.run_historical_calibration,
+        codes=req.codes,
+        eval_days=req.eval_days,
+        top_n=req.top_n,
+        min_train_days=req.min_train_days,
+        validation_days=req.validation_days,
+    )
+    # 历史日线无法还原当时的完整基本面截面，任何内部结果都不得直接部署。
+    result["deployment_eligible"] = False
+    result["validation_scope"] = "research_only_technical_factors"
+    return result
+
+
+@router.get("/recommend-snapshot-readiness")
+async def recommend_snapshot_readiness_endpoint():
+    """Report whether production point-in-time features are mature enough for replay."""
+    if not supabase_store.is_configured():
+        return {
+            "ready_for_full_factor_replay": False,
+            "status": "storage_not_configured",
+            "blockers": ["storage_not_configured"],
+        }
+    try:
+        sb = await supabase_store.get_service_client()
+        response = (
+            await sb.table("daily_recommendations")
+            .select("rec_date,source,settled_at,feature_snapshot")
+            .execute()
+        )
+    except Exception as error:
+        if "feature_snapshot" in str(error):
+            return {
+                "ready_for_full_factor_replay": False,
+                "status": "migration_required",
+                "blockers": ["feature_snapshot_column_missing"],
+                "migration": "backend/supabase-schema-v18.sql",
+            }
+        raise HTTPException(status_code=502, detail=f"点时快照覆盖率读取失败: {error}")
+    result = recommend_calibration_service.assess_feature_snapshot_readiness(response.data or [])
+    result["status"] = "ready" if result["ready_for_full_factor_replay"] else "accumulating"
     return result
 
 

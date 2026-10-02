@@ -25,10 +25,24 @@ _RECOMMENDATION_CACHE_MAX = 7
 # v6：LLM 不再改变名单、顺序和置信分，只为固定的规则 top 10 补充解释。
 # 旧快照的 source/置信分统计口径不同，必须重算，不能混入胜率分档。
 # v7：推荐和观察候选携带四策略原始分及评分配置，供样本外校准。
-_RECOMMENDATION_SCHEMA_VERSION = 7
+# v8：推荐生成时的估值、换手率、市值与稳定板块分类一并留作点时快照。
+_RECOMMENDATION_SCHEMA_VERSION = 8
 
 # 盈亏比硬门槛：观察候选的解锁价按同一门槛反推，两处必须一致
 _RR_MIN_RATIO = 1.2
+
+
+def build_feature_snapshot(candidate: dict) -> dict:
+    """Copy only signal-time fields; future outcomes must never enter this snapshot."""
+    code = str(candidate.get("code") or "")
+    board = "star" if code.startswith("688") else "chinext" if code.startswith(("300", "301")) else "main"
+    return {
+        "pe": _num(candidate.get("pe")),
+        "pb": _num(candidate.get("pb")),
+        "turnover": _num(candidate.get("turnover")),
+        "market_cap_yi": _num(candidate.get("market_cap_yi")),
+        "market_board": board,
+    }
 
 RECOMMEND_SYSTEM_PROMPT = """你是一位资深的 A 股研究编辑。规则模型已经确定下一个交易日的关注名单和排序，你只负责为名单中的每只股票补充清晰、审慎的解释。
 
@@ -394,6 +408,7 @@ def _build_canonical_recommendations(
                 "confidence_source": "rule_score",
                 "strategy_scores": candidate.get("strategy_scores", {}),
                 "scoring_profile": candidate.get("scoring_profile", BASELINE_PROFILE.key),
+                "feature_snapshot": build_feature_snapshot(candidate),
                 "tags": candidate.get("tags", []),
                 **_build_action_plan(candidate, target_day),
             }
@@ -685,7 +700,7 @@ def db_source(rec: dict) -> str:
 # 为什么要降级重试而不是直接失败：迁移由用户在 Supabase 控制台跑，没跑完时直插会让
 # **整条推荐落库失败** —— 连带丢掉胜率跟踪，比少一个字段严重得多。
 _OPTIONAL_REC_COLUMNS: set[str] = set()
-_OPTIONAL_REC_COLUMN_NAMES = ("expected_price", "strategy_scores", "scoring_profile")
+_OPTIONAL_REC_COLUMN_NAMES = ("expected_price", "strategy_scores", "scoring_profile", "feature_snapshot")
 
 
 def _missing_optional_column(error: Exception) -> str | None:
@@ -746,6 +761,7 @@ async def save_recommendations(rec_date: str, recs: list[dict]) -> dict[str, str
             "expected_price": r.get("expected_price"),
             "strategy_scores": r.get("strategy_scores") or {},
             "scoring_profile": r.get("scoring_profile") or BASELINE_PROFILE.key,
+            "feature_snapshot": r.get("feature_snapshot") or {},
         }
         for r in recs
     ]
@@ -793,6 +809,7 @@ async def save_calibration_candidates(
                 "expected_price": plan.get("expected_price"),
                 "strategy_scores": candidate.get("strategy_scores") or {},
                 "scoring_profile": candidate.get("scoring_profile") or BASELINE_PROFILE.key,
+                "feature_snapshot": build_feature_snapshot(candidate),
             }
         )
     if not rows:

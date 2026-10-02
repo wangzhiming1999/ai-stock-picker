@@ -32,6 +32,51 @@ SCORING_PROFILES = (
     ScoringProfile("strict_momentum", 0.75, 0.25, momentum_min=4.5),
 )
 
+_SNAPSHOT_FIELDS = ("pe", "pb", "turnover", "market_cap_yi", "market_board")
+
+
+def assess_feature_snapshot_readiness(
+    rows: list[dict], *, min_rows: int = 300, min_dates: int = 30, required_coverage: float = 0.9
+) -> dict:
+    """Measure whether production point-in-time data can support full-factor replay."""
+    eligible = [row for row in rows if row.get("source") in ("rule", "calibration")]
+    settled = [row for row in eligible if row.get("settled_at")]
+    dates = sorted({str(row["rec_date"]) for row in eligible if row.get("rec_date")})
+    coverage = {
+        field: round(
+            sum((row.get("feature_snapshot") or {}).get(field) is not None for row in eligible)
+            / len(eligible)
+            * 100,
+            2,
+        ) if eligible else 0.0
+        for field in _SNAPSHOT_FIELDS
+    }
+    threshold_pct = required_coverage * 100
+    blockers = []
+    if len(settled) < min_rows:
+        blockers.append(f"settled_rows_below_{min_rows}")
+    if len(dates) < min_dates:
+        blockers.append(f"trading_dates_below_{min_dates}")
+    blockers.extend(
+        f"{field}_coverage_below_{threshold_pct:g}pct"
+        for field, value in coverage.items()
+        if value < threshold_pct
+    )
+    return {
+        "ready_for_full_factor_replay": not blockers,
+        "eligible_rows": len(eligible),
+        "settled_rows": len(settled),
+        "trading_dates": len(dates),
+        "date_range": {"start": dates[0] if dates else None, "end": dates[-1] if dates else None},
+        "field_coverage_pct": coverage,
+        "requirements": {
+            "min_settled_rows": min_rows,
+            "min_trading_dates": min_dates,
+            "required_field_coverage_pct": threshold_pct,
+        },
+        "blockers": blockers,
+    }
+
 
 def prepare_calibration_samples(rows: list[dict]) -> list[dict]:
     """Normalize settled production rows and reject incomparable observations."""

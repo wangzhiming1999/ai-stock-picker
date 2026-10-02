@@ -7,6 +7,7 @@ from app.services.recommend_calibration_service import (
     BASELINE_PROFILE,
     SCORING_PROFILES,
     calibrate_walk_forward,
+    assess_feature_snapshot_readiness,
     prepare_calibration_samples,
     score_strategy_components,
 )
@@ -27,6 +28,33 @@ def _sample(day: int, code: str, momentum: float, trend: float, excess: float) -
 
 
 class RecommendCalibrationTests(unittest.TestCase):
+    def test_snapshot_readiness_requires_coverage_dates_and_settled_rows(self) -> None:
+        rows = []
+        for day in range(1, 6):
+            for index in range(3):
+                rows.append({
+                    "rec_date": f"2026-01-{day:02d}",
+                    "source": "calibration",
+                    "settled_at": "2026-01-10" if day < 5 else None,
+                    "feature_snapshot": {
+                        "pe": 10.0 if index < 2 else None,
+                        "pb": 1.5,
+                        "turnover": 2.0,
+                        "market_cap_yi": 300.0,
+                        "market_board": "main",
+                    },
+                })
+
+        result = assess_feature_snapshot_readiness(
+            rows, min_rows=10, min_dates=4, required_coverage=0.8
+        )
+
+        self.assertFalse(result["ready_for_full_factor_replay"])
+        self.assertEqual(result["eligible_rows"], 15)
+        self.assertEqual(result["settled_rows"], 12)
+        self.assertEqual(result["field_coverage_pct"]["pe"], 66.67)
+        self.assertIn("pe_coverage_below_80pct", result["blockers"])
+
     def test_preparation_excludes_unfilled_and_unscored_rows(self) -> None:
         rows = [
             {"rec_date": "2026-01-01", "code": "A", "strategy_scores": {"momentum": 6}, "excess_return": 1, "source": "rule", "execution_status": "filled"},
@@ -112,6 +140,72 @@ class RecommendCalibrationTests(unittest.TestCase):
         self.assertEqual(result["status"], "insufficient_training_sample")
 
 class TestRecommendCalibrationEndpoint:
+    @pytest.mark.asyncio
+    async def test_snapshot_readiness_endpoint_reports_live_storage_coverage(self, monkeypatch) -> None:
+        class _Response:
+            data = [{
+                "rec_date": "2026-10-01", "source": "rule", "settled_at": "2026-10-02",
+                "feature_snapshot": {"pe": 12, "pb": 2, "turnover": 1, "market_cap_yi": 500, "market_board": "main"},
+            }]
+
+        class _Query:
+            def select(self, *_args):
+                return self
+
+            async def execute(self):
+                return _Response()
+
+        class _Client:
+            def table(self, _name):
+                return _Query()
+
+        async def _client():
+            return _Client()
+
+        monkeypatch.setattr(backtest.supabase_store, "is_configured", lambda: True)
+        monkeypatch.setattr(backtest.supabase_store, "get_service_client", _client)
+
+        result = await backtest.recommend_snapshot_readiness_endpoint()
+
+        assert result["eligible_rows"] == 1
+        assert result["settled_rows"] == 1
+        assert result["ready_for_full_factor_replay"] is False
+
+    @pytest.mark.asyncio
+    async def test_snapshot_readiness_endpoint_paginates_all_rows(self, monkeypatch) -> None:
+        rows = [
+            {"rec_date": "2026-10-01", "source": "rule", "settled_at": "2026-10-02", "feature_snapshot": {}}
+            for _ in range(1001)
+        ]
+
+        class _Query:
+            start = 0
+            end = 999
+
+            def select(self, *_args):
+                return self
+
+            def range(self, start, end):
+                self.start, self.end = start, end
+                return self
+
+            async def execute(self):
+                return type("Response", (), {"data": rows[self.start : self.end + 1]})()
+
+        class _Client:
+            def table(self, _name):
+                return _Query()
+
+        async def _client():
+            return _Client()
+
+        monkeypatch.setattr(backtest.supabase_store, "is_configured", lambda: True)
+        monkeypatch.setattr(backtest.supabase_store, "get_service_client", _client)
+
+        result = await backtest.recommend_snapshot_readiness_endpoint()
+
+        assert result["eligible_rows"] == 1001
+
     @pytest.mark.asyncio
     async def test_unconfigured_storage_returns_non_deployable_status(self, monkeypatch) -> None:
         monkeypatch.setattr(backtest.supabase_store, "is_configured", lambda: False)
