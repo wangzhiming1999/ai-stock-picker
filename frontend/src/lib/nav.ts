@@ -36,10 +36,10 @@ export interface NavItem {
 }
 
 export const NAV: NavItem[] = [
-  { key: "today", label: "今日作战", icon: Zap, desc: "盯盘 · 简报" },
-  { key: "opportunity", label: "选机会", icon: Lightbulb, desc: "推荐 · 决策 · 扫描 · 形态 · 涨跌停" },
+  { key: "today", label: "今日作战", icon: Zap, desc: "盯盘 · 市场温度 · 简报" },
+  { key: "opportunity", label: "选机会", icon: Lightbulb, desc: "精选决策 · 扫描中心" },
   { key: "holdings", label: "持仓", icon: Wallet, desc: "持仓 · 模拟盘 · 自选 · 历史" },
-  { key: "research", label: "研究", icon: Microscope, desc: "证据台账 · 胜率 · 回测" },
+  { key: "research", label: "研究", icon: Microscope, desc: "统一验证中心" },
 ];
 
 export const DEFAULT_TAB: Tab = "today";

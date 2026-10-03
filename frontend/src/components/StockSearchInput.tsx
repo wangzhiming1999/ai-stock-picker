@@ -61,6 +61,8 @@ export default function StockSearchInput({ value, onChange, onPickCode, disabled
     <div className="relative flex-1" ref={boxRef}>
       <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" aria-hidden />
       <Input
+        id="global-stock-search"
+        name="global-stock-search"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder="输入 6 位代码或股票名称，如 600519 / 茅台"

@@ -1,39 +1,24 @@
 import { Suspense } from "react";
-import { Crosshair, Lightbulb, ScanSearch, Shapes, Layers, Gauge, Activity } from "lucide-react";
+import { Crosshair, Lightbulb, ScanSearch } from "lucide-react";
 import { subNavFor } from "../lib/subnav";
 import { useSubPage } from "../lib/useSubPage";
 import type { NavJump } from "../lib/featureMap";
 import { lazyRetry } from "../lib/lazyRetry";
 import { STACK } from "../lib/ui";
 import PanelSkeleton from "./ui/PanelSkeleton";
-import RecommendPanel from "./RecommendPanel";
 import SubNav from "./ui/SubNav";
 import PageHeader from "./ui/PageHeader";
 
-const ScanPanel = lazyRetry(() => import("./ScanPanel"));
-const TacticView = lazyRetry(() => import("./TacticView"));
-const VanguardPanel = lazyRetry(() => import("./VanguardPanel"));
-const ChipPanel = lazyRetry(() => import("./ChipPanel"));
-const SanduPanel = lazyRetry(() => import("./sandu/SanduPanel"));
-const LimitUpDownPanel = lazyRetry(() => import("./opportunity/LimitUpDownPanel"));
+const DecisionCenter = lazyRetry(() => import("./DecisionCenter"));
+const ScanCenter = lazyRetry(() => import("./ScanCenter"));
 
 const SUB_ICON = {
-  recommend: Lightbulb,
-  vanguard: Crosshair,
+  decision: Crosshair,
   scan: ScanSearch,
-  tactic: Shapes,
-  chip: Layers,
-  sandu: Gauge,
-  limit: Activity,
 } as const;
 const SUB_KEYS = {
-  recommend: "recommend",
-  vanguard: "vanguard",
+  decision: "decision",
   scan: "scan",
-  tactic: "tactic",
-  chip: "chip",
-  sandu: "sandu",
-  limit: "limit",
 } as const;
 
 interface Props {
@@ -62,7 +47,7 @@ interface Props {
  * ⚠️ 本页所有产出都是**候选 / 读数**，不是指令。子页内的免责说明不要为了排版干净删掉。
  */
 export default function OpportunityPanel({ onPick, jump }: Props) {
-  const { sub, changeSub, isVisible, isMounted } = useSubPage("opportunity", jump, SUB_KEYS.recommend);
+  const { sub, changeSub, isVisible, isMounted } = useSubPage("opportunity", jump, SUB_KEYS.decision);
   const items = subNavFor("opportunity").map((s) => ({
     ...s,
     icon: SUB_ICON[s.key as keyof typeof SUB_ICON],
@@ -74,56 +59,18 @@ export default function OpportunityPanel({ onPick, jump }: Props) {
 
       <SubNav id="opportunity" items={items} value={sub} onChange={changeSub} />
 
-      {isMounted(SUB_KEYS.recommend) && (
-        <div className={isVisible(SUB_KEYS.recommend)}>
-          <RecommendPanel onPick={onPick} />
-        </div>
-      )}
-
-      {isMounted(SUB_KEYS.vanguard) && (
-        <div className={isVisible(SUB_KEYS.vanguard)}>
-          <Suspense fallback={<PanelSkeleton label="正在加载决策先锋" />}>
-            <VanguardPanel onPick={onPick} />
+      {isMounted(SUB_KEYS.decision) && (
+        <div className={isVisible(SUB_KEYS.decision)}>
+          <Suspense fallback={<PanelSkeleton label="正在加载精选决策" />}>
+            <DecisionCenter onPick={onPick} />
           </Suspense>
         </div>
       )}
 
       {isMounted(SUB_KEYS.scan) && (
         <div className={isVisible(SUB_KEYS.scan)}>
-          <Suspense fallback={<PanelSkeleton label="正在加载扫描区" />}>
-            <ScanPanel onPick={onPick} />
-          </Suspense>
-        </div>
-      )}
-
-      {isMounted(SUB_KEYS.tactic) && (
-        <div className={isVisible(SUB_KEYS.tactic)}>
-          <Suspense fallback={<PanelSkeleton label="正在加载形态命中" />}>
-            <TacticView onPick={onPick} />
-          </Suspense>
-        </div>
-      )}
-
-      {isMounted(SUB_KEYS.chip) && (
-        <div className={isVisible(SUB_KEYS.chip)}>
-          <Suspense fallback={<PanelSkeleton label="正在加载筹码形态" />}>
-            <ChipPanel onPick={onPick} />
-          </Suspense>
-        </div>
-      )}
-
-      {isMounted(SUB_KEYS.sandu) && (
-        <div className={isVisible(SUB_KEYS.sandu)}>
-          <Suspense fallback={<PanelSkeleton label="正在加载三度扫描" />}>
-            <SanduPanel onPick={onPick} />
-          </Suspense>
-        </div>
-      )}
-
-      {isMounted(SUB_KEYS.limit) && (
-        <div className={isVisible(SUB_KEYS.limit)}>
-          <Suspense fallback={<PanelSkeleton label="正在加载涨跌停" />}>
-            <LimitUpDownPanel />
+          <Suspense fallback={<PanelSkeleton label="正在加载扫描中心" />}>
+            <ScanCenter onPick={onPick} />
           </Suspense>
         </div>
       )}

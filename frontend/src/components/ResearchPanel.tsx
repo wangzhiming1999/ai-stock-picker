@@ -1,22 +1,8 @@
-import { Suspense } from "react";
-import { BarChart3, FlaskConical, Microscope, ScrollText } from "lucide-react";
-import { subNavFor } from "../lib/subnav";
-import { useSubPage } from "../lib/useSubPage";
+import { Microscope } from "lucide-react";
 import type { NavJump } from "../lib/featureMap";
-import { lazyRetry } from "../lib/lazyRetry";
 import { STACK } from "../lib/ui";
-import PanelSkeleton from "./ui/PanelSkeleton";
-import SubNav from "./ui/SubNav";
 import PageHeader from "./ui/PageHeader";
-import { CaliberIncomparabilityNote } from "./CaliberNote";
-import EvidenceLedgerPanel from "./EvidenceLedgerPanel";
-import WinratePanel from "./WinratePanel";
-
-const BacktestPanel = lazyRetry(() => import("./BacktestPanel"));
-const TacticBacktestPanel = lazyRetry(() => import("./TacticBacktestPanel"));
-
-const SUB_ICON = { ledger: ScrollText, winrate: BarChart3, backtest: FlaskConical } as const;
-const SUB_KEYS = { ledger: "ledger", winrate: "winrate", backtest: "backtest" } as const;
+import VerificationCenter from "./VerificationCenter";
 
 interface Props {
   /** 从功能地图跳进来的落点 */
@@ -40,43 +26,11 @@ interface Props {
  * 先看证据台账，再看各口径自己的数字 —— 顺序是刻意的：
  * 先知道「哪些能动手」（当前 0 条），后面的数字才不会被误读成「能用」。
  */
-export default function ResearchPanel({ jump }: Props) {
-  const { sub, changeSub, isVisible, isMounted } = useSubPage("research", jump, SUB_KEYS.ledger);
-  const items = subNavFor("research").map((s) => ({ ...s, icon: SUB_ICON[s.key as keyof typeof SUB_ICON] }));
-
+export default function ResearchPanel({ jump: _jump }: Props) {
   return (
     <div className={STACK}>
       <PageHeader icon={Microscope} title="研究" />
-
-      <SubNav id="research" items={items} value={sub} onChange={changeSub} />
-
-      {isMounted(SUB_KEYS.ledger) && (
-        <div className={isVisible(SUB_KEYS.ledger)}>
-          <div className={STACK}>
-            <CaliberIncomparabilityNote />
-            <EvidenceLedgerPanel />
-          </div>
-        </div>
-      )}
-
-      {isMounted(SUB_KEYS.winrate) && (
-        <div className={isVisible(SUB_KEYS.winrate)}>
-          <WinratePanel />
-        </div>
-      )}
-
-      {isMounted(SUB_KEYS.backtest) && (
-        <div className={isVisible(SUB_KEYS.backtest)}>
-          <div className={STACK}>
-            <Suspense fallback={<PanelSkeleton label="正在加载组合回测" />}>
-              <BacktestPanel />
-            </Suspense>
-            <Suspense fallback={<PanelSkeleton label="正在加载形态回测" />}>
-              <TacticBacktestPanel />
-            </Suspense>
-          </div>
-        </div>
-      )}
+      <VerificationCenter />
     </div>
   );
 }

@@ -185,11 +185,28 @@ export async function strategyScan(
   return res.json();
 }
 
-/** 实战形态：技巧清单（分类 / 买卖方向 / 说明 + 证据等级） */
-export async function listTactics(): Promise<TacticDef[]> {
-  const res = await fetch(`${API}/market/tactics`);
-  if (!res.ok) throw await errorFrom(res, "获取形态清单失败");
-  return res.json();
+let tacticsRequest: Promise<TacticDef[]> | null = null;
+
+/**
+ * 实战形态：技巧清单（分类 / 买卖方向 / 说明 + 证据等级）。
+ *
+ * 形态和筹码中心消费的是同一份静态定义。共享进行中的请求和成功结果，避免
+ * 合并展示后重复拉取；失败不会进入缓存，用户点击重试时仍会重新请求。
+ */
+export function listTactics(): Promise<TacticDef[]> {
+  if (tacticsRequest) return tacticsRequest;
+
+  tacticsRequest = fetch(`${API}/market/tactics`)
+    .then(async (res) => {
+      if (!res.ok) throw await errorFrom(res, "获取形态清单失败");
+      return res.json() as Promise<TacticDef[]>;
+    })
+    .catch((error: unknown) => {
+      tacticsRequest = null;
+      throw error;
+    });
+
+  return tacticsRequest;
 }
 
 /** 形态证据等级总览：分级口径、覆盖计数、证据快照（供角标说明与自查） */

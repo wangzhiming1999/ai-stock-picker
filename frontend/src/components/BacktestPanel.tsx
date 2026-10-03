@@ -151,15 +151,15 @@ export default function BacktestPanel() {
         </div>
         <label className="block">
           <span className="mb-1 block text-meta text-ink-muted">开始日期</span>
-          <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="rounded-lg bg-surface-inset/70 px-2 py-1.5 text-meta" />
+          <Input id="backtest-start-date" name="backtest-start-date" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="rounded-lg bg-surface-inset/70 px-2 py-1.5 text-meta" />
         </label>
         <label className="block">
           <span className="mb-1 block text-meta text-ink-muted">每期持仓数</span>
-          <Input value={topN} onChange={(e) => setTopN(e.target.value)} className="w-16 rounded-lg bg-surface-inset/70 px-2 py-1.5 text-meta" />
+          <Input id="backtest-top-n" name="backtest-top-n" value={topN} onChange={(e) => setTopN(e.target.value)} className="w-16 rounded-lg bg-surface-inset/70 px-2 py-1.5 text-meta" />
         </label>
         <label className="block">
           <span className="mb-1 block text-meta text-ink-muted">调仓周期(交易日)</span>
-          <Input value={rebalance} onChange={(e) => setRebalance(e.target.value)} className="w-16 rounded-lg bg-surface-inset/70 px-2 py-1.5 text-meta" />
+          <Input id="backtest-rebalance" name="backtest-rebalance" value={rebalance} onChange={(e) => setRebalance(e.target.value)} className="w-16 rounded-lg bg-surface-inset/70 px-2 py-1.5 text-meta" />
         </label>
       </div>
 
@@ -180,6 +180,8 @@ export default function BacktestPanel() {
           )}
           <span className="text-ink-muted">· 自定义覆盖：</span>
           <Input
+            id="backtest-codes"
+            name="backtest-codes"
             value={customCodes}
             onChange={(e) => setCustomCodes(e.target.value)}
             placeholder="留空用默认池，逗号/空格分隔"

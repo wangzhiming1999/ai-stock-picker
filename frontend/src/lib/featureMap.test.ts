@@ -95,6 +95,12 @@ test("一级导航数量与子页宽度都受控 —— 深度超过 2 层就没
   }
 });
 
+test("合并后的任务导航只暴露决策入口，不暴露内部算法分类", () => {
+  assert.deepEqual(SUB_NAV.today.map((item) => item.key), ["monitor", "market", "briefing"]);
+  assert.deepEqual(SUB_NAV.opportunity.map((item) => item.key), ["decision", "scan"]);
+  assert.deepEqual(SUB_NAV.research.map((item) => item.key), ["verify"]);
+});
+
 test("DOMAIN_TAB 与 nav.ts 的一级导航保持一致", () => {
   const navSrc = readFileSync(new URL("./nav.ts", import.meta.url), "utf8");
   const navKeys = [...navSrc.matchAll(/key:\s*"(\w+)"/g)].map((m) => m[1]);

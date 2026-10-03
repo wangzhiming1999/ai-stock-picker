@@ -23,6 +23,7 @@ const STATUS_TTL_MS = 15_000;
 
 let lastCheckedAt = 0;
 let lastServerSeconds = 0;
+let statusRequest: Promise<number> | null = null;
 
 /** 本地倒计时终点（毫秒时间戳）。仅用于展示，服务端始终是权威来源。 */
 let cooldownUntil = 0;
@@ -56,15 +57,21 @@ export function localCooldownSeconds(): number {
  */
 export async function cooldownSeconds(force = false): Promise<number> {
   if (!force && Date.now() - lastCheckedAt < STATUS_TTL_MS) return lastServerSeconds;
-  try {
-    const status = await fetchSpotStatus();
-    lastCheckedAt = Date.now();
-    lastServerSeconds = status.cooldown_seconds ?? 0;
-    markCooldown(lastServerSeconds);
-    return lastServerSeconds;
-  } catch {
-    return 0;
-  }
+  if (statusRequest) return statusRequest;
+
+  statusRequest = fetchSpotStatus()
+    .then((status) => {
+      lastCheckedAt = Date.now();
+      lastServerSeconds = status.cooldown_seconds ?? 0;
+      markCooldown(lastServerSeconds);
+      return lastServerSeconds;
+    })
+    .catch(() => 0)
+    .finally(() => {
+      statusRequest = null;
+    });
+
+  return statusRequest;
 }
 
 /**

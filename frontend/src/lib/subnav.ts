@@ -34,17 +34,12 @@ export interface SubNavDef {
 export const SUB_NAV = {
   today: [
     { key: "monitor", label: "盯盘", desc: "实时买卖点 · 挂单价 · 提醒" },
-    { key: "seize", label: "抢板", desc: "封板雷达 · 刚封板/回封候选 · 次日竞价卖出" },
+    { key: "market", label: "市场温度", desc: "封板雷达 · 涨跌停梯队 · 风险温度" },
     { key: "briefing", label: "简报", desc: "早盘方向 · 尾盘动作 · 复盘" },
   ],
   opportunity: [
-    { key: "recommend", label: "推荐", desc: "AI 每日推荐 · 大盘推衍 · 四维排名 · 板块热榜" },
-    { key: "vanguard", label: "决策", desc: "三维选股 · 诊股 · 板块强度 · 主力抱团 · 买卖时机" },
-    { key: "scan", label: "扫描", desc: "找候选 · 条件筛选 · 开盘前/收盘前异动" },
-    { key: "tactic", label: "形态", desc: "K 线量价条件命中（条件成立 ≠ 已被验证）" },
-    { key: "chip", label: "筹码", desc: "筹码峰形态：单峰密集 · 低位低获利 · 转移向上" },
-    { key: "sandu", label: "三度", desc: "厚度·力度·速度 三度打分（主力吸筹结构观察）" },
-    { key: "limit", label: "涨跌停", desc: "涨停梯队 · 跌停观察 · 市场情绪温度" },
+    { key: "decision", label: "精选决策", desc: "每日推荐 · 三维确认 · 结构位 · 板块环境" },
+    { key: "scan", label: "扫描中心", desc: "策略筛选 · 时段异动 · K线/筹码/三度结构" },
   ],
   holdings: [
     { key: "position", label: "持仓", desc: "成本 · 浮盈亏 · 预警规则" },
@@ -53,9 +48,7 @@ export const SUB_NAV = {
     { key: "history", label: "历史", desc: "历次分析批次留档" },
   ],
   research: [
-    { key: "ledger", label: "证据台账", desc: "每条口径能不能动手（当前 0 条）" },
-    { key: "winrate", label: "胜率", desc: "各策略历史胜率 · 口径不可比" },
-    { key: "backtest", label: "回测", desc: "组合回测 · 形态回测" },
+    { key: "verify", label: "验证中心", desc: "证据等级 · 实际胜率 · 组合/形态回测" },
   ],
 } as const satisfies Record<Tab, readonly SubNavDef[]>;
 
