@@ -987,6 +987,32 @@ export interface DataHealth {
   issues: DataHealthIssue[];
 }
 
+export interface ShadowStrategyCandidate {
+  key: string;
+  label: string;
+  status: "collecting" | "rejected" | "eligible_for_review";
+  promotion_eligible: boolean;
+  metrics: { selections?: number; hit_rate?: number | null; avg_excess_return?: number | null };
+  baseline_metrics: { selections?: number; hit_rate?: number | null; avg_excess_return?: number | null };
+  hit_rate_lift: number | null;
+  window_count: number;
+  stable_win_windows: number;
+  required_win_windows: number;
+  blockers: string[];
+}
+
+export interface ShadowStrategyReport {
+  status: "storage_not_configured" | "migration_required" | "collecting" | "observing" | "eligible_for_review";
+  mode: "shadow_only";
+  production_weights_changed: false;
+  source_rows?: number;
+  usable_samples?: number;
+  sample_dates?: number;
+  reviewable_candidates: string[];
+  candidates: ShadowStrategyCandidate[];
+  migration?: string;
+}
+
 export interface WinrateStats {
   prediction: {
     total: number;

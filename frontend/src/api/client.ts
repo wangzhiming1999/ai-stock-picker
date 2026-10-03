@@ -32,6 +32,7 @@ import type {
   QuadRankResult,
   SanduScanResult,
   SanduAutoCandidatesResult,
+  ShadowStrategyReport,
   ScanStock,
   SimAccount,
   SimPerformance,
@@ -373,6 +374,12 @@ export async function fetchWinrate(): Promise<WinrateStats> {
 export async function fetchDataHealth(): Promise<DataHealth> {
   const res = await fetch(`${API}/market/data-health`);
   if (!res.ok) throw await errorFrom(res, "获取数据健康状态失败");
+  return res.json();
+}
+
+export async function fetchShadowStrategies(): Promise<ShadowStrategyReport> {
+  const res = await fetch(`${API}/backtest/shadow-strategies`);
+  if (!res.ok) throw await errorFrom(res, "获取影子策略结果失败");
   return res.json();
 }
 

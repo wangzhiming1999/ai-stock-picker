@@ -4,6 +4,7 @@ import { STACK } from "../lib/ui";
 import { CaliberIncomparabilityNote } from "./CaliberNote";
 import EvidenceLedgerPanel from "./EvidenceLedgerPanel";
 import DataHealthPanel from "./DataHealthPanel";
+import ShadowStrategyPanel from "./ShadowStrategyPanel";
 import WinratePanel from "./WinratePanel";
 import PanelSkeleton from "./ui/PanelSkeleton";
 
@@ -16,6 +17,7 @@ export default function VerificationCenter() {
     <div className={STACK}>
       <CaliberIncomparabilityNote />
       <DataHealthPanel />
+      <ShadowStrategyPanel />
       <EvidenceLedgerPanel />
       <WinratePanel />
       <Suspense fallback={<PanelSkeleton label="正在加载组合回测" />}>

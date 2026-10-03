@@ -73,6 +73,7 @@ export type BlockId =
   | "limitup" // 涨跌停 · 涨停梯队
   | "limitdown" // 涨跌停 · 跌停观察层
   | "data-health" // 研究 · 数据健康中心
+  | "shadow-strategies" // 研究 · 影子策略实验室
   | "winrate" // 研究 · 胜率看板
   | "backtest" // 研究 · 策略回测
   | "tactic_backtest"; // 研究 · 形态回测验证
@@ -374,6 +375,16 @@ export const FEATURES: FeatureEntry[] = [
     sub: "verify",
     block: "data-health",
     keywords: ["数据健康", "结算", "积压", "cron", "行情新鲜度", "覆盖率"],
+    isNew: true,
+  },
+  {
+    key: "rs.shadow-strategies",
+    label: "影子策略实验室",
+    desc: "新因子后台留样并做样本外晋级检查，不自动修改生产权重",
+    domain: "research",
+    sub: "verify",
+    block: "shadow-strategies",
+    keywords: ["影子策略", "实验室", "样本外", "晋级", "回归", "因子"],
     isNew: true,
   },
   {

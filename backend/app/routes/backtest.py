@@ -11,6 +11,7 @@ from app.services import (
     recommend_calibration_service,
     recommend_history_replay_service,
     recommend_regression_service,
+    shadow_strategy_service,
     supabase_store,
     tactic_backtest_service,
 )
@@ -277,6 +278,26 @@ async def recommend_snapshot_readiness_endpoint():
     result = recommend_calibration_service.assess_feature_snapshot_readiness(rows)
     result["status"] = "ready" if result["ready_for_full_factor_replay"] else "accumulating"
     return result
+
+
+@router.get("/shadow-strategies")
+async def shadow_strategies_endpoint():
+    """Evaluate production point-in-time candidates without changing live weights."""
+    try:
+        return await shadow_strategy_service.load_production_shadow_report()
+    except Exception as error:
+        missing = next((name for name in ("strategy_scores", "feature_snapshot") if name in str(error)), None)
+        if missing:
+            migration = "v17" if missing == "strategy_scores" else "v18"
+            return {
+                "status": "migration_required",
+                "mode": "shadow_only",
+                "production_weights_changed": False,
+                "reviewable_candidates": [],
+                "candidates": [],
+                "migration": migration,
+            }
+        raise HTTPException(status_code=502, detail=f"影子策略读取失败: {type(error).__name__}")
 
 
 @router.post("/tactic")
