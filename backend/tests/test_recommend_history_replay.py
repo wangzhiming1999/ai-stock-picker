@@ -5,6 +5,7 @@ from app.routes import backtest
 from app.services.recommend_history_replay_service import (
     build_historical_samples,
     classify_market_regime,
+    compute_point_in_time_features,
     compute_technical_strategy_scores,
     evaluate_candidate_gate_profiles,
     resolve_historical_execution,
@@ -54,6 +55,20 @@ def test_technical_scores_reproduce_live_volume_factor_from_historical_turnover(
     assert scores["volume"] == 7.0
 
 
+def test_point_in_time_features_use_signal_day_price_and_turnover_only() -> None:
+    closes = [100.0] * 55 + [101.0, 102.0, 103.0, 104.0, 105.0]
+    opens = [100.0] * 59 + [103.0]
+    turnovers = [10.0] * 55 + [10.0, 10.0, 10.0, 10.0, 5.0]
+
+    features = compute_point_in_time_features(closes, opens, turnovers)
+
+    assert features["ma20_distance_pct"] == pytest.approx(4.2184, abs=0.0001)
+    assert features["gap_pct"] == pytest.approx(-0.9615, abs=0.0001)
+    assert features["consecutive_up_days"] == 5
+    assert features["turnover_ratio_5"] == pytest.approx(0.5)
+    assert features["bearish_volume_divergence"] is True
+
+
 def test_progressive_trend_score_preserves_partial_confirmation() -> None:
     closes = [100.0] * 41 + [120.0 - index for index in range(20)]
 
@@ -77,6 +92,7 @@ def test_historical_samples_use_next_trading_day_outcome_without_future_leakage(
     first_before = next(row for row in before if row["code"] == "A")
     first_after = next(row for row in after if row["code"] == "A")
     assert first_before["strategy_scores"] == first_after["strategy_scores"]
+    assert first_before["point_in_time_features"] == first_after["point_in_time_features"]
     assert first_before["excess_return"] == first_after["excess_return"]
     assert first_before["excess_return"] == first_before["holding_excess_returns"]["1"]
     assert first_before["outcome_date"] > first_before["date"]
@@ -348,7 +364,9 @@ def test_loss_rejection_profile_must_improve_hit_rate_and_return_out_of_sample()
                 }
             )
 
-    result = evaluate_loss_rejection_profiles(samples, train_days=4, top_n=10, min_validation_selections=4)
+    result = evaluate_loss_rejection_profiles(
+        samples, train_days=4, top_n=10, min_train_selections=4, min_validation_selections=4
+    )
 
     assert result["selected_profile"] == "volatility_22"
     assert result["validation_metrics"]["hit_rate"] == 100.0
@@ -374,11 +392,75 @@ def test_loss_rejection_profile_rejects_training_only_improvement() -> None:
                 }
             )
 
-    result = evaluate_loss_rejection_profiles(samples, train_days=4, top_n=10, min_validation_selections=4)
+    result = evaluate_loss_rejection_profiles(
+        samples, train_days=4, top_n=10, min_train_selections=4, min_validation_selections=4
+    )
 
     assert result["selected_profile"] == "volatility_22"
     assert result["hit_rate_lift"] == -50.0
     assert result["deployment_eligible"] is False
+
+
+def test_loss_rejection_profiles_can_reject_overextended_price_action() -> None:
+    samples = []
+    for day in range(1, 9):
+        for code, distance, result in (
+            ("600001", 3.0, 1.0),
+            ("600002", 12.0, -1.0),
+        ):
+            samples.append(
+                {
+                    "date": f"2026-01-{day:02d}",
+                    "code": code,
+                    "strategy_scores": {"momentum": 7, "trend": 5},
+                    "historical_volatility": 25.0,
+                    "signal": {"strength": 7.0},
+                    "point_in_time_features": {
+                        "ma20_distance_pct": distance,
+                        "gap_pct": 0.5,
+                        "consecutive_up_days": 2,
+                        "bearish_volume_divergence": False,
+                    },
+                    "excess_return": result,
+                }
+            )
+
+    result = evaluate_loss_rejection_profiles(
+        samples, train_days=4, top_n=10, min_train_selections=4, min_validation_selections=4
+    )
+
+    assert result["selected_profile"] == "ma20_extension_5"
+    assert result["validation_metrics"]["hit_rate"] == 100.0
+    assert next(
+        profile for profile in result["validation_profiles"] if profile["profile"] == "ma20_extension_5"
+    )["hit_rate_lift"] == 50.0
+    assert result["deployment_eligible"] is True
+
+
+def test_loss_rejection_profiles_ignore_tiny_training_slices() -> None:
+    samples = []
+    for day in range(1, 9):
+        for code_index in range(2):
+            is_only_extended_survivor = day == 1 and code_index == 0
+            samples.append(
+                {
+                    "date": f"2026-01-{day:02d}",
+                    "code": f"60000{code_index}",
+                    "strategy_scores": {"momentum": 7, "trend": 5},
+                    "historical_volatility": 45.0,
+                    "signal": {"strength": 7.0},
+                    "point_in_time_features": {
+                        "ma20_distance_pct": 3.0 if is_only_extended_survivor else 12.0,
+                    },
+                    "excess_return": 1.0 if code_index == 0 else -1.0,
+                }
+            )
+
+    result = evaluate_loss_rejection_profiles(
+        samples, train_days=4, top_n=10, min_train_selections=4, min_validation_selections=4
+    )
+
+    assert result["selected_profile"] == "baseline"
 
 
 @pytest.mark.asyncio

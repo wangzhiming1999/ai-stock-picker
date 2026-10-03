@@ -19,6 +19,48 @@ from app.services.recommend_calibration_service import calibrate_walk_forward
 BASE_TRANSACTION_COST_PCT = 0.15
 
 
+def compute_point_in_time_features(
+    closes: list[float],
+    opens: list[float],
+    turnovers: list[float | None] | None = None,
+) -> dict[str, float | int | bool | None]:
+    """Derive loss-rejection features from bars available at the signal close."""
+    values = [float(value) for value in closes]
+    open_values = [float(value) for value in opens]
+    price = values[-1]
+    ma20 = mean(values[-20:])
+    previous_close = values[-2]
+    gap_pct = (open_values[-1] / previous_close - 1) * 100 if previous_close else 0.0
+
+    consecutive_up_days = 0
+    for index in range(len(values) - 1, 0, -1):
+        if values[index] <= values[index - 1]:
+            break
+        consecutive_up_days += 1
+
+    turnover_ratio_5 = None
+    if turnovers and len(turnovers) >= len(values):
+        current_turnover = turnovers[len(values) - 1]
+        previous_turnovers = [
+            float(value)
+            for value in turnovers[len(values) - 6 : len(values) - 1]
+            if value is not None
+        ]
+        if current_turnover is not None and len(previous_turnovers) == 5 and mean(previous_turnovers) > 0:
+            turnover_ratio_5 = float(current_turnover) / mean(previous_turnovers)
+    five_day_return = (price / values[-6] - 1) * 100 if values[-6] else 0.0
+    bearish_volume_divergence = (
+        turnover_ratio_5 is not None and five_day_return > 0 and turnover_ratio_5 < 0.8
+    )
+    return {
+        "ma20_distance_pct": round((price / ma20 - 1) * 100, 6) if ma20 else None,
+        "gap_pct": round(gap_pct, 6),
+        "consecutive_up_days": consecutive_up_days,
+        "turnover_ratio_5": round(turnover_ratio_5, 6) if turnover_ratio_5 is not None else None,
+        "bearish_volume_divergence": bearish_volume_divergence,
+    }
+
+
 def compute_technical_strategy_scores(
     closes: list[float],
     turnovers: list[float | None] | None = None,
@@ -139,6 +181,7 @@ def build_historical_samples(
             position = frame.index.get_loc(day)
             outcome_day = frame.index[position + 1]
             closes = frame.iloc[: position + 1]["close"].astype(float).tolist()
+            opens = frame.iloc[: position + 1]["open"].astype(float).tolist()
             turnovers = (
                 frame.iloc[: position + 1]["turnover"].tolist()
                 if "turnover" in frame.columns
@@ -147,6 +190,7 @@ def build_historical_samples(
             scores = compute_technical_strategy_scores(closes, turnovers)
             if scores is None:
                 continue
+            point_in_time_features = compute_point_in_time_features(closes, opens, turnovers)
             signal = signal_service.compute_signals(
                 closes,
                 float(frame.loc[day, "close"]),
@@ -195,6 +239,7 @@ def build_historical_samples(
                     "holding_outcome_dates": holding_dates,
                     "market_board": market_board(code),
                     "historical_volatility": round(historical_volatility, 4) if historical_volatility is not None else None,
+                    "point_in_time_features": point_in_time_features,
                 }
             )
     return samples
@@ -608,6 +653,17 @@ _LOSS_REJECTION_PROFILES = (
     {"key": "volatility_30", "volatility_max": 30.0},
     {"key": "strong_signal", "strength_min": 8.0},
     {"key": "volatility_30_strong_signal", "volatility_max": 30.0, "strength_min": 8.0},
+    {"key": "ma20_extension_5", "ma20_distance_max": 5.0},
+    {"key": "gap_2", "gap_abs_max": 2.0},
+    {"key": "runup_3", "consecutive_up_max": 3},
+    {"key": "no_bearish_volume_divergence", "reject_bearish_volume_divergence": True},
+    {
+        "key": "balanced_price_action",
+        "ma20_distance_max": 8.0,
+        "gap_abs_max": 3.0,
+        "consecutive_up_max": 4,
+        "reject_bearish_volume_divergence": True,
+    },
 )
 
 
@@ -655,6 +711,28 @@ def _matches_loss_rejection_profile(sample: dict, profile: dict) -> bool:
         strength is None or float(strength) < float(profile["strength_min"])
     ):
         return False
+    features = sample.get("point_in_time_features") or {}
+    ma20_distance = features.get("ma20_distance_pct")
+    if "ma20_distance_max" in profile and (
+        ma20_distance is None or float(ma20_distance) > float(profile["ma20_distance_max"])
+    ):
+        return False
+    gap_pct = features.get("gap_pct")
+    if "gap_abs_max" in profile and (
+        gap_pct is None or abs(float(gap_pct)) > float(profile["gap_abs_max"])
+    ):
+        return False
+    consecutive_up_days = features.get("consecutive_up_days")
+    if "consecutive_up_max" in profile and (
+        consecutive_up_days is None
+        or int(consecutive_up_days) > int(profile["consecutive_up_max"])
+    ):
+        return False
+    if profile.get("reject_bearish_volume_divergence") and (
+        features.get("bearish_volume_divergence") is None
+        or bool(features["bearish_volume_divergence"])
+    ):
+        return False
     return True
 
 
@@ -663,6 +741,7 @@ def evaluate_loss_rejection_profiles(
     *,
     train_days: int = 80,
     top_n: int = 10,
+    min_train_selections: int = 30,
     min_validation_selections: int = 30,
 ) -> dict:
     """Train a conservative abstention rule, then evaluate untouched dates once."""
@@ -683,9 +762,13 @@ def evaluate_loss_rejection_profiles(
     selected_training = max(
         enumerate(training_profiles),
         key=lambda item: (
-            item[1]["metrics"]["hit_rate"] if item[1]["metrics"]["hit_rate"] is not None else -1,
+            item[1]["metrics"]["hit_rate"]
+            if item[1]["metrics"]["selections"] >= min_train_selections
+            and item[1]["metrics"]["hit_rate"] is not None
+            else -1,
             item[1]["metrics"]["avg_excess_return"]
-            if item[1]["metrics"]["avg_excess_return"] is not None
+            if item[1]["metrics"]["selections"] >= min_train_selections
+            and item[1]["metrics"]["avg_excess_return"] is not None
             else -999,
             -item[0],
         ),
@@ -698,6 +781,27 @@ def evaluate_loss_rejection_profiles(
     ]
     validation_metrics = _return_metrics(selected_validation)
     baseline_metrics = _return_metrics(validation_selected)
+    validation_profiles = []
+    for profile in _LOSS_REJECTION_PROFILES:
+        metrics = _return_metrics(
+            [row for row in validation_selected if _matches_loss_rejection_profile(row, profile)]
+        )
+        profile_hit_lift = None
+        if metrics["hit_rate"] is not None and baseline_metrics["hit_rate"] is not None:
+            profile_hit_lift = round(metrics["hit_rate"] - baseline_metrics["hit_rate"], 2)
+        profile_return_lift = None
+        if metrics["avg_excess_return"] is not None and baseline_metrics["avg_excess_return"] is not None:
+            profile_return_lift = round(
+                metrics["avg_excess_return"] - baseline_metrics["avg_excess_return"], 4
+            )
+        validation_profiles.append(
+            {
+                "profile": profile["key"],
+                "metrics": metrics,
+                "hit_rate_lift": profile_hit_lift,
+                "avg_excess_return_lift": profile_return_lift,
+            }
+        )
     hit_lift = None
     if validation_metrics["hit_rate"] is not None and baseline_metrics["hit_rate"] is not None:
         hit_lift = round(validation_metrics["hit_rate"] - baseline_metrics["hit_rate"], 2)
@@ -719,6 +823,7 @@ def evaluate_loss_rejection_profiles(
         "training_profiles": training_profiles,
         "validation_metrics": validation_metrics,
         "baseline_validation_metrics": baseline_metrics,
+        "validation_profiles": validation_profiles,
         "hit_rate_lift": hit_lift,
         "caliber": "baseline_gate_then_point_in_time_loss_rejection_on_untouched_dates",
     }
@@ -856,6 +961,7 @@ def run_historical_calibration(
                 "trend": "production_equivalent_from_daily_close",
                 "value": "unavailable_historical_snapshot",
                 "volume": "production_equivalent_from_daily_turnover_close_and_macd",
+                "loss_rejection": "point_in_time_ma20_gap_runup_and_turnover_divergence",
             },
             "candidate_gate_research": evaluate_candidate_gate_profiles(
                 samples,
