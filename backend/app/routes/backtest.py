@@ -10,6 +10,7 @@ from app.services import (
     pattern_service,
     recommend_calibration_service,
     recommend_history_replay_service,
+    recommend_regression_service,
     supabase_store,
     tactic_backtest_service,
 )
@@ -153,8 +154,8 @@ class RecommendCalibrationRequest(BaseModel):
 async def recommend_calibration_endpoint(req: RecommendCalibrationRequest):
     """用生产推荐原始分数做扩展窗口训练和下一窗口样本外验证。
 
-    结果只提供参数复核建议，不自动替换线上参数。数据库需先执行 v17 迁移；迁移后
-    新增样本才具备原始四策略分，旧记录不会被伪造补值。
+    结果只提供参数复核建议，不自动替换线上参数。数据库需先执行 v17/v18 迁移；迁移后
+    新增样本才具备原始四策略分与点时基本面快照，旧记录不会被伪造补值。
     """
     if not supabase_store.is_configured():
         return {
@@ -166,16 +167,31 @@ async def recommend_calibration_endpoint(req: RecommendCalibrationRequest):
         sb = await supabase_store.get_service_client()
         response = (
             await sb.table("daily_recommendations")
-            .select("rec_date,code,strategy_scores,excess_return,execution_status,source")
+            .select(
+                "rec_date,code,strategy_scores,excess_return,execution_status,source,"
+                "settled_at,feature_snapshot"
+            )
             .not_.is_("settled_at", None)
             .execute()
         )
     except Exception as error:
-        if "strategy_scores" in str(error):
+        missing_migration = next(
+            (
+                migration
+                for column, migration in (
+                    ("strategy_scores", "backend/supabase-schema-v17.sql"),
+                    ("feature_snapshot", "backend/supabase-schema-v18.sql"),
+                )
+                if column in str(error)
+            ),
+            None,
+        )
+        if missing_migration:
             return {
                 "status": "migration_required",
                 "deployment_eligible": False,
-                "deployment_reason": "请先执行 backend/supabase-schema-v17.sql",
+                "deployment_reason": f"请先执行 {missing_migration}",
+                "migration": missing_migration,
             }
         raise HTTPException(status_code=502, detail=f"推荐校准样本读取失败: {error}")
 
@@ -190,6 +206,17 @@ async def recommend_calibration_endpoint(req: RecommendCalibrationRequest):
     )
     result["source_rows"] = len(response.data or [])
     result["caliber"] = "按生产全量达标候选原始四策略分重排；T+1 已触发记录；收益口径为扣费后相对沪深300超额"
+    result["snapshot_readiness"] = recommend_calibration_service.assess_feature_snapshot_readiness(
+        response.data or []
+    )
+    result["full_factor_regression"] = recommend_regression_service.compare_production_regressions(
+        samples,
+        train_days=req.min_train_days,
+        validation_days=req.validation_days,
+        top_n=req.top_n,
+        min_train_samples=req.min_train_selections,
+        min_oos_selections=req.min_oos_selections,
+    )
     return result
 
 

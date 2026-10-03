@@ -55,9 +55,40 @@ class RecommendCalibrationTests(unittest.TestCase):
         self.assertEqual(result["field_coverage_pct"]["pe"], 66.67)
         self.assertIn("pe_coverage_below_80pct", result["blockers"])
 
+    def test_snapshot_readiness_ignores_unsettled_rows_for_dates_and_coverage(self) -> None:
+        rows = [
+            {
+                "rec_date": "2026-01-01",
+                "source": "rule",
+                "settled_at": "2026-01-02",
+                "feature_snapshot": {},
+            },
+            {
+                "rec_date": "2026-01-10",
+                "source": "calibration",
+                "settled_at": None,
+                "feature_snapshot": {
+                    "pe": 10,
+                    "pb": 1,
+                    "turnover": 2,
+                    "market_cap_yi": 300,
+                    "market_board": "main",
+                },
+            },
+        ]
+
+        result = assess_feature_snapshot_readiness(
+            rows, min_rows=1, min_dates=1, required_coverage=0.9
+        )
+
+        self.assertEqual(result["trading_dates"], 1)
+        self.assertEqual(result["date_range"], {"start": "2026-01-01", "end": "2026-01-01"})
+        self.assertEqual(result["field_coverage_pct"]["pe"], 0.0)
+        self.assertFalse(result["ready_for_full_factor_replay"])
+
     def test_preparation_excludes_unfilled_and_unscored_rows(self) -> None:
         rows = [
-            {"rec_date": "2026-01-01", "code": "A", "strategy_scores": {"momentum": 6}, "excess_return": 1, "source": "rule", "execution_status": "filled"},
+            {"rec_date": "2026-01-01", "code": "A", "strategy_scores": {"momentum": 6}, "excess_return": 1, "source": "rule", "execution_status": "filled", "settled_at": "2026-01-02T08:00:00Z", "feature_snapshot": {"pe": 12, "pb": 2, "turnover": 3, "market_cap_yi": 500, "market_board": "main"}},
             {"rec_date": "2026-01-01", "code": "B", "strategy_scores": {"momentum": 6}, "excess_return": 2, "source": "watch", "execution_status": "not_triggered"},
             {"rec_date": "2026-01-01", "code": "C", "strategy_scores": {}, "excess_return": 3, "source": "rule", "execution_status": "filled"},
             {"rec_date": "2026-01-01", "code": "D", "strategy_scores": {"momentum": 6}, "excess_return": 4, "source": "quad", "execution_status": "filled"},
@@ -67,6 +98,8 @@ class RecommendCalibrationTests(unittest.TestCase):
         samples = prepare_calibration_samples(rows)
 
         self.assertEqual([sample["code"] for sample in samples], ["A", "E"])
+        self.assertEqual(samples[0]["outcome_date"], "2026-01-02")
+        self.assertEqual(samples[0]["feature_snapshot"]["pe"], 12)
 
     def test_baseline_score_matches_production_formula(self) -> None:
         score = score_strategy_components(
@@ -140,6 +173,54 @@ class RecommendCalibrationTests(unittest.TestCase):
         self.assertEqual(result["status"], "insufficient_training_sample")
 
 class TestRecommendCalibrationEndpoint:
+    @pytest.mark.asyncio
+    async def test_production_calibration_includes_full_factor_regression_comparison(self, monkeypatch) -> None:
+        selected_columns = []
+
+        class _Response:
+            data = [{
+                "rec_date": "2026-10-01", "code": "600001", "source": "rule",
+                "settled_at": "2026-10-02", "execution_status": "filled",
+                "strategy_scores": {"momentum": 6}, "excess_return": 1,
+                "feature_snapshot": {"pe": 12, "pb": 2, "turnover": 1, "market_cap_yi": 500, "market_board": "main"},
+            }]
+
+        class _Query:
+            def select(self, columns):
+                selected_columns.append(columns)
+                return self
+
+            @property
+            def not_(self):
+                return self
+
+            def is_(self, *_args):
+                return self
+
+            async def execute(self):
+                return _Response()
+
+        class _Client:
+            def table(self, _name):
+                return _Query()
+
+        async def _client():
+            return _Client()
+
+        monkeypatch.setattr(backtest.supabase_store, "is_configured", lambda: True)
+        monkeypatch.setattr(backtest.supabase_store, "get_service_client", _client)
+        monkeypatch.setattr(
+            backtest.recommend_regression_service,
+            "compare_production_regressions",
+            lambda *_args, **_kwargs: {"status": "insufficient_dates", "deployment_eligible": False},
+        )
+
+        result = await backtest.recommend_calibration_endpoint(backtest.RecommendCalibrationRequest())
+
+        assert "feature_snapshot" in selected_columns[0]
+        assert "settled_at" in selected_columns[0]
+        assert result["full_factor_regression"]["status"] == "insufficient_dates"
+
     @pytest.mark.asyncio
     async def test_snapshot_readiness_endpoint_reports_live_storage_coverage(self, monkeypatch) -> None:
         class _Response:
@@ -219,7 +300,13 @@ class TestRecommendCalibrationEndpoint:
         assert result["deployment_eligible"] is False
 
     @pytest.mark.asyncio
-    async def test_missing_feature_migration_is_reported_without_500(self, monkeypatch) -> None:
+    @pytest.mark.parametrize(
+        ("missing_column", "migration"),
+        (("strategy_scores", "backend/supabase-schema-v17.sql"), ("feature_snapshot", "backend/supabase-schema-v18.sql")),
+    )
+    async def test_missing_feature_migration_is_reported_without_500(
+        self, monkeypatch, missing_column, migration
+    ) -> None:
         class _Query:
             def select(self, *_args):
                 return self
@@ -232,7 +319,7 @@ class TestRecommendCalibrationEndpoint:
                 return self
 
             async def execute(self):
-                raise RuntimeError("column daily_recommendations.strategy_scores does not exist")
+                raise RuntimeError(f"column daily_recommendations.{missing_column} does not exist")
 
         class _Client:
             def table(self, _name):
@@ -247,7 +334,8 @@ class TestRecommendCalibrationEndpoint:
         result = await backtest.recommend_calibration_endpoint(backtest.RecommendCalibrationRequest())
 
         assert result["status"] == "migration_required"
-        assert "v17" in result["deployment_reason"]
+        assert result["migration"] == migration
+        assert migration in result["deployment_reason"]
 
 
 if __name__ == "__main__":

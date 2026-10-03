@@ -1,4 +1,7 @@
-from app.services.recommend_regression_service import evaluate_walk_forward_regression
+from app.services.recommend_regression_service import (
+    compare_production_regressions,
+    evaluate_walk_forward_regression,
+)
 
 
 def _sample(day: int, code: str, feature: float, outcome: float) -> dict:
@@ -72,3 +75,41 @@ def test_walk_forward_regression_never_trains_on_validation_outcomes() -> None:
     )
 
     assert baseline["windows"][0]["selected_codes_by_date"] == changed["windows"][0]["selected_codes_by_date"]
+
+
+def test_full_factor_regression_is_compared_on_the_same_complete_snapshot_rows() -> None:
+    samples = []
+    for day in range(1, 19):
+        for code, pe, outcome in (("600001", 10.0, 1.2), ("600002", 40.0, -1.0)):
+            sample = _sample(day, code, 0.0, outcome)
+            sample["strategy_scores"] = {"momentum": 6, "trend": 5, "value": 4, "volume": 4}
+            sample["feature_snapshot"] = {
+                "pe": pe,
+                "pb": 2.0,
+                "turnover": 3.0,
+                "market_cap_yi": 500.0,
+                "market_board": "main",
+            }
+            samples.append(sample)
+
+    result = compare_production_regressions(
+        samples,
+        train_days=6,
+        validation_days=3,
+        top_n=2,
+        min_train_samples=10,
+        min_oos_selections=6,
+    )
+
+    assert result["complete_snapshot_rows"] == len(samples)
+    assert result["technical_model"]["baseline_metrics"] == result["full_factor_model"]["baseline_metrics"]
+    assert result["full_factor_model"]["regression_metrics"]["hit_rate"] == 100.0
+    assert result["full_factor_vs_technical_hit_rate_lift"] == 50.0
+
+
+def test_full_factor_regression_reports_missing_complete_snapshots() -> None:
+    result = compare_production_regressions([_sample(1, "600001", 1.0, 1.0)])
+
+    assert result["status"] == "insufficient_snapshot_data"
+    assert result["complete_snapshot_rows"] == 0
+    assert result["deployment_eligible"] is False

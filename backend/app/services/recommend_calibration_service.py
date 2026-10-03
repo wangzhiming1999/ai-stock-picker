@@ -41,14 +41,14 @@ def assess_feature_snapshot_readiness(
     """Measure whether production point-in-time data can support full-factor replay."""
     eligible = [row for row in rows if row.get("source") in ("rule", "calibration")]
     settled = [row for row in eligible if row.get("settled_at")]
-    dates = sorted({str(row["rec_date"]) for row in eligible if row.get("rec_date")})
+    dates = sorted({str(row["rec_date"]) for row in settled if row.get("rec_date")})
     coverage = {
         field: round(
-            sum((row.get("feature_snapshot") or {}).get(field) is not None for row in eligible)
-            / len(eligible)
+            sum((row.get("feature_snapshot") or {}).get(field) is not None for row in settled)
+            / len(settled)
             * 100,
             2,
-        ) if eligible else 0.0
+        ) if settled else 0.0
         for field in _SNAPSHOT_FIELDS
     }
     threshold_pct = required_coverage * 100
@@ -94,8 +94,10 @@ def prepare_calibration_samples(rows: list[dict]) -> list[dict]:
         samples.append(
             {
                 "date": str(row["rec_date"]),
+                "outcome_date": str(row.get("settled_at") or row["rec_date"])[:10],
                 "code": str(row["code"]),
                 "strategy_scores": scores,
+                "feature_snapshot": row.get("feature_snapshot") or {},
                 "excess_return": float(row["excess_return"]),
             }
         )
