@@ -33,7 +33,7 @@ def _authorize(request: Request) -> None:
         raise HTTPException(status_code=401, detail="未授权")
 
 
-@router.post("/daily")
+@router.api_route("/daily", methods=["GET", "POST"])
 async def daily_cron(request: Request):
     """每日收盘定时任务：结算预测 + 结算推荐 + 刷新胜率快照 + 预警兜底评估。
 
@@ -91,7 +91,7 @@ async def daily_cron(request: Request):
         raise HTTPException(status_code=502, detail=f"定时任务失败: {e}")
 
 
-@router.post("/quad")
+@router.api_route("/quad", methods=["GET", "POST"])
 async def quad_cron(request: Request):
     """收盘后预生成当日四维牛股榜，让用户白天访问秒回。
 

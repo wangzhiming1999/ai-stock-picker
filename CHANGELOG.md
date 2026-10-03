@@ -9,6 +9,12 @@
 
 ## [Unreleased]
 
+### Fixed
+- **修复 Vercel Cron 从未进入每日结算的问题**（2026-10-03）
+  - `vercel.json` 注册的 Cron 由平台使用 GET 调用，但 `/api/cron/daily` 与 `/api/cron/quad` 此前只接受 POST，生产请求固定返回 405，导致推荐、预测和胜率长期不结算。
+  - 两个调度入口现同时接受 GET/POST，并继续共用 `CRON_SECRET` / `ADMIN_TOKEN` 鉴权；POST 仍可用于人工运维。
+  - 新增路由契约测试，防止调度配置与 HTTP 方法再次静默脱节。
+
 ### Added
 - **失败可见性补强 + 默认技巧集合 KeyError 修复**（2026-09-21）
   > 三处静默失效（基准取数失败显示「—」、复盘块失败整块消失、回测跳过错点无痕迹）+
