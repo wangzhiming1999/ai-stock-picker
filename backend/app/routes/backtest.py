@@ -221,11 +221,23 @@ async def recommend_snapshot_readiness_endpoint():
         }
     try:
         sb = await supabase_store.get_service_client()
-        response = (
-            await sb.table("daily_recommendations")
-            .select("rec_date,source,settled_at,feature_snapshot")
-            .execute()
-        )
+        rows: list[dict] = []
+        page_size = 1000
+        for offset in range(0, 100_000, page_size):
+            response = (
+                await sb.table("daily_recommendations")
+                .select("rec_date,source,settled_at,feature_snapshot")
+                .range(offset, offset + page_size - 1)
+                .execute()
+            )
+            page = response.data or []
+            rows.extend(page)
+            if len(page) < page_size:
+                break
+        else:
+            raise HTTPException(status_code=413, detail="点时快照记录超过100000条，请缩小统计范围")
+    except HTTPException:
+        raise
     except Exception as error:
         if "feature_snapshot" in str(error):
             return {
@@ -235,7 +247,7 @@ async def recommend_snapshot_readiness_endpoint():
                 "migration": "backend/supabase-schema-v18.sql",
             }
         raise HTTPException(status_code=502, detail=f"点时快照覆盖率读取失败: {error}")
-    result = recommend_calibration_service.assess_feature_snapshot_readiness(response.data or [])
+    result = recommend_calibration_service.assess_feature_snapshot_readiness(rows)
     result["status"] = "ready" if result["ready_for_full_factor_replay"] else "accumulating"
     return result
 

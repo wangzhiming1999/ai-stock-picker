@@ -152,6 +152,9 @@ class TestRecommendCalibrationEndpoint:
             def select(self, *_args):
                 return self
 
+            def range(self, *_args):
+                return self
+
             async def execute(self):
                 return _Response()
 
