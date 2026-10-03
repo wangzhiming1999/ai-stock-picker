@@ -15,6 +15,7 @@ import pandas as pd
 from app.services import akshare_guard, data_service, signal_service
 from app.services.backtest_service import BENCHMARK, STRATEGY_BACKTEST_POOL
 from app.services.recommend_calibration_service import calibrate_walk_forward
+from app.services.recommend_regression_service import evaluate_walk_forward_regression
 
 BASE_TRANSACTION_COST_PCT = 0.15
 
@@ -939,6 +940,11 @@ def run_historical_calibration(
     }
     benchmark = _fetch_benchmark(start.isoformat(), end.isoformat())
     samples = build_historical_samples(histories, benchmark, eval_days=eval_days)
+    baseline_samples, _ = _gate_profile_rows(samples, _GATE_PROFILES[0], min(top_n, len(universe)))
+    regression_train_days = min(
+        120,
+        max(20, len({sample["date"] for sample in samples}) * 2 // 5),
+    )
     result = calibrate_walk_forward(
         samples,
         min_train_days=min_train_days,
@@ -962,6 +968,7 @@ def run_historical_calibration(
                 "value": "unavailable_historical_snapshot",
                 "volume": "production_equivalent_from_daily_turnover_close_and_macd",
                 "loss_rejection": "point_in_time_ma20_gap_runup_and_turnover_divergence",
+                "regression": "rolling_standardized_ridge_on_point_in_time_technical_features",
             },
             "candidate_gate_research": evaluate_candidate_gate_profiles(
                 samples,
@@ -1023,6 +1030,12 @@ def run_historical_calibration(
             "loss_rejection_research": evaluate_loss_rejection_profiles(
                 samples,
                 train_days=min(80, max(20, len({sample["date"] for sample in samples}) * 2 // 3)),
+                top_n=min(top_n, len(universe)),
+            ),
+            "regression_research": evaluate_walk_forward_regression(
+                baseline_samples,
+                train_days=regression_train_days,
+                validation_days=min(20, max(5, validation_days)),
                 top_n=min(top_n, len(universe)),
             ),
         }

@@ -135,6 +135,7 @@ def test_historical_result_only_reports_the_still_missing_value_snapshot(monkeyp
     assert "PE/PB" in result["deployment_reason"]
     assert "换手率" not in result["deployment_reason"]
     assert result["feature_coverage"]["volume"].startswith("production_equivalent")
+    assert result["regression_research"]["deployment_eligible"] is False
 
 
 def test_gate_profile_evaluation_keeps_holdout_dates_out_of_selection() -> None:
