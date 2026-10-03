@@ -15,6 +15,7 @@ from app.services.recommend_history_replay_service import (
     evaluate_rolling_stability,
     evaluate_transaction_cost_sensitivity,
     evaluate_return_distribution,
+    evaluate_loss_rejection_profiles,
     simulate_capacity_constrained,
     select_risk_budget,
     volatility_weight_multiplier,
@@ -326,6 +327,58 @@ def test_return_distribution_exposes_tail_profit_concentration() -> None:
     assert result["hit_rate"] == 40.0
     assert result["median_excess_return"] == -1.0
     assert result["top_decile_profit_share_pct"] == 88.89
+
+
+def test_loss_rejection_profile_must_improve_hit_rate_and_return_out_of_sample() -> None:
+    samples = []
+    for day in range(1, 9):
+        is_validation = day > 4
+        for code, volatility, strength, result in (
+            ("600001", 16.0, 8.5, 1.0),
+            ("600002", 45.0, 7.0, -1.0),
+        ):
+            samples.append(
+                {
+                    "date": f"2026-01-{day:02d}",
+                    "code": code,
+                    "strategy_scores": {"momentum": 7, "trend": 5},
+                    "historical_volatility": volatility,
+                    "signal": {"strength": strength},
+                    "excess_return": result if not is_validation else result * 1.2,
+                }
+            )
+
+    result = evaluate_loss_rejection_profiles(samples, train_days=4, top_n=10, min_validation_selections=4)
+
+    assert result["selected_profile"] == "volatility_22"
+    assert result["validation_metrics"]["hit_rate"] == 100.0
+    assert result["baseline_validation_metrics"]["hit_rate"] == 50.0
+    assert result["deployment_eligible"] is True
+
+
+def test_loss_rejection_profile_rejects_training_only_improvement() -> None:
+    samples = []
+    for day in range(1, 9):
+        for code, volatility, train_result, validation_result in (
+            ("600001", 16.0, 1.0, -1.0),
+            ("600002", 45.0, -1.0, 1.0),
+        ):
+            samples.append(
+                {
+                    "date": f"2026-01-{day:02d}",
+                    "code": code,
+                    "strategy_scores": {"momentum": 7, "trend": 5},
+                    "historical_volatility": volatility,
+                    "signal": {"strength": 8.0},
+                    "excess_return": train_result if day <= 4 else validation_result,
+                }
+            )
+
+    result = evaluate_loss_rejection_profiles(samples, train_days=4, top_n=10, min_validation_selections=4)
+
+    assert result["selected_profile"] == "volatility_22"
+    assert result["hit_rate_lift"] == -50.0
+    assert result["deployment_eligible"] is False
 
 
 @pytest.mark.asyncio

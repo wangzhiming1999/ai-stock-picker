@@ -602,6 +602,14 @@ _GATE_PROFILES = (
     {"key": "progressive_loose", "trend_key": "trend_progressive", "trend_min": 5.0},
 )
 
+_LOSS_REJECTION_PROFILES = (
+    {"key": "baseline"},
+    {"key": "volatility_22", "volatility_max": 22.0},
+    {"key": "volatility_30", "volatility_max": 30.0},
+    {"key": "strong_signal", "strength_min": 8.0},
+    {"key": "volatility_30_strong_signal", "volatility_max": 30.0, "strength_min": 8.0},
+)
+
 
 def _gate_profile_rows(samples: list[dict], profile: dict, top_n: int) -> tuple[list[dict], dict]:
     by_date: dict[str, list[tuple[float, dict]]] = {}
@@ -633,6 +641,86 @@ def _return_metrics(samples: list[dict]) -> dict:
         "selections": len(values),
         "hit_rate": round(sum(value > 0 for value in values) / len(values) * 100, 2) if values else None,
         "avg_excess_return": round(mean(values), 4) if values else None,
+    }
+
+
+def _matches_loss_rejection_profile(sample: dict, profile: dict) -> bool:
+    volatility = sample.get("historical_volatility")
+    if "volatility_max" in profile and (
+        volatility is None or float(volatility) > float(profile["volatility_max"])
+    ):
+        return False
+    strength = (sample.get("signal") or {}).get("strength")
+    if "strength_min" in profile and (
+        strength is None or float(strength) < float(profile["strength_min"])
+    ):
+        return False
+    return True
+
+
+def evaluate_loss_rejection_profiles(
+    samples: list[dict],
+    *,
+    train_days: int = 80,
+    top_n: int = 10,
+    min_validation_selections: int = 30,
+) -> dict:
+    """Train a conservative abstention rule, then evaluate untouched dates once."""
+    dates = sorted({str(sample["date"]) for sample in samples})
+    if len(dates) <= train_days:
+        return {"status": "insufficient_dates", "deployment_eligible": False}
+    train_dates = set(dates[:train_days])
+    validation_dates = set(dates[train_days:])
+    train_rows = [sample for sample in samples if str(sample["date"]) in train_dates]
+    validation_rows = [sample for sample in samples if str(sample["date"]) in validation_dates]
+    train_selected, _ = _gate_profile_rows(train_rows, _GATE_PROFILES[0], top_n)
+    validation_selected, _ = _gate_profile_rows(validation_rows, _GATE_PROFILES[0], top_n)
+
+    training_profiles = []
+    for profile in _LOSS_REJECTION_PROFILES:
+        filtered = [row for row in train_selected if _matches_loss_rejection_profile(row, profile)]
+        training_profiles.append({"profile": profile["key"], "metrics": _return_metrics(filtered)})
+    selected_training = max(
+        enumerate(training_profiles),
+        key=lambda item: (
+            item[1]["metrics"]["hit_rate"] if item[1]["metrics"]["hit_rate"] is not None else -1,
+            item[1]["metrics"]["avg_excess_return"]
+            if item[1]["metrics"]["avg_excess_return"] is not None
+            else -999,
+            -item[0],
+        ),
+    )[1]
+    selected_profile = next(
+        profile for profile in _LOSS_REJECTION_PROFILES if profile["key"] == selected_training["profile"]
+    )
+    selected_validation = [
+        row for row in validation_selected if _matches_loss_rejection_profile(row, selected_profile)
+    ]
+    validation_metrics = _return_metrics(selected_validation)
+    baseline_metrics = _return_metrics(validation_selected)
+    hit_lift = None
+    if validation_metrics["hit_rate"] is not None and baseline_metrics["hit_rate"] is not None:
+        hit_lift = round(validation_metrics["hit_rate"] - baseline_metrics["hit_rate"], 2)
+    eligible = (
+        selected_profile["key"] != "baseline"
+        and validation_metrics["selections"] >= min_validation_selections
+        and hit_lift is not None
+        and hit_lift >= 3
+        and (validation_metrics["avg_excess_return"] or 0) > (baseline_metrics["avg_excess_return"] or 0)
+    )
+    return {
+        "status": "eligible_for_review" if eligible else "no_stable_improvement",
+        "deployment_eligible": eligible,
+        "train_start": dates[0],
+        "train_end": dates[train_days - 1],
+        "validation_start": dates[train_days],
+        "validation_end": dates[-1],
+        "selected_profile": selected_profile["key"],
+        "training_profiles": training_profiles,
+        "validation_metrics": validation_metrics,
+        "baseline_validation_metrics": baseline_metrics,
+        "hit_rate_lift": hit_lift,
+        "caliber": "baseline_gate_then_point_in_time_loss_rejection_on_untouched_dates",
     }
 
 
@@ -824,6 +912,11 @@ def run_historical_calibration(
             "return_distribution_research": evaluate_return_distribution(
                 samples,
                 horizon=1,
+                top_n=min(top_n, len(universe)),
+            ),
+            "loss_rejection_research": evaluate_loss_rejection_profiles(
+                samples,
+                train_days=min(80, max(20, len({sample["date"] for sample in samples}) * 2 // 3)),
                 top_n=min(top_n, len(universe)),
             ),
         }
