@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { sanduAutoCandidates, sanduScan } from "../../api/client";
 import type { SanduAutoCandidate, SanduItem, SanduScanResult } from "../../types";
 import CollapsiblePanel from "../ui/CollapsiblePanel";
@@ -13,6 +13,7 @@ import { autoCandidateEmptyMessage } from "../../lib/sandu";
 
 interface Props {
   onPick: (codes: string[]) => void;
+  seedCodes?: string[];
 }
 
 /** 综合分达到该阈值才算「三度齐备」候选（0-10）。与后端默认一致。 */
@@ -51,13 +52,17 @@ function StatusChip({ status }: { status: SanduItem["status"] }) {
  * 候选制输入（≤30 只）而非全市场扫描：逐只历史 K 是行情源风控主因，
  * 扫描范围必须由用户显式给出（自选、推荐榜、板块成分皆可）。
  */
-export default function SanduPanel({ onPick }: Props) {
+export default function SanduPanel({ onPick, seedCodes = [] }: Props) {
   const [raw, setRaw] = useState("");
   const [running, setRunning] = useState(false);
   const [picking, setPicking] = useState(false);
   const [result, setResult] = useState<SanduScanResult | null>(null);
   const [error, setError] = useState("");
   const [pickInfo, setPickInfo] = useState<SanduAutoCandidate[] | null>(null);
+
+  useEffect(() => {
+    if (seedCodes.length > 0) setRaw(seedCodes.join(" "));
+  }, [seedCodes]);
 
   const codes = useMemo(
     () =>

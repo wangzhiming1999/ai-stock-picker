@@ -10,10 +10,11 @@ const SanduPanel = lazyRetry(() => import("./sandu/SanduPanel"));
 
 interface Props {
   onPick: (codes: string[]) => void;
+  candidateCodes: string[];
 }
 
 /** One task-oriented home for every way of finding and structurally checking candidates. */
-export default function ScanCenter({ onPick }: Props) {
+export default function ScanCenter({ onPick, candidateCodes }: Props) {
   return (
     <div className={STACK}>
       <Suspense fallback={<PanelSkeleton label="正在加载策略扫描" />}>
@@ -26,7 +27,7 @@ export default function ScanCenter({ onPick }: Props) {
         <ChipPanel onPick={onPick} />
       </Suspense>
       <Suspense fallback={<PanelSkeleton label="正在加载三度评分" />}>
-        <SanduPanel onPick={onPick} />
+        <SanduPanel onPick={onPick} seedCodes={candidateCodes} />
       </Suspense>
     </div>
   );

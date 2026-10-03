@@ -1,4 +1,4 @@
-import { Suspense } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { Crosshair, Lightbulb, ScanSearch } from "lucide-react";
 import { subNavFor } from "../lib/subnav";
 import { useSubPage } from "../lib/useSubPage";
@@ -8,9 +8,12 @@ import { STACK } from "../lib/ui";
 import PanelSkeleton from "./ui/PanelSkeleton";
 import SubNav from "./ui/SubNav";
 import PageHeader from "./ui/PageHeader";
+import CandidatePoolBar from "./CandidatePoolBar";
+import { mergeCandidateCodes } from "../lib/candidatePool";
 
 const DecisionCenter = lazyRetry(() => import("./DecisionCenter"));
 const ScanCenter = lazyRetry(() => import("./ScanCenter"));
+const CANDIDATE_POOL_KEY = "opportunity:candidate-pool";
 
 const SUB_ICON = {
   decision: Crosshair,
@@ -47,11 +50,27 @@ interface Props {
  * ⚠️ 本页所有产出都是**候选 / 读数**，不是指令。子页内的免责说明不要为了排版干净删掉。
  */
 export default function OpportunityPanel({ onPick, jump }: Props) {
+  const [candidateCodes, setCandidateCodes] = useState<string[]>(() => {
+    try {
+      const stored = JSON.parse(sessionStorage.getItem(CANDIDATE_POOL_KEY) ?? "[]");
+      return Array.isArray(stored) ? mergeCandidateCodes([], stored.filter((item): item is string => typeof item === "string")) : [];
+    } catch {
+      return [];
+    }
+  });
   const { sub, changeSub, isVisible, isMounted } = useSubPage("opportunity", jump, SUB_KEYS.decision);
   const items = subNavFor("opportunity").map((s) => ({
     ...s,
     icon: SUB_ICON[s.key as keyof typeof SUB_ICON],
   }));
+  const pickAndRemember = (codes: string[]) => {
+    setCandidateCodes((current) => mergeCandidateCodes(current, codes));
+    onPick(codes);
+  };
+
+  useEffect(() => {
+    sessionStorage.setItem(CANDIDATE_POOL_KEY, JSON.stringify(candidateCodes));
+  }, [candidateCodes]);
 
   return (
     <div className={STACK}>
@@ -59,10 +78,16 @@ export default function OpportunityPanel({ onPick, jump }: Props) {
 
       <SubNav id="opportunity" items={items} value={sub} onChange={changeSub} />
 
+      <CandidatePoolBar
+        codes={candidateCodes}
+        onAdd={(codes) => setCandidateCodes((current) => mergeCandidateCodes(current, codes))}
+        onClear={() => setCandidateCodes([])}
+      />
+
       {isMounted(SUB_KEYS.decision) && (
         <div className={isVisible(SUB_KEYS.decision)}>
           <Suspense fallback={<PanelSkeleton label="正在加载精选决策" />}>
-            <DecisionCenter onPick={onPick} />
+            <DecisionCenter onPick={pickAndRemember} />
           </Suspense>
         </div>
       )}
@@ -70,7 +95,7 @@ export default function OpportunityPanel({ onPick, jump }: Props) {
       {isMounted(SUB_KEYS.scan) && (
         <div className={isVisible(SUB_KEYS.scan)}>
           <Suspense fallback={<PanelSkeleton label="正在加载扫描中心" />}>
-            <ScanCenter onPick={onPick} />
+            <ScanCenter onPick={pickAndRemember} candidateCodes={candidateCodes} />
           </Suspense>
         </div>
       )}
