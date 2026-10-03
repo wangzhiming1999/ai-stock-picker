@@ -455,14 +455,14 @@ async def get_winrate_stats() -> dict:
     }
 
 
-async def refresh_winrate_snapshot() -> None:
+async def refresh_winrate_snapshot(stats: dict | None = None) -> bool:
     """写入胜率快照（供看板快速加载）。"""
     if not supabase_store.is_configured():
-        return
-    stats = await get_winrate_stats()
+        return False
+    stats = stats or await get_winrate_stats()
     # 查询侧已报错时，不要把「0 命中」污染进历史快照
     if stats.get("error"):
-        return
+        return False
     p = stats.get("prediction") or {}
     r = stats.get("recommendation") or {}
     sb = await supabase_store.get_service_client()
@@ -500,6 +500,7 @@ async def refresh_winrate_snapshot() -> None:
             await sb.table("winrate_snapshot").insert(minimal).execute()
         else:
             raise
+    return True
 
 
 async def run_daily_cron() -> dict:
@@ -509,6 +510,7 @@ async def run_daily_cron() -> dict:
         "settled_predictions": None,
         "settled_recommendations": None,
         "stats": None,
+        "snapshot_refreshed": False,
     }
     errors: dict[str, str] = {}
 
@@ -521,6 +523,12 @@ async def run_daily_cron() -> dict:
             result[key] = await operation()
         except Exception as e:
             errors[key] = _err_note(e)
+
+    if result.get("stats") is not None:
+        try:
+            result["snapshot_refreshed"] = await refresh_winrate_snapshot(result["stats"])
+        except Exception as e:
+            errors["snapshot_refreshed"] = _err_note(e)
 
     if errors:
         result["ok"] = False

@@ -306,6 +306,32 @@ class WinrateExecutionColumnMissingTests:
 
 
 class DailyCronIsolationTests:
+    def test_daily_cron_refreshes_heartbeat_even_without_new_settlements(self, monkeypatch):
+        calls: list[str] = []
+
+        async def no_predictions():
+            return 0
+
+        async def no_recommendations():
+            return 0
+
+        async def refresh_snapshot(stats):
+            calls.append("snapshot")
+            return True
+
+        async def stats():
+            return {"ok": True}
+
+        monkeypatch.setattr(W.market_prediction, "settle_predictions", no_predictions)
+        monkeypatch.setattr(W, "settle_daily_recommendations", no_recommendations)
+        monkeypatch.setattr(W, "refresh_winrate_snapshot", refresh_snapshot)
+        monkeypatch.setattr(W, "get_winrate_stats", stats)
+
+        result = _run(W.run_daily_cron())
+
+        assert calls == ["snapshot"]
+        assert result["snapshot_refreshed"] is True
+
     def test_prediction_failure_does_not_skip_recommendation_settlement(self, monkeypatch):
         calls: list[str] = []
 

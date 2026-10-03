@@ -8,6 +8,7 @@ import type {
   Briefing,
   BacktestResult,
   DailyRecommendResult,
+  DataHealth,
   EvidenceLedger,
   Holding,
   HoldingsData,
@@ -366,6 +367,12 @@ export async function fetchBacktestPool(): Promise<{ codes: string[]; count: num
 export async function fetchWinrate(): Promise<WinrateStats> {
   const res = await fetch(`${API}/market/winrate`);
   if (!res.ok) throw await errorFrom(res, "获取胜率失败");
+  return res.json();
+}
+
+export async function fetchDataHealth(): Promise<DataHealth> {
+  const res = await fetch(`${API}/market/data-health`);
+  if (!res.ok) throw await errorFrom(res, "获取数据健康状态失败");
   return res.json();
 }
 

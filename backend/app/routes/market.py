@@ -7,7 +7,7 @@ import akshare as ak
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from app.services import akshare_guard, concurrency, data_service, evidence_ledger, market_prediction, opportunity_service, pattern_service, recommend_service, spot_service, supabase_store, tactic_evidence, winrate_service
+from app.services import akshare_guard, concurrency, data_health_service, data_service, evidence_ledger, market_prediction, opportunity_service, pattern_service, recommend_service, spot_service, supabase_store, tactic_evidence, winrate_service
 
 router = APIRouter(prefix="/api/market", tags=["market"])
 
@@ -768,6 +768,12 @@ async def search_stocks(q: str = "", limit: int = 10):
 async def winrate_endpoint():
     """胜率看板：预测命中率 + 推荐胜率统计。"""
     return await winrate_service.get_winrate_stats()
+
+
+@router.get("/data-health")
+async def data_health_endpoint():
+    """推荐数据闭环健康度：结算心跳、积压、行情缓存与特征快照覆盖率。"""
+    return await data_health_service.get_data_health()
 
 
 @router.get("/daily-recommend")

@@ -956,6 +956,37 @@ export interface Caliber {
   win_rate?: string;
 }
 
+export interface DataHealthIssue {
+  code: string;
+  severity: "warning" | "critical";
+  message: string;
+  component: string;
+}
+
+export interface DataHealth {
+  status: "healthy" | "degraded" | "critical" | "unavailable";
+  checked_at: string;
+  cron: { last_success_at: string | null; snapshot_date: string | null; age_hours: number | null };
+  settlement: {
+    eligible_rows: number;
+    settled_rows: number;
+    pending_rows: number;
+    oldest_pending_date: string | null;
+    latest_settled_at: string | null;
+  } | null;
+  market_cache: { updated_at: string | null; age_hours: number | null } | null;
+  snapshot_readiness: {
+    ready_for_full_factor_replay: boolean;
+    eligible_rows: number;
+    settled_rows: number;
+    trading_dates: number;
+    field_coverage_pct: Record<string, number>;
+    requirements: { min_settled_rows: number; min_trading_dates: number; required_field_coverage_pct: number };
+    blockers: string[];
+  } | null;
+  issues: DataHealthIssue[];
+}
+
 export interface WinrateStats {
   prediction: {
     total: number;

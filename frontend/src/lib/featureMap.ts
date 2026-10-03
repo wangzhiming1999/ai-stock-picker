@@ -72,6 +72,7 @@ export type BlockId =
   | "sandu_scan" // 三度 · 三度打分扫描
   | "limitup" // 涨跌停 · 涨停梯队
   | "limitdown" // 涨跌停 · 跌停观察层
+  | "data-health" // 研究 · 数据健康中心
   | "winrate" // 研究 · 胜率看板
   | "backtest" // 研究 · 策略回测
   | "tactic_backtest"; // 研究 · 形态回测验证
@@ -363,6 +364,16 @@ export const FEATURES: FeatureEntry[] = [
     domain: "research",
     sub: "verify",
     keywords: ["证据", "台账", "口径", "verified", "能动手", "靠谱吗", "ledger"],
+    isNew: true,
+  },
+  {
+    key: "rs.data-health",
+    label: "数据健康中心",
+    desc: "检查结算调度、积压、行情缓存与点时特征覆盖率",
+    domain: "research",
+    sub: "verify",
+    block: "data-health",
+    keywords: ["数据健康", "结算", "积压", "cron", "行情新鲜度", "覆盖率"],
     isNew: true,
   },
   {
