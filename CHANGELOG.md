@@ -9,6 +9,27 @@
 
 ## [Unreleased]
 
+### Added
+- **回测口径审计硬门槛 + ETF/板块/横截面滚动验证基础设施**（2026-10-04 ~ 10-05）
+  - `recommend_history_replay_service` 新增 `assess_backtest_caliber`：逐项检查 T+1 结算、涨跌停成交限制、
+    最小价位取整、费用模型、历史可交易状态、点时特征与基准日期对齐；任一关键项失败即 `blocked` +
+    `research_diagnostic_only`（审计自身通过也不等于允许上线）
+  - ETF 日期化涨跌幅规则（上交所 10%/20%、深交所 2020-08-24 起 20% 名单、科创50）+ 费用元数据；
+    委托价越界禁成交、一字涨停禁买、一字跌停标 `unverifiable`、零成交额禁触发
+  - 最小价位取整（股票 0.01 / ETF 0.001）、订单有效期（1/2/3 日）统一 T+1 收盘退出、
+    成本压力、分类相对基准（剔除自身）、横截面因子诊断（Rank IC / 分位收益差 / 衰减）
+  - 新增可复现脚本 `backend/scripts/run_board_strategy_validation.py`、`run_etf_history_validation.py`
+  - ⚠️ 全部结论保持研究态（`eligible_for_review=false` / `deployment_eligible=false`），**不修改生产参数**
+- **推荐算法迭代第 10-05 轮：ETF 横截面因子与分类相对基准复验**（2026-10-05，见 `docs/RECOMMENDATION_ITERATIONS.md`）
+  - ETF 历史加载改 3 次短重试后 A 池 6/6、B 池 9/9 全部加载；相对强度改用同类别剔除自身的对照序列
+  - 六组「样本池 × 类别」全部低于 6/8 前推窗口门槛，`eligible_for_review=false`
+- **信息架构再收敛：四中心 + 会话级共享候选池**（2026-10-03）
+  - 「推荐 + 决策先锋」→ 精选决策；「扫描 + 实战形态 + 筹码 + 三度」→ 扫描中心；
+    「抢板 + 涨跌停」→ 市场温度；「证据台账 + 胜率 + 组合/形态回测」→ 验证中心
+  - 二级入口 **13 → 10**（今日 3 / 选机会 2 / 持仓 4 / 研究 1，`lib/subnav.ts` 单一来源）
+  - 共享候选池（≤30 只，批量输入归一化/去重/容量）在选机会与扫描中心之间自动带入；
+    合并挂载导致的重复请求改为共享单飞缓存
+
 ### Fixed
 - **修复 Vercel Cron 从未进入每日结算的问题**（2026-10-03）
   - `vercel.json` 注册的 Cron 由平台使用 GET 调用，但 `/api/cron/daily` 与 `/api/cron/quad` 此前只接受 POST，生产请求固定返回 405，导致推荐、预测和胜率长期不结算。
