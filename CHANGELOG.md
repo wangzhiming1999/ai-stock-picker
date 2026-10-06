@@ -31,6 +31,28 @@
     合并挂载导致的重复请求改为共享单飞缓存
 
 ### Fixed
+- **生产依赖层「运行时安装」炸弹：385MB 依赖树撑爆 /tmp → 全站 500**（2026-10-06）
+  > 当天 16:02–16:11 全部接口 500（`could not import "app/main.py"`），日志伴随
+  > `No space left on device (os error 28)` 与 `ModuleNotFoundError: No module named 'akshare.stock'`。
+  - 根因链：依赖树 **385.8MB** 超过 Vercel 内部阈值（225MB，Lambda 250MB 预留余量）→
+    构建日志 `Bundle size exceeds the standard size; optimizing dependencies` →
+    平台把依赖从「打进函数包」降级为「**冷启动安装到 /tmp**」→ /tmp（512MB）装不下时
+    中断 → akshare 半装 → 6 个模块**顶层** `import akshare` 位于主 import 链 →
+    整个 `app.main` 加载失败 → **全站 500**。慢性病：全部历史部署同此（每次冷启动都要
+    恢复数百 MB 依赖），也是长期「反应慢」的隐藏成本。
+  - 修复 ①：`requirements.txt` 移除 `hmmlearn`（它拖入 scikit-learn+scipy ≈140MB）——
+    依赖树 **385.8 → 246.0MB（-36%）**；`regime_service` 设计上已内置缺失降级
+    （HMM 仅在与规则结论一致时补强黏性估计，主判据本就是规则；代码注释早已写明可删）。
+    preview 实测：冷启动 **2 秒成功返回 200**（修复前同类冷启动在 /tmp 阶段直接失败）。
+  - 修复 ②：`akshare` 全部改**函数内延迟导入**（11 处：market / data_service /
+    trade_calendar / backtest / market_prediction / recommend_history_replay）——
+    依赖层异常时不再拖垮整站，同时把 `import akshare`（eager import 数百子模块）
+    移出冷启动路径。
+  - 已排除路径：Vercel large functions beta（加开关后 bundle 判定不变）、
+    mini-racer 卸载（akshare 强依赖，`__init__` eager import 链）、
+    `excludeFiles` 排除依赖内 tests（仅作用于项目文件）。
+  - 验证：后端 **834 passed + 41 subtests**；故障注入（akshare 破损环境）下
+    `import app.main` 成功 —— 「全站挂」已降级为「局部功能受影响」。
 - **推荐结算「31 天 0 结算」根因：基准取数对同步函数漏改的 `await`**（2026-10-06）
   > 生产 `daily_recommendations` 累计 231 行待结算、已结算恒 0（最早积压 2026-09-02），
   > 而结算心跳每天照常刷新 —— 心跳由 `run_daily_cron` 的独立步骤写入，把「结算整批
