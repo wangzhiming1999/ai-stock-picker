@@ -31,6 +31,21 @@
     合并挂载导致的重复请求改为共享单飞缓存
 
 ### Fixed
+- **策略回测：取数失败不再伪装成「没有数据」+ 持仓估值不再被清零**（2026-10-06）
+  > 同一组参数（momentum / start 2025-01-01 / 18 只池）三次复跑分别得到 **+28.20% /
+  > +14.37% / +30.94%** —— 差异全部来自「这次跑成功了几只」，与策略本身无关。
+  - `_fetch_history` 原先让取数异常与「区间真的没有数据」共用 30 分钟 TTL：一次瞬时
+    `SSLError` 会让该票在半小时内**恒为空且不报错**，表现为回测池子悄悄变小
+  - 现拆开计时：异常**先重试一次**（`_HIST_FETCH_ATTEMPTS=2` / 退避 0.3s —— 实测 18 只里
+    约 2 只偶发失败，而少 2 只足以让总收益从 +28% 掉到 +14%），仍失败才做
+    `_HIST_TTL_FAIL=120s` 短负缓存；缓存条目改为 `(ts, df, ttl, is_fetch_failure)`
+  - `run_backtest` 新增 `fetch_failed` / `data_note`：池子缺了谁必须能看见；逐只异常仍隔离，
+    但会登记而不是被 `except: continue` 吞掉
+  - 持仓估值 `period_value += shares * 0  # 停牌按原值`（注释与实现相反，等于把持仓清零）
+    改为 `_value_positions`：取不到当日价时退回**最近一次已知价**，从未有过价格才跳过
+  - 前端 `BacktestPanel` 在「股票池 N 只」下方展示 `data_note`
+  - 验证：后端 +9 条测试（含反向探针证明断言能抓住旧行为）共 **828 passed + 41 subtests**；
+    前端 typecheck / 78 tests / contrast / build 全绿
 - **修复 Vercel Cron 从未进入每日结算的问题**（2026-10-03）
   - `vercel.json` 注册的 Cron 由平台使用 GET 调用，但 `/api/cron/daily` 与 `/api/cron/quad` 此前只接受 POST，生产请求固定返回 405，导致推荐、预测和胜率长期不结算。
   - 两个调度入口现同时接受 GET/POST，并继续共用 `CRON_SECRET` / `ADMIN_TOKEN` 鉴权；POST 仍可用于人工运维。
