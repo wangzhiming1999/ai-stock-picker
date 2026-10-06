@@ -833,6 +833,10 @@ export interface BacktestResult {
   benchmark_note?: string | null;
   equity_curve: { date: string; value: number; holdings: string[] }[];
   pool_size: number;
+  /** 取数失败的代码（池子因此变小）；空数组表示全部取到 */
+  fetch_failed?: string[];
+  /** 取数失败时的说明（池子缺了谁 / 按几只计算）；全部成功为 null */
+  data_note?: string | null;
   /** 口径：这里是「调仓期」胜率，样本单位是期不是票 */
   caliber?: Caliber;
 }

@@ -263,6 +263,12 @@ export default function BacktestPanel() {
             <p className="mt-1 text-meta leading-relaxed text-amber-300/90">{result.benchmark_note}</p>
           )}
 
+          {/* 池子缺了谁必须能看见：取数失败会让 pool_size 变小，
+              只显示「股票池 N 只」会把取数抖动读成「策略变差」。 */}
+          {result.data_note && (
+            <p className="mt-1 text-meta leading-relaxed text-amber-300/90">{result.data_note}</p>
+          )}
+
           {/* 口径随数据下发：这里的「胜率」样本单位是调仓期，不是个股，不能和形态/推荐胜率混算。
               不可比声明统一在「研究 · 证据台账」子页顶部展示一次。 */}
           <div className="mt-2">
