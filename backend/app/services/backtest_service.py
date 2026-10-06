@@ -26,10 +26,21 @@ STRATEGY_BACKTEST_POOL = [
 # 基准指数（沪深300）
 BENCHMARK = "sh000300"
 
-# 历史K线内存缓存：key=(code,start,end) -> (timestamp, df)，缓存 30 分钟
-_history_cache: dict[tuple, tuple[float, pd.DataFrame]] = {}
+# 历史K线内存缓存：key=(code,start,end) -> (timestamp, df, ttl, is_fetch_failure)。
+#
+# ⚠️ 「取数失败」与「这段区间真的没有数据」必须分开计时：失败只做 _HIST_TTL_FAIL 秒的
+#    短负缓存。此前两者共用 30 分钟 TTL，一次瞬时 SSLError 会让该票在半小时内**恒为空
+#    且不报错** —— 表现为回测池子悄悄变小（18 只跑出 16/15），同一参数复跑结果都不一样。
+_history_cache: dict[tuple, tuple[float, pd.DataFrame, float, bool]] = {}
 _HIST_TTL = 1800
+_HIST_TTL_FAIL = 120
 _HIST_CACHE_MAX = 128
+
+# 逐只拉历史时，单只偶发失败（SSLError / 读超时）在实测里约每 18 只出现 2 只。
+# 而 18 只池少 2 只足以让同一策略的总收益从 +28% 掉到 +14% —— 失败必须重试一次再说，
+# 否则「池子缺了谁」直接决定结论方向。
+_HIST_FETCH_ATTEMPTS = 2
+_HIST_RETRY_BACKOFF = 0.3
 
 
 class BacktestParams:
@@ -57,28 +68,54 @@ def _symbol(code: str) -> str:
     return f"sh{code}" if code.startswith(("6", "9")) else f"sz{code}"
 
 
-def _fetch_history(code: str, start: str, end: str) -> pd.DataFrame:
-    """获取历史K线（带缓存）。"""
+def _fetch_history(code: str, start: str, end: str, *, failed: list[str] | None = None) -> pd.DataFrame:
+    """获取历史K线（带缓存 + 一次重试）。
+
+    取数异常与「这段区间真的没有数据」是两件事，必须分开处理：异常先重试一次，
+    仍失败才做 `_HIST_TTL_FAIL` 的短负缓存，并把代码登记进 ``failed`` 交给调用方报出来。
+    两者共用长 TTL 的旧行为会把一次瞬时失败锁成半小时的空数据，且全程不报错。
+    """
     key = (code, start, end)
     now = time.monotonic()
-    if key in _history_cache and now - _history_cache[key][0] < _HIST_TTL:
-        return _history_cache[key][1]
-    try:
-        df = akshare_guard.call(
-            ak.stock_zh_a_hist_tx,
-            symbol=_symbol(code),
-            start_date=start.replace("-", ""),
-            end_date=end.replace("-", ""),
+    cached = _history_cache.get(key)
+    if cached and now - cached[0] < cached[2]:
+        if failed is not None and cached[3]:
+            failed.append(code)
+        return cached[1]
+
+    df = None
+    for attempt in range(_HIST_FETCH_ATTEMPTS):
+        try:
+            df = akshare_guard.call(
+                ak.stock_zh_a_hist_tx,
+                symbol=_symbol(code),
+                start_date=start.replace("-", ""),
+                end_date=end.replace("-", ""),
+            )
+        except Exception:
+            df = None
+        if df is not None:
+            break
+        if attempt + 1 < _HIST_FETCH_ATTEMPTS:
+            time.sleep(_HIST_RETRY_BACKOFF)
+
+    if df is None:
+        # 取数失败：短负缓存 + 登记，绝不占用 30 分钟窗口
+        put_bounded(
+            _history_cache, key, (now, pd.DataFrame(), _HIST_TTL_FAIL, True), max_entries=_HIST_CACHE_MAX
         )
-    except Exception:
-        df = None
-    if df is None or df.empty:
-        empty = pd.DataFrame()
-        put_bounded(_history_cache, key, (now, empty), max_entries=_HIST_CACHE_MAX)
-        return empty
+        if failed is not None:
+            failed.append(code)
+        return pd.DataFrame()
+
+    if df.empty:
+        # 真没有数据（新股 / 区间外）：按正常 TTL 缓存，且不算取数失败
+        put_bounded(_history_cache, key, (now, pd.DataFrame(), _HIST_TTL, False), max_entries=_HIST_CACHE_MAX)
+        return pd.DataFrame()
+
     df["date"] = pd.to_datetime(df["date"])
     df = df.sort_values("date").reset_index(drop=True)
-    put_bounded(_history_cache, key, (now, df), max_entries=_HIST_CACHE_MAX)
+    put_bounded(_history_cache, key, (now, df, _HIST_TTL, False), max_entries=_HIST_CACHE_MAX)
     return df
 
 
@@ -157,6 +194,50 @@ def _score(df: pd.DataFrame, strategy: str) -> float:
     return 0.0
 
 
+def _fetch_failure_note(fetch_failed: list[str], loaded: int) -> str | None:
+    """取数失败清单 → 一句人话。全成功则为 None。"""
+    if not fetch_failed:
+        return None
+    return (
+        f"{len(fetch_failed)} 只取数失败（{', '.join(fetch_failed)}），"
+        f"本次按实际取到的 {loaded} 只计算；失败不等于没有数据，重跑会重新尝试"
+    )
+
+
+def _close_on_or_before(df: pd.DataFrame | None, trade_date: dt.date) -> float | None:
+    """取 trade_date 当日或之前最后一个收盘价；取不到返回 None（不猜价格）。"""
+    if df is None or df.empty:
+        return None
+    rows = df[df["date"].dt.date <= trade_date]
+    if rows.empty:
+        return None
+    return float(rows["close"].iloc[-1])
+
+
+def _value_positions(
+    portfolio: list[tuple[str, float]],
+    histories: dict[str, pd.DataFrame],
+    trade_date: dt.date,
+    last_price: dict[str, float],
+) -> float:
+    """按 trade_date 给持仓估值。
+
+    取不到当日价（数据缺口 / 停牌 / 该票不在 histories 里）时退回**最近一次已知价**。
+    这里的返回值是组合市值的分子，按 0 计等于把该持仓凭空抹掉 —— 旧代码写的
+    `shares * 0` 注释是「停牌按原值」，行为却是清零，注释与实现正好相反。
+    """
+    total = 0.0
+    for code, shares in portfolio:
+        price = _close_on_or_before(histories.get(code), trade_date)
+        if price is None:
+            price = last_price.get(code)
+        if price is None:
+            continue  # 从未有过已知价：跳过，不虚构价格
+        last_price[code] = price
+        total += shares * price
+    return total
+
+
 def run_backtest(params: BacktestParams) -> dict:
     """执行回测。"""
     start = params.start_date
@@ -164,16 +245,24 @@ def run_backtest(params: BacktestParams) -> dict:
 
     # 1. 拉取全部股票历史（只拉一次，减少请求）
     histories: dict[str, pd.DataFrame] = {}
+    fetch_failed: list[str] = []
     for code in params.codes:
         try:
-            df = _fetch_history(code, start, end)
-            if not df.empty:
-                histories[code] = df
+            df = _fetch_history(code, start, end, failed=fetch_failed)
         except Exception:
+            # 逐只隔离：单只异常不该拖垮整轮回测；但**必须登记**，
+            # 否则「代码写错了」会伪装成「这只票没数据」，池子静默少一只。
+            if code not in fetch_failed:
+                fetch_failed.append(code)
             continue
+        if not df.empty:
+            histories[code] = df
 
     if not histories:
-        return {"error": "未获取到历史数据"}
+        return {"error": "未获取到历史数据", "fetch_failed": fetch_failed}
+
+    # 取数失败必须让调用方看得见：池子静默变小只会被读成「策略变差」
+    data_note = _fetch_failure_note(fetch_failed, len(histories))
 
     # 2. 构建统一交易日历（取所有股票的并集日期）
     all_dates = set()
@@ -186,27 +275,14 @@ def run_backtest(params: BacktestParams) -> dict:
     cash_balance = params.initial_capital
     equity_curve: list[dict] = []
     portfolio: list[tuple[str, float]] = []  # (code, shares)
-    holdings_value = capital
+    last_price: dict[str, float] = {}  # 最近一次已知收盘价，供数据缺口时估值
 
     rebalance_dates = all_dates[:: params.rebalance_days]
 
     for i, trade_date in enumerate(rebalance_dates):
         # 先结算上一期持仓收益
         if i > 0 and portfolio:
-            prev_date = rebalance_dates[i - 1]
-            period_value = 0.0
-            for code, shares in portfolio:
-                df = histories.get(code)
-                if df is None:
-                    continue
-                rows = df[df["date"].dt.date <= trade_date]
-                if rows.empty:
-                    period_value += shares * 0  # 停牌按原值
-                    continue
-                price = rows["close"].iloc[-1]
-                period_value += shares * price
-            capital = period_value + cash_balance
-            holdings_value = capital
+            capital = _value_positions(portfolio, histories, trade_date, last_price) + cash_balance
             equity_curve.append(
                 {
                     "date": str(trade_date),
@@ -241,16 +317,13 @@ def run_backtest(params: BacktestParams) -> dict:
             portfolio = []
             cash_balance = capital
             for code in picked:
-                df = histories.get(code)
-                rows = df[df["date"].dt.date <= trade_date]
-                if rows.empty:
-                    continue
-                price = rows["close"].iloc[-1]
-                if price <= 0:
+                price = _close_on_or_before(histories.get(code), trade_date)
+                if price is None or price <= 0:
                     continue
                 shares = int(per_stock // price)
                 if shares > 0:
                     portfolio.append((code, shares))
+                    last_price[code] = price
                     cash_balance -= shares * price
 
     # 4. 统计指标
@@ -321,6 +394,9 @@ def run_backtest(params: BacktestParams) -> dict:
         "benchmark_note": benchmark_note,
         "equity_curve": equity_curve,
         "pool_size": len(histories),
+        # 取数失败清单 + 说明：池子缺了谁必须能看见，否则只会被读成「策略不行」
+        "fetch_failed": fetch_failed,
+        "data_note": data_note,
         # 口径随数据一起下发：这里的「胜率」是**调仓期**口径，样本单位是期不是票
         "caliber": calibers.describe("strategy_backtest"),
     }

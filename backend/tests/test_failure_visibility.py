@@ -53,7 +53,7 @@ class ReviewFailureVisibilityTests:
 
 class BenchmarkFailureVisibilityTests:
     def test_missing_benchmark_is_explained_not_silent(self, monkeypatch):
-        monkeypatch.setattr(bts, "_fetch_history", lambda code, start, end: _fake_frame())
+        monkeypatch.setattr(bts, "_fetch_history", lambda code, start, end, **_kw: _fake_frame())
 
         def _boom(*args, **kwargs):
             raise RuntimeError("sina down")
@@ -67,7 +67,7 @@ class BenchmarkFailureVisibilityTests:
         assert "取数失败" in result["benchmark_note"]
 
     def test_present_benchmark_carries_no_note(self, monkeypatch):
-        monkeypatch.setattr(bts, "_fetch_history", lambda code, start, end: _fake_frame())
+        monkeypatch.setattr(bts, "_fetch_history", lambda code, start, end, **_kw: _fake_frame())
 
         bench = pd.DataFrame(
             {
