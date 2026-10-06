@@ -31,6 +31,24 @@
     合并挂载导致的重复请求改为共享单飞缓存
 
 ### Fixed
+- **推荐结算「31 天 0 结算」根因：基准取数对同步函数漏改的 `await`**（2026-10-06）
+  > 生产 `daily_recommendations` 累计 231 行待结算、已结算恒 0（最早积压 2026-09-02），
+  > 而结算心跳每天照常刷新 —— 心跳由 `run_daily_cron` 的独立步骤写入，把「结算整批
+  > 炸掉」掩盖成了「一切正常」，直到数据健康中心上线才被看见。
+  - 根因：`settle_daily_recommendations` 内 `bench_hist = await data_service.get_history(...)`，
+    而 `get_history` 在 httpx→requests 重构后已是**同步**函数 → 必抛
+    `TypeError: object StockHistory can't be used in 'await' expression`；该行在
+    **任何一行结算之前**执行 → 每轮 cron 整批中断。全仓库仅此一处漏改（其余 10+ 处
+    均正确 `asyncio.to_thread`）；预测结算走 `asyncio_hist()`（已包装）所以正常 ——
+    解释了「预测 44 条已结算、推荐恒 0」的割裂。
+  - 修复：基准取数改 `asyncio.to_thread` + try 兜底；历史 K 线批量取数改
+    `return_exceptions=True` 逐只隔离（同时防「一行脏 code 令整批陪葬、且自身永远
+    无法结算」的永久死锁）；逐行结算 try 隔离并计数。
+  - 可见性：结算结束打印 `[cron][settle]` 结构化摘要（rows/codes/hist_err/各 skip
+    原因/settled/row_errors/samples）；`run_daily_cron` 异常分支补打印堆栈 ——
+    此前整条链路「0 结算且零日志」。
+  - 验证：新增 `test_settlement_isolation.py` 6 条，探针证明旧写法下全红并复现
+    `TypeError` 原文；后端 **834 passed + 41 subtests**。
 - **策略回测：取数失败不再伪装成「没有数据」+ 持仓估值不再被清零**（2026-10-06）
   > 同一组参数（momentum / start 2025-01-01 / 18 只池）三次复跑分别得到 **+28.20% /
   > +14.37% / +30.94%** —— 差异全部来自「这次跑成功了几只」，与策略本身无关。
