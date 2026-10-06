@@ -11,10 +11,14 @@ python-dotenv==1.0.1
 httpx==0.28.1
 supabase==2.31.0
 email-validator==2.2.0
-# 市场状态识别（regime_service 用高斯 HMM 识别 上行/震荡/下行）
-# 可选依赖：未安装时 regime_service 自动降级为确定性规则状态，功能不缺失，只是
-# 状态惯性的建模能力变弱。装不上（缺少 C 编译器）时可以删掉本行。
-hmmlearn==0.3.3
+# 市场状态识别（regime_service 用高斯 HMM 识别 上行/震荡/下行）的**交叉验证**能力：
+# 0.3.3 会拖入 scikit-learn + scipy（实测 site-packages ~180MB），使依赖树从 ~200MB
+# 膨胀到 ~385MB，超过 Vercel 函数 bundle 阈值 → 平台降级为「运行时安装依赖」（写 /tmp）
+# → 空间不足时安装中断、akshare 半装、主模块 import 失败 → 全站 500（2026-10-06 事故）。
+# regime_service 已内置降级：hmmlearn 缺失时自动走确定性规则状态（主判据本就是规则，
+# HMM 只在对规则结论一致时补强 state_probs/黏性估计），因此**不安装**。
+# 若未来恢复：先确认部署平台支持大 bundle，再加回 `hmmlearn==0.3.3` 并本地 pip install 验证。
+# hmmlearn==0.3.3
 # 可选：/api/admin/migrate 走 DATABASE_URL 直连 Postgres 执行建表 SQL 时使用
 # （走 SUPABASE_MANAGEMENT_API_KEY 则不需要）
 asyncpg==0.30.0

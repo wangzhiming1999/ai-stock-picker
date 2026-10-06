@@ -27,7 +27,11 @@
 
 方向标签只由证据分决定（LLM 与惯性都改不了标签），这是「方向稳」的核心保证。
 
-依赖：numpy 必装；hmmlearn 可选 —— 缺失或训练失败时自动走确定性规则状态，不降级功能。
+依赖：numpy 必装；hmmlearn **不在 requirements 里安装**（它会拖入 scikit-learn+scipy
+~180MB，撑爆 Vercel 函数 bundle 阈值并触发运行时安装；详见 requirements.txt 注释）。
+hmmlearn 缺失、训练失败或拟合退化时，本模块自动走确定性规则状态，功能不降级 ——
+主判据本就是规则，HMM 只在结论一致时补强 state_probs / 黏性估计。
+想让 HMM 交叉验证复活：本地 `pip install hmmlearn==0.3.3` 即可（代码路径一直保留）。
 """
 from __future__ import annotations
 
