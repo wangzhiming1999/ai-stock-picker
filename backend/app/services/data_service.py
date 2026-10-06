@@ -7,7 +7,9 @@ import logging
 import time
 from typing import Any
 
-import akshare as ak
+# 注意：akshare 一律**函数内延迟导入**（见各使用点）。它的 __init__ 会 eager import 数百个
+# 子模块，顶层导入既拖慢冷启动，又会在依赖层异常时连带本模块（乃至 app.main）导入失败
+# —— 2026-10-06 全站 500 事故的放大机制。
 import pandas as pd
 import requests
 
@@ -447,6 +449,8 @@ def get_intraday_history(code: str, period: str = "5m", limit: int = _MIN_DEFAUL
 
 def get_news(code: str, name: str, limit: int = 8) -> list[NewsItem]:
     """获取个股新闻：优先东方财富，失败则用市场快讯过滤兜底。"""
+    import akshare as ak
+
     try:
         df = akshare_guard.call(ak.stock_news_em, symbol=code.strip())
         if df is not None and not df.empty:
@@ -506,6 +510,8 @@ def get_notices_today(force: bool = False) -> dict[str, list[str]]:
     now = time.time()
     if not force and _notice_cache and now - _notice_cache[0] < 3600:
         return _notice_cache[1]
+    import akshare as ak
+
     out: dict[str, list[str]] = {}
     try:
         df = akshare_guard.call(ak.stock_notice_report, symbol="全部", date=dt.date.today().strftime("%Y%m%d"))
@@ -535,6 +541,8 @@ def get_global_news(limit: int = 300, force: bool = False) -> list[dict]:
     now = time.time()
     if not force and _global_news_cache and now - _global_news_cache[0] < 300:
         return _global_news_cache[1]
+    import akshare as ak
+
     rows: list[dict] = []
     try:
         df = akshare_guard.call(ak.stock_info_global_em)

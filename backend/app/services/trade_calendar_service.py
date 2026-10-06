@@ -11,7 +11,9 @@ import asyncio
 import datetime as dt
 import logging
 
-import akshare as ak
+# 注意：akshare 一律**函数内延迟导入**（见下方使用点）。它的 __init__ 会 eager import 数百
+# 子模块，兜底逻辑已就位（缺失时走周末推断），顶层导入反而会连带 app.main 导入失败
+# —— 2026-10-06 全站 500 事故的放大机制。
 import pandas as pd
 
 from app.services import akshare_guard, supabase_store
@@ -172,6 +174,8 @@ async def _get_calendar() -> dict[str, bool]:
 
     # akshare 拉取全量交易日（含未来），生成完整日历（含非交易日 False）
     try:
+        import akshare as ak
+
         df = await asyncio.to_thread(akshare_guard.call, ak.tool_trade_date_hist_sina)
         trade_set = {str(d)[:10] for d in df["trade_date"].tolist()}
         # 覆盖最近 ~5 年（akshare 数据从 1990 开始到未来）

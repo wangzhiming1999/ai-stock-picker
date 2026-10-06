@@ -8,7 +8,9 @@ import datetime as dt
 import math
 import time
 
-import akshare as ak
+# 注意：akshare 一律**函数内延迟导入**（见各使用点）。它的 __init__ 会 eager import 数百
+# 子模块，顶层导入既拖慢冷启动，又会在依赖层异常时连带本模块（乃至 app.main）导入失败
+# —— 2026-10-06 全站 500 事故的放大机制。
 import pandas as pd
 
 from app.services import akshare_guard, calibers
@@ -75,6 +77,8 @@ def _fetch_history(code: str, start: str, end: str, *, failed: list[str] | None 
     仍失败才做 `_HIST_TTL_FAIL` 的短负缓存，并把代码登记进 ``failed`` 交给调用方报出来。
     两者共用长 TTL 的旧行为会把一次瞬时失败锁成半小时的空数据，且全程不报错。
     """
+    import akshare as ak
+
     key = (code, start, end)
     now = time.monotonic()
     cached = _history_cache.get(key)
@@ -364,6 +368,8 @@ def run_backtest(params: BacktestParams) -> dict:
     benchmark_return = None
     benchmark_note = None
     try:
+        import akshare as ak
+
         bdf = akshare_guard.call(ak.stock_zh_index_daily, symbol=BENCHMARK)
         bdf["date"] = pd.to_datetime(bdf["date"])
         bdf = bdf[bdf["date"].dt.date >= dt.date.fromisoformat(start)]

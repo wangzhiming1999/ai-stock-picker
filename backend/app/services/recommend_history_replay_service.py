@@ -10,7 +10,9 @@ import math
 from decimal import Decimal, ROUND_HALF_UP
 from statistics import mean, median, pstdev
 
-import akshare as ak
+# 注意：akshare 一律**函数内延迟导入**（见各使用点）。它的 __init__ 会 eager import 数百
+# 子模块，顶层导入既拖慢冷启动，又会在依赖层异常时连带本模块（乃至 app.main）导入失败
+# —— 2026-10-06 全站 500 事故的放大机制。
 import pandas as pd
 
 from app.services import akshare_guard, data_service, signal_service
@@ -2658,6 +2660,8 @@ def evaluate_candidate_gate_profiles(
 
 
 def _fetch_benchmark(start: str, end: str) -> pd.DataFrame:
+    import akshare as ak
+
     frame = akshare_guard.call(ak.stock_zh_index_daily, symbol=BENCHMARK)
     if frame is None or frame.empty:
         return pd.DataFrame()
@@ -2693,6 +2697,8 @@ def _fetch_stock_history(code: str, days: int) -> pd.DataFrame:
 
 def _fetch_etf_history(code: str, days: int) -> pd.DataFrame:
     """Fetch ETF bars through the Tencent path without Eastmoney's fund-code lookup."""
+    import akshare as ak
+
     end = dt.date.today()
     start = end - dt.timedelta(days=max(240, days * 2))
     symbol = f"sh{code}" if str(code).startswith("5") else f"sz{code}"

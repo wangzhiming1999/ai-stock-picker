@@ -3,7 +3,9 @@ import asyncio
 import datetime as dt
 import time
 
-import akshare as ak
+# 注意：akshare 一律**函数内延迟导入**（见各使用点）。它的 __init__ 会 eager import 数百个
+# 子模块，顶层导入既拖慢冷启动，又会在依赖层异常时连带本模块（乃至 app.main）导入失败
+# —— 2026-10-06 全站 500 事故的放大机制。
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
@@ -344,6 +346,8 @@ class ScanRequest(BaseModel):
 @router.get("/industries")
 async def get_industries():
     """A 股行业板块列表（新浪行业）。"""
+    import akshare as ak
+
     try:
         df = await asyncio.to_thread(akshare_guard.call, ak.stock_sector_spot, "新浪行业")
     except Exception as e:
@@ -366,6 +370,8 @@ async def get_industries():
 @router.get("/industries/{label}/stocks")
 async def get_industry_stocks(label: str):
     """某行业板块的成分股及实时行情。"""
+    import akshare as ak
+
     try:
         df = await asyncio.to_thread(akshare_guard.call, ak.stock_sector_detail, label)
     except Exception as e:

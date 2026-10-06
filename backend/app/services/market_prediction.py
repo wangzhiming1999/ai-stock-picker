@@ -20,7 +20,9 @@ import asyncio
 import datetime as dt
 import math
 
-import akshare as ak
+# 注意：akshare 一律**函数内延迟导入**（见各使用点）。它的 __init__ 会 eager import 数百
+# 子模块，顶层导入既拖慢冷启动，又会在依赖层异常时连带本模块（乃至 app.main）导入失败
+# —— 2026-10-06 全站 500 事故的放大机制。
 from openai import AsyncOpenAI
 
 from app.config import get_settings
@@ -108,6 +110,8 @@ PREDICTION_SYSTEM_PROMPT = """你是一位擅长 A 股大盘研判的资深策�
 
 def get_index_history(days: int = 180) -> list[dict]:
     """获取上证指数历史K线。"""
+    import akshare as ak
+
     df = akshare_guard.call(ak.stock_zh_index_daily, symbol=MARKET_INDEX)
     df = df.tail(days)
     return [
