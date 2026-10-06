@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import traceback
 
 from app.services import backtest_service, calibers, concurrency, data_service, market_prediction, supabase_store, trade_calendar_service
 
@@ -163,7 +164,14 @@ async def _safe_reco_update(sb, row_id: int, fields: dict, bench_ok: bool) -> bo
 
 
 async def settle_daily_recommendations() -> int:
-    """结算未结算的推荐：用最近交易日收盘价对比推荐价，判断次日是否上涨。"""
+    """结算未结算的推荐：用最近交易日收盘价对比推荐价，判断次日是否上涨。
+
+    批量隔离原则（2026-10-06 生产「31 天 0 结算」事故的教训）：单只票取数异常、
+    单行结算异常都**不得终止整批**。否则一行脏数据（如 code 非字符串导致
+    `_code_to_symbol` 抛 TypeError）会让当天全部推荐都结不了，而该行自身也永远
+    无法结算 —— 形成「永久 0 结算」死锁，且整条链路无任何报错。所有跳过/失败
+    原因在结束时打印一行 `[cron][settle]` 摘要，供 Vercel 运行日志对账。
+    """
     if not supabase_store.is_configured():
         return 0
     sb = await supabase_store.get_service_client()
@@ -185,6 +193,7 @@ async def settle_daily_recommendations() -> int:
     except Exception as e:
         if any(column in str(e) for column in ("expected_price", "execution_status", "entry_price")):
             execution_tracking = False
+            print("[cron][settle] expected_price/execution_status/entry_price 列缺失，降级为旧口径结算")
             res = (
                 await sb.table("daily_recommendations")
                 .select("id", "code", "rec_date", "recommend_price")
@@ -196,85 +205,130 @@ async def settle_daily_recommendations() -> int:
             raise
     rows = res.data
     if not rows:
+        print(f"[cron][settle] data_day={data_day} 待结算 0 行")
         return 0
 
     # 批量获取历史 K 线，精确选择推荐后的首个交易日收盘。
-    codes = list({r["code"] for r in rows})
-    histories = await concurrency.gather_limited(
-        asyncio.to_thread(data_service.get_history, code, 200) for code in codes
+    # 逐只隔离（return_exceptions=True）：任何单只异常都只影响它自己，不让整批陪葬。
+    codes = [code for code in sorted({str(r.get("code") or "") for r in rows}) if code]
+    raw = await concurrency.gather_limited(
+        (asyncio.to_thread(data_service.get_history, code, 200) for code in codes),
+        return_exceptions=True,
     )
-    history_map = dict(zip(codes, histories))
+    history_map: dict[str, object] = {}
+    hist_errors = 0
+    error_notes: list[str] = []
+    for code, value in zip(codes, raw):
+        if isinstance(value, BaseException):
+            hist_errors += 1
+            if len(error_notes) < 3:
+                error_notes.append(f"hist {code}: {type(value).__name__}: {value}")
+            history_map[code] = None
+        else:
+            history_map[code] = value
     # 基准指数历史只需拉一次，所有推荐共用同一持有期对齐方式。
-    bench_hist = await data_service.get_history(RECO_BENCHMARK, 200)
+    # 必须 to_thread 卸载：get_history 是同步函数（requests），直接 await 会抛
+    # TypeError 且发生在任何一行结算之前 —— 2026-10-06 生产「31 天 0 结算」的根因。
+    try:
+        bench_hist = await asyncio.to_thread(data_service.get_history, RECO_BENCHMARK, 200)
+    except Exception as exc:  # 防御：基准取数异常不得中止个股结算
+        bench_hist = None
+        error_notes.append(f"bench: {type(exc).__name__}: {exc}")
 
     settled = 0
+    skip_no_price = 0
+    skip_no_history = 0
+    skip_no_next = 0
+    row_errors = 0
     settled_at = dt.datetime.now(dt.timezone.utc).isoformat()
     bench_ok = True  # 新列是否存在；一旦缺失就降级为只写旧字段
     for row in rows:
-        rec_date = str(row.get("rec_date") or "")[:10]
-        recommend_price = row.get("recommend_price")
-        if not recommend_price:
-            continue
-        if execution_tracking:
-            trade = _resolve_recommendation_trade(
-                history_map.get(row["code"]),
-                rec_date,
-                float(recommend_price),
-                row.get("expected_price"),
-            )
-        else:
-            settled_quote = _next_close_after(history_map.get(row["code"]), rec_date)
-            trade = (
-                {
-                    "date": settled_quote[0],
-                    "entry_price": float(recommend_price),
-                    "exit_price": settled_quote[1],
-                    "execution_status": "legacy",
+        try:
+            rec_date = str(row.get("rec_date") or "")[:10]
+            try:
+                recommend_price = float(row.get("recommend_price"))
+            except (TypeError, ValueError):
+                skip_no_price += 1
+                continue
+            history = history_map.get(str(row.get("code") or ""))
+            if history is None:
+                skip_no_history += 1
+                continue
+            if execution_tracking:
+                trade = _resolve_recommendation_trade(
+                    history, rec_date, recommend_price, row.get("expected_price")
+                )
+            else:
+                settled_quote = _next_close_after(history, rec_date)
+                trade = (
+                    {
+                        "date": settled_quote[0],
+                        "entry_price": recommend_price,
+                        "exit_price": settled_quote[1],
+                        "execution_status": "legacy",
+                    }
+                    if settled_quote
+                    else None
+                )
+            if not trade:
+                skip_no_next += 1
+                continue
+            _next_date = trade["date"]
+            next_close = trade["exit_price"]
+            entry_price = trade.get("entry_price")
+            if entry_price is None:
+                fields = {
+                    "next_close": round(next_close, 2),
+                    "next_return": None,
+                    "hit": None,
+                    "settled_at": settled_at,
+                    "execution_status": trade["execution_status"],
+                    "entry_price": None,
                 }
-                if settled_quote
-                else None
+                bench_ok = await _safe_reco_update(sb, row["id"], fields, bench_ok)
+                settled += 1
+                continue
+
+            next_return = (next_close / entry_price - 1) * 100
+            benchmark_return = (
+                _index_window_return(bench_hist, rec_date, _next_date) if bench_ok else None
             )
-        if not trade:
-            continue
-        _next_date = trade["date"]
-        next_close = trade["exit_price"]
-        entry_price = trade.get("entry_price")
-        if entry_price is None:
+            net_return, excess_return, hit = _reco_outcome(next_return, benchmark_return, RECO_FEE_PCT)
             fields = {
                 "next_close": round(next_close, 2),
-                "next_return": None,
-                "hit": None,
+                "next_return": round(next_return, 2),
+                "hit": hit,
                 "settled_at": settled_at,
-                "execution_status": trade["execution_status"],
-                "entry_price": None,
             }
+            if execution_tracking:
+                fields["execution_status"] = trade["execution_status"]
+                fields["entry_price"] = entry_price
+            if benchmark_return is not None:
+                fields["benchmark_return"] = round(benchmark_return, 2)
+                fields["net_return"] = net_return
+                fields["excess_return"] = excess_return
             bench_ok = await _safe_reco_update(sb, row["id"], fields, bench_ok)
             settled += 1
-            continue
+        except Exception as exc:  # 单行失败不影响其它行；原因进摘要与日志
+            row_errors += 1
+            if len(error_notes) < 6:
+                error_notes.append(f"row {row.get('id')}: {type(exc).__name__}: {exc}")
 
-        next_return = (next_close / entry_price - 1) * 100
-        benchmark_return = (
-            _index_window_return(bench_hist, rec_date, _next_date) if bench_ok else None
-        )
-        net_return, excess_return, hit = _reco_outcome(next_return, benchmark_return, RECO_FEE_PCT)
-        fields = {
-            "next_close": round(next_close, 2),
-            "next_return": round(next_return, 2),
-            "hit": hit,
-            "settled_at": settled_at,
-        }
-        if execution_tracking:
-            fields["execution_status"] = trade["execution_status"]
-            fields["entry_price"] = entry_price
-        if benchmark_return is not None:
-            fields["benchmark_return"] = round(benchmark_return, 2)
-            fields["net_return"] = net_return
-            fields["excess_return"] = excess_return
-        bench_ok = await _safe_reco_update(sb, row["id"], fields, bench_ok)
-        settled += 1
+    # 结算后刷新胜率快照（失败不吞掉结算结果，心跳由 run_daily_cron 兜底刷新）
+    try:
+        await refresh_winrate_snapshot()
+    except Exception as exc:
+        print(f"[cron][settle] 快照刷新失败: {type(exc).__name__}: {exc}")
 
-    # 结算后刷新胜率快照
-    await refresh_winrate_snapshot()
+    summary = (
+        f"[cron][settle] data_day={data_day} rows={len(rows)} codes={len(codes)} "
+        f"hist_ok={sum(1 for v in history_map.values() if v is not None)} hist_err={hist_errors} "
+        f"skip_no_price={skip_no_price} skip_no_history={skip_no_history} "
+        f"skip_no_next={skip_no_next} settled={settled} row_errors={row_errors}"
+    )
+    if error_notes:
+        summary += " notes=" + " | ".join(error_notes)
+    print(summary)
     return settled
 
 
@@ -523,6 +577,10 @@ async def run_daily_cron() -> dict:
             result[key] = await operation()
         except Exception as e:
             errors[key] = _err_note(e)
+            # 只在 HTTP 响应里带 errors 不够：Vercel 运行日志是运维唯一能看到的现场，
+            # 堆栈必须打出来（2026-10-06 排查「0 结算」时无处看异常的直接教训）。
+            print(f"[cron] {key} failed: {_err_note(e)}")
+            traceback.print_exc()
 
     if result.get("stats") is not None:
         try:
