@@ -32,6 +32,7 @@ from app.services import (
     signal_service,
     supabase_store,
     trade_calendar_service,
+    wave_service,
 )
 from app.services.cache_utils import put_bounded
 
@@ -229,8 +230,27 @@ def build_market_context(
         "evidence_score": evidence_score,
         "data_date": data_day_s,
         "target_date": next_day_s,
+        # 波浪定位（日线 + 周线）：**只读辅助读数**。
+        #
+        # 两条硬约束，改这里之前先读 wave_service 的模块说明：
+        #   1. 不参与 evidence_score，也不参与 direction_score —— 否则一天一个浪数
+        #      会让方向标签跟着漂移，破坏「方向由量化证据决定」的契约；
+        #   2. **不进 LLM 上下文**（上面已构造完 ctx 才计算它）。模型一旦读到
+        #      「现在在 C 浪主跌段」就会拿它当方向依据，而 prompt 里的证据分锚点
+        #      又禁止模型改方向 —— 结果只会是文案与标签互相打架。
+        # 它只回答一件事：按波浪理论现在可能在第几浪。
+        "wave": _safe_wave(hist),
     }
     return ctx, summary
+
+
+def _safe_wave(hist: list[dict]) -> dict | None:
+    """波浪定位的安全包装：失败一律降级为 None，绝不影响预测主链路。"""
+    try:
+        return wave_service.analyze_dual(hist)
+    except Exception as e:  # noqa: BLE001 — 辅助读数不允许把整条预测链路带崩
+        print(f"[prediction] 波浪定位失败: {e}")
+        return None
 
 
 def _quantitative_block(breadth: dict | None, regime: dict, evidence_score: float) -> str:
@@ -324,6 +344,7 @@ async def predict_tomorrow(force_refresh: bool = False) -> dict:
             db_result.setdefault("data_date", today)
             if not db_result.get("target_date"):
                 db_result["target_date"] = next_day.isoformat()
+            await _backfill_wave(db_result)
             put_bounded(_prediction_cache, today, (dt.datetime.now().isoformat(), db_result), max_entries=_PREDICTION_CACHE_MAX)
             return db_result
     # 2. 内存缓存
@@ -332,6 +353,7 @@ async def predict_tomorrow(force_refresh: bool = False) -> dict:
         cached.setdefault("data_date", today)
         if not cached.get("target_date"):
             cached["target_date"] = next_day.isoformat()
+        await _backfill_wave(cached)
         return cached
 
     # 上一交易日快照：既给方向分提供「昨日锚」（惯性平滑），也提供成交额环比的基期
@@ -427,6 +449,47 @@ async def predict_tomorrow(force_refresh: bool = False) -> dict:
     except Exception as e:
         print(f"[prediction] 数据库缓存写入失败: {e}")
     return result
+
+
+# 波浪补算用的指数历史缓存。
+#
+# 只在「读到的缓存里缺 wave」时才用到，因此正常情况下不会触发任何额外取数。
+# TTL 30 分钟：浪位是 K 线数据的纯函数，同一交易日内不会变；没有这一层的话，
+# 老缓存会一直缺 wave，每次打开页面都要多打一次行情源。
+_wave_hist_cache: tuple[dt.datetime, list[dict]] | None = None
+_WAVE_HIST_TTL_SEC = 1800
+
+
+async def _wave_history() -> list[dict]:
+    """带 TTL 的指数历史（仅供波浪补算）。"""
+    global _wave_hist_cache
+    now = dt.datetime.now()
+    if _wave_hist_cache and (now - _wave_hist_cache[0]).total_seconds() < _WAVE_HIST_TTL_SEC:
+        return _wave_hist_cache[1]
+    data = await asyncio_hist()
+    _wave_hist_cache = (now, data)
+    return data
+
+
+async def _backfill_wave(result: dict) -> None:
+    """缓存里的预测缺 ``technical.wave`` 时补算一次（只读，失败静默降级）。
+
+    波浪定位是后加的字段，而缓存按 K 线末日 key —— 不补的话「当前浪位」要等到
+    下一个交易日重新生成预测才会出现。补算结果不写回数据库：它只影响本次响应，
+    下一交易日的正常生成会带上。
+    """
+    technical = result.get("technical")
+    if not isinstance(technical, dict):
+        return
+    wave = technical.get("wave")
+    if isinstance(wave, dict) and wave.get("daily"):
+        return
+    technical.setdefault("wave", None)
+    try:
+        technical["wave"] = wave_service.analyze_dual(await _wave_history())
+    except Exception as e:  # noqa: BLE001
+        print(f"[prediction] 波浪定位补算失败: {e}")
+        technical["wave"] = None
 
 
 async def _load_db_prediction(pred_date: str) -> dict | None:
