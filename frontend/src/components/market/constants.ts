@@ -64,3 +64,26 @@ const TIER_CHIP: Record<number, { chip: string; dot: string }> = {
 export function tierChip(tier: number | undefined): { chip: string; dot: string } {
   return TIER_CHIP[tier ?? 3] ?? TIER_CHIP[3];
 }
+
+/**
+ * 可执行性硬筛未通过原因的**短标签**（徽章用）。
+ *
+ * 后端 `_FOCUS_REJECT_LABELS` 给的是完整口径说明（如「换手 <5%（缩量一字/秒板，挂不上单）」），
+ * 塞进一行徽章会挤掉票名。这里只做**截短**，不改写语义 —— 完整文案走 title 悬浮提示。
+ *
+ * 存在的理由：资金面三因子之一是「换手低」，可成交门槛是「换手 ≥5%」，两者方向相反。
+ * 不给这一列，用户会以为「资金面最强」这一档就是可以买的。
+ */
+const REJECT_CHIP_TEXT: Record<string, string> = {
+  untradable: "挂不上单",
+  high_break: "炸板多",
+  late_seal: "尾盘封板",
+};
+
+export function rejectChipText(reason: string | null | undefined): string {
+  if (!reason) return "未入选";
+  return REJECT_CHIP_TEXT[reason] ?? "未入选";
+}
+
+/** 未通过硬筛的徽章配色：与 tier 同纪律，走琥珀，不占红绿（它不是方向判断）。 */
+export const REJECT_CHIP = "bg-amber-500/15 text-amber-300";

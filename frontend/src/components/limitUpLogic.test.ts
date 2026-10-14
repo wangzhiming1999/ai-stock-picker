@@ -93,10 +93,27 @@ test("可打板但没筛出标的时徽标要说清楚，不是默默少一个�
   );
 });
 
-test("非 hunt 档不报候选数（那两档不给清单，报数会让人以为被藏起来）", () => {
+test("非 hunt 档也报候选数，但带上「非推荐」限定词", () => {
+  // 清单现在恒定下发（可执行性筛选结果），空仓等待时也报数 ——
+  // 不加限定词的话「空仓等待 · 可成交 5 只」读起来像自相矛盾。
+  assert.equal(
+    adviceBadgeText({ level: "avoid", title: "空仓等待", focus: focus(["600001", "600002"], []), focus_actionable: false }),
+    "今日建议：空仓等待 · 可成交 2 只（非推荐）",
+  );
+  assert.equal(
+    adviceBadgeText({ level: "watch", title: "只看不动手", focus: focus([], ["600003"]), focus_actionable: false }),
+    "今日建议：只看不动手 · 可成交 1 只（非推荐）",
+  );
+});
+
+test("非 hunt 且没有可成交标的时只报档位（0 只不值得占位）", () => {
   assert.equal(adviceBadgeText({ level: "watch", title: "只看不动手" }), "今日建议：只看不动手");
   assert.equal(
     adviceBadgeText({ level: "avoid", title: "空仓等待", focus: null }),
+    "今日建议：空仓等待",
+  );
+  assert.equal(
+    adviceBadgeText({ level: "avoid", title: "空仓等待", focus: focus([], []) }),
     "今日建议：空仓等待",
   );
 });

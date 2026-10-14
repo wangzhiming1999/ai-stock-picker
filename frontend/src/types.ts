@@ -1467,6 +1467,9 @@ export interface BriefingLimitUp {
     label: string;
     names: string[];
     codes: string[];
+    /** 该档里通过可成交门槛的名字 —— 首屏要的是「谁买得进」，不是「谁分高」；旧后端缺省 */
+    tradable_names?: string[];
+    tradable_codes?: string[];
     rate: number;
     rate_n: number;
   } | null;
@@ -1967,8 +1970,13 @@ export interface LimitUpFocus {
 /**
  * 今日操作建议（三档）。后端 play_advice 基于已回测口径（炸板率/断层/板块聚集度）给出。
  *
- * `focus` 只在 `hunt` 档有值 —— 说「别动手」的同时列一张可买名单是明确踩过的矛盾。
- * 三个新字段恒存在（后端三档统一载荷形状），旧后端连到时为 undefined，前端降级隐藏。
+ * ⚠️ 2026-10-14 改：`focus` **恒定下发**（只要当日有涨停股）—— 档位不决定「给不给清单」，
+ * 只决定 `focus_actionable`（是否标记为今日推荐）。
+ * 旧设计是「只有 hunt 才给清单」，实际效果是 avoid 档连价位都拿不到，而资金面分组仍在点名
+ * 「最强」的票（实测榜首换手 0.76%，是一字板）—— 用户看到「空仓等待」+「某某等 7 只最强」，
+ * 反而更不知道买什么。可执行性筛选是**事实层**，与环境结论是两件事。
+ * 因此非 hunt 时前端必须把清单渲染成「可成交性筛选结果」，**不是**今日推荐。
+ * 所有字段恒存在（后端三档统一载荷形状），旧后端连到时为 undefined，前端降级隐藏。
  */
 export interface LimitUpPlayAdvice {
   /** avoid=空仓等待 / watch=只看不动手 / hunt=可打板 */
@@ -1979,9 +1987,14 @@ export interface LimitUpPlayAdvice {
   gaps: number[];
   /** 主线板块名（聚集度最高的），无涨停时为 "—" */
   mainline: string;
-  /** 打板候选清单；非 hunt 档为 null */
+  /**
+   * 可执行性筛选结果（含打板价 / 次日涨停价）。当日有涨停股时恒有值；
+   * 无涨停股（focus 无从谈起）为 null。**有值 ≠ 今日推荐**，看 focus_actionable。
+   */
   focus?: LimitUpFocus | null;
-  /** 没有清单时的原因说明（非 hunt 档必给） */
+  /** focus 是否为「今日推荐」：只有 hunt 档为 true。缺省（旧后端）按 false 处理 */
+  focus_actionable?: boolean;
+  /** 这份清单是什么 / 不是什么（非 hunt 档必给，说明它是可成交性筛选结果而非推荐） */
   focus_note?: string;
   /** 「可打板」档的执行步骤；非 hunt 档为空数组 */
   playbook?: string[];
@@ -2054,6 +2067,19 @@ export interface LimitUpRelayStock {
   tier_label?: string;
   /** 分层一句话解释（缺哪个因子）；旧后端缺省 */
   tier_note?: string;
+  /**
+   * 是否通过可执行性硬筛（`limitup_service._focus_reject_key`）。
+   *
+   * ⚠️ 与 `tier` **方向相反**：三因子之一是「换手低」，而可成交门槛是「换手 ≥5%」。
+   * 按得分排序后榜首常常正是换手 <1% 的一字板 —— 所以「资金面最强」不等于「买得进」。
+   * false 时前端必须把该行标成挂不上单，否则这份分组会被读成买入名单。
+   * 旧后端缺省（undefined）→ 按「未知」处理，不标也不反向推断。
+   */
+  tradable?: boolean;
+  /** 未通过硬筛的原因 key：untradable / high_break / late_seal；通过时为 null */
+  reject_reason?: string | null;
+  /** 原因的短标签（后端 `_FOCUS_REJECT_LABELS`），直接展示 */
+  reject_label?: string | null;
 }
 
 /** 资金面强弱分层一览（后端 relay_tier_summary 聚合产出）；旧后端缺省。 */
@@ -2066,6 +2092,10 @@ export interface LimitUpTierGroup {
   rate_n: number;
   codes: string[];
   names: string[];
+  /** 该档中通过可成交门槛（换手 ≥5%）的代码；旧后端缺省 */
+  tradable_codes?: string[];
+  /** 同上，名称。档内可能一只都买不进 → 空数组，不是 undefined */
+  tradable_names?: string[];
 }
 
 export interface LimitUpTierSummary {

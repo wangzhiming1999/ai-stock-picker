@@ -12,7 +12,7 @@ import type {
   LimitUpTierSummary,
 } from "../../types";
 import { adviceBadgeText, ladderGaps } from "../limitUpLogic";
-import { tierChip, upPositionChip } from "./constants";
+import { REJECT_CHIP, rejectChipText, tierChip, upPositionChip } from "./constants";
 
 /**
  * 涨停带「连板梯队 / 涨停池列表」一侧的全部展示件。
@@ -131,8 +131,9 @@ function FocusGroup({ title, rows, desc }: { title: string; rows: LimitUpFocusRo
  * 打板候选清单：回答「可打板，到底打什么、什么价」。
  *
  * 三条纪律（与整个涨停带一致，别在这里松口）：
- *   1. 只在**环境过关**（level=hunt）时出现。说「别动手」的同时给名单，是自相矛盾 ——
- *      后端就不下发 focus，这里也只做「有就渲染」。
+ *   1. 清单**恒定下发**（当日有涨停股时），但只有 `focus_actionable`（level=hunt）时才是
+ *      「今日推荐」。非 hunt 时标题必须写成「可成交候选（非今日推荐）」—— 这层的价值是
+ *      把「哪些挂得上单、按什么价挂」讲清楚，而不是把「空仓等待」偷偷换成一张买入名单。
  *   2. 连板与首板**分开列**：连板有明日晋级读数（n=164 连板样本），首板没有 ——
  *      两套读数口径不可比，合成一个名次等于造一个没有样本量的排名。
  *   3. 价位不是预测：「打板价」就是今日涨停价，「次日涨停价」是交易所规则算出来的。
@@ -140,23 +141,30 @@ function FocusGroup({ title, rows, desc }: { title: string; rows: LimitUpFocusRo
 function FocusSection({ advice }: { advice: LimitUpPlayAdvice }) {
   const focus: LimitUpFocus | null | undefined = advice.focus;
   if (!focus) return null;
+  const actionable = advice.focus_actionable === true;
   const empty = focus.relay.length === 0 && focus.first.length === 0;
 
   return (
     <div className={`${SUB_QUIET} px-3 py-2.5`}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="text-body font-semibold text-ink">打板候选（可执行性筛选 · 非买入指令）</h3>
+        <h3 className="text-body font-semibold text-ink">
+          {actionable ? "打板候选（可执行性筛选 · 非买入指令）" : "可成交候选（非今日推荐）"}
+        </h3>
         <span className="text-meta text-ink-muted">
           涨停池 {focus.total} 只
           {focus.cut > 0 && ` · ${focus.cut} 只达标但未进前列`}
         </span>
       </div>
-      <p className="mt-1 text-meta leading-relaxed text-ink-soft">{focus.note}</p>
+      {/* 后端简报是纯文本直出（不跑 Markdown），focus_note 里不会出现标记语法。 */}
+      {(advice.focus_note ?? focus.note) && (
+        <p className="mt-1 text-meta leading-relaxed text-ink-soft">{advice.focus_note ?? focus.note}</p>
+      )}
 
       {empty ? (
         <p className="mt-2 text-meta leading-relaxed text-ink-faint">
-          没有可执行标的不是「今天不能打板」，而是这批涨停股在**可成交性**上不成立：
-          缩量一字/秒板挂不上单，尾盘封板是唯一负期望档。这类日子里环境读数再好看也没有落点。
+          {actionable
+            ? "没有可执行标的不是「今天不能打板」，而是这批涨停股在可成交性上不成立：缩量一字/秒板挂不上单，尾盘封板是唯一负期望档。这类日子里环境读数再好看也没有落点。"
+            : "环境不给方向，池子里也没有挂得上单的落点 —— 今天没有需要做的动作。"}
         </p>
       ) : (
         <div className="mt-2 space-y-3">
@@ -207,7 +215,8 @@ function AdviceSection({ advice }: { advice: LimitUpPlayAdvice }) {
         </ul>
         <p className="mt-1.5 text-meta leading-relaxed text-ink-faint">
           判定依据是已回测的口径（炸板率当日横截面、板块聚集度对晋级率的影响、梯队断层结构）。
-          连板接力整体仍是初步证据等级，所以这里的档位说的是**环境**；环境过关时下面才给候选与价位。
+          连板接力整体仍是初步证据等级，所以这里的档位说的是环境；候选与价位恒定给出，
+          档位只决定它是否标记为「今日推荐」—— 环境不过关时下面那份清单是「哪些挂得上单」，不是买什么。
         </p>
       </div>
 
@@ -238,15 +247,20 @@ function AdviceSection({ advice }: { advice: LimitUpPlayAdvice }) {
 }
 
 /**
- * 单只连板股的资金面行：分层徽章 + 人话解释 + 得分/晋级读数。
+ * 单只连板股的资金面行：分层徽章 + 人话解释 + 得分/晋级读数 + 可成交性标记。
  *
  * 可读性设计（用户反馈「看不懂哪个可以买」的解法）：
  * 把抽象的「3/3 分」前置翻译成「资金面最强」徽章 + 一句解释，
  * 数字（分 / %）退居次行——先给结论再看依据，而不是反过来。
  * 徽章仍是强弱描述而非买卖指令。
+ *
+ * ⚠️ 「资金面最强」与「买得进」是**两件事**：三因子的「换手低」越高分，越可能挂不上单
+ * （2026-10-14 实测 tier1 榜首换手 0.76%，一字板）。所以未通过可成交门槛的行必须显式打标，
+ * 否则这一档会被读成「可以买这几只」。旧后端没有 tradable 字段（undefined）→ 不打标、不反推。
  */
 function RelayStockRow({ r }: { r: LimitUpRelayStock }) {
   const tc = tierChip(r.tier);
+  const blocked = r.tradable === false;
   return (
     <div className={`${SUB_QUIET} px-3 py-2`}>
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
@@ -258,6 +272,14 @@ function RelayStockRow({ r }: { r: LimitUpRelayStock }) {
           <span className="text-body font-semibold text-ink">{r.name}</span>
           <span className="text-meta text-ink-muted">{r.code}</span>
           <span className="text-meta text-ink-muted">{r.boards} 板 · {r.sector}</span>
+          {blocked && (
+            <span
+              className={`rounded-md px-1.5 py-0.5 text-meta font-semibold ${REJECT_CHIP}`}
+              title={`未通过可执行性硬筛：${r.reject_label ?? "未知原因"}。资金面强 ≠ 买得进`}
+            >
+              {rejectChipText(r.reject_reason)}
+            </span>
+          )}
         </span>
         <span className="text-meta text-ink-muted">
           明日晋级读数 <span className="font-semibold text-ink">{r.rate}%</span>
@@ -331,6 +353,13 @@ function RelayStocksSection({ stocks, summary }: { stocks: LimitUpRelayStock[]; 
                       <span className="text-meta text-ink-muted">
                         {members.length} 只 · 明日晋级读数 {g?.rate ?? members[0].rate}%（n={g?.rate_n ?? members[0].rate_n}）
                       </span>
+                      {g?.tradable_codes && (
+                        // 每档必须同时报「买得进几只」：三因子的「换手低」与可成交门槛方向相反，
+                        // 只报晋级读数的话，整档最分高的一只往往是挂不上单的一字板。
+                        <span className={`text-meta ${g.tradable_codes.length === 0 ? "text-amber-300" : "text-ink-muted"}`}>
+                          · 可成交 {g.tradable_codes.length}/{members.length} 只
+                        </span>
+                      )}
                       {g?.desc && <span className="text-meta text-ink-muted">· {g.desc}</span>}
                     </div>
                     <div className="space-y-1.5">
@@ -347,6 +376,8 @@ function RelayStocksSection({ stocks, summary }: { stocks: LimitUpRelayStock[]; 
         概率读数 = 回测窗口内同得分档连板股的次日晋级率（08-28~09-16，共 164 个连板样本）。
         三因子在控制连板高度后区分度仍在（2 板：低分 17.4% vs 高分 41.8%）。
         但窗口只有 ~13 个交易日，且晋级率 ≠ 收益率（一字板开盘买不进），只作相对强弱参考，不构成买点。
+        注意「资金面最强」与「买得进」方向相反：换手越低越容易得高分，也越可能挂不上单 ——
+        所以标了「挂不上单」的行，分数再高也不在可执行范围内。
       </p>
     </div>
   );
@@ -431,7 +462,7 @@ function SectorSection({ snapshot }: { snapshot: LimitUpSnapshot }) {
       </div>
       <p className="mt-2 text-meta leading-relaxed text-ink-faint">
         按家数排序而非封单金额 —— 家数更能反映资金是否在这个板块里抱团。
-        但下面对照表显示：**聚集度越高，首板晋级率反而越低**，所以它只能当情绪读，不能当买点。
+        但下面对照表显示：聚集度越高，首板晋级率反而越低，所以它只能当情绪读，不能当买点。
       </p>
     </div>
   );

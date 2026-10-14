@@ -35,15 +35,24 @@ export function focusCount(focus?: LimitUpFocus | null): number {
  * 常驻条上的建议徽标文案。
  *
  * 用户反馈「这个可打板，但是没说打板什么」—— 所以 hunt 档在**折叠态就把候选数带出来**，
- * 让人知道展开后有具体标的与价位，而不是又一句结论。非 hunt 档不报数：
- * 那两档不给清单，报个数会让人以为清单被藏起来了。
+ * 让人知道展开后有具体标的与价位，而不是又一句结论。
+ *
+ * ⚠️ 2026-10-14 改：清单现在**恒定下发**（见 LimitUpPlayAdvice 的注释），所以非 hunt 档
+ * 也要报数 —— 但必须带上「可成交 / 非推荐」的限定词。原来只写 `今日建议：空仓等待`，
+ * 用户点开却看到一张名单，两头都读不懂。写成「空仓等待 · 可成交 5 只（非推荐）」才是
+ * 这份载荷的真实意思：清单是**可成交性筛选结果**，不是今天的推荐。
+ * focus 缺失（旧后端 / 当日无涨停股）时退回只报档位。
  */
 export function adviceBadgeText(advice: {
   level: string;
   title: string;
   focus?: LimitUpFocus | null;
+  focus_actionable?: boolean;
 }): string {
-  if (advice.level !== "hunt") return `今日建议：${advice.title}`;
   const n = focusCount(advice.focus);
-  return n > 0 ? `今日建议：${advice.title} · 候选 ${n} 只` : `今日建议：${advice.title} · 无可执行标的`;
+  if (advice.level === "hunt") {
+    return n > 0 ? `今日建议：${advice.title} · 候选 ${n} 只` : `今日建议：${advice.title} · 无可执行标的`;
+  }
+  if (advice.focus && n > 0) return `今日建议：${advice.title} · 可成交 ${n} 只（非推荐）`;
+  return `今日建议：${advice.title}`;
 }
