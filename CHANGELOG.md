@@ -1,8 +1,8 @@
 # 迭代日志 Changelog
 
 > 格式参考 [Keep a Changelog](https://keepachangelog.com/)，版本号遵循产品里程碑（V1 ~ V5.x）。
-> 代码仓库版本见 `backend/app/main.py` 的 `version` 字段，**当前为 `0.3.0`，对应产品里程碑 V1–V5.36**
-> （`0.2.0` 覆盖 V1–V5.28；十月主线 V5.29–V5.36 单独升一档）。
+> 代码仓库版本见 `backend/app/main.py` 的 `version` 字段，**当前为 `0.3.0`，对应产品里程碑 V1–V5.37**
+> （`0.2.0` 覆盖 V1–V5.28；十月主线 V5.29–V5.37 单独升一档）。
 >
 > 说明：历史条目按 ROADMAP 的「已完成」章节整理；里程碑日期以 ROADMAP 末次更新（2026-09-02）为最新基准，早期里程碑未逐日记录，具体提交时间以 git 历史为准。
 
@@ -55,6 +55,35 @@
     合并挂载导致的重复请求改为共享单飞缓存
 
 ### Fixed
+- **连板「不知道买什么」：可执行清单与环境档位绑死，档位一分就把价位一起摘掉**（2026-10-14）
+  > 现场：涨停 26 / 连板 13 / 炸板率 21.2% / 最高 4 板 / 主线「元件」仅 3 家。
+  > `ladder_gaps=[3]` + 主线 3 家 < 4 → `level="avoid"` → `focus=null`。
+  > 用**同一份**线上 `stocks` 本地跑 `build_focus`：本来能出 8 只（连板 5 + 首板 3，
+  > 每只带打板价 / 次日涨停价），被档位摘掉后一个不剩 —— 页面上只剩「空仓等待」。
+  - 根因一（主）：`play_advice._pack` 只在 `level == "hunt"` 时下发 `focus`。可执行性筛选是
+    **事实层**（换手 / 炸板 / 封板时间都是可复核字段），与环境结论是两件事，绑死等于
+    用环境判定把「哪些挂得上单」这条唯一可执行的信息一起否掉
+  - 根因二：`relay_tier_summary` 的 headline 只点名「资金面最强」而不看可成交性 ——
+    三因子的「**换手低**」与可成交门槛「**换手 ≥5%**」**方向相反**，按得分排序后榜首
+    正是挂不上单的一字板（实测 tier1 榜首百洋股份换手 0.78%，同档被剔除的第一只）
+  - 修法 ①（清单与档位解耦）：`focus` **恒定下发**（当日有涨停股时），新增 `focus_actionable`
+    （仅 hunt 为 true）。非 hunt 档 `focus_note` 明写「不是今日推荐 —— 它只回答这批涨停股里
+    哪些挂得上单、按什么价挂」，并把档位的 `reasons` 一并回显，避免结论被名单挤掉
+  - 修法 ②（可成交性进入点名）：`build_relay_stocks` 每只补 `tradable` / `reject_reason` /
+    `reject_label`；`relay_tier_summary` 每组补 `tradable_codes` / `tradable_names`，
+    headline 重写为「谁强 + **谁买得进** + 全池可成交 X/Y 只」；`briefing_service.top_tier`
+    补 `tradable_names`，简报首屏不再把一字板混进名单
+  - 前端：`LimitUpTeam` 的 `FocusSection` 按 `focus_actionable` 区分「打板候选」/
+    「可成交候选（非今日推荐）」；`RelayStockRow` 给未过筛的行打「挂不上单」标（含悬浮完整口径）；
+    组标题报「可成交 X/Y 只」；`briefing/LimitUpBlock` 首屏直接给候选名 + 打板价 / 次日涨停价，
+    分层摘要拆「买得进 / 挂不上单」两列。`adviceBadgeText` 非 hunt 档改报「可成交 N 只（非推荐）」
+  - 顺带修掉两处前端直出的裸 Markdown 标记（`**环境**` / `**聚集度越高…**`），
+    这层是纯文本渲染，标记会原样显示
+  - 测试后端 +7（`test_limitup_service.py`，876 → **883 passed + 41 subtests**）、
+    前端 78 → **79 passed**；typecheck / build / contrast 全绿
+  - 实测（线上真实快照）：`hunt` 档 32 只涨停里出 8 只带价候选（连板 5 + 首板 3，剔除换手
+    <5% 15 只 + 炸板 ≥3 次 2 只）；把档位强改成 avoid / watch 后**清单仍是 8 只**但
+    `focus_actionable=false`、playbook 清空
 - **抢封板收益闭环从未结算：闭环挂在 GET 读路径上没有调度**（2026-10-14）
   > 实测 `GET /api/seize/history?days=20`：**56 条落库 / 0 条结算 / `next_open` 恒空**，
   > 且只有 3 个交易日有数据、全是负期望的回封档（`just_sealed` 0 条）。
