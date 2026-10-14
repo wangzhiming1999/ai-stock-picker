@@ -578,14 +578,72 @@ class RelayTierTests(unittest.TestCase):
         summary = L.relay_tier_summary(relays)
         self.assertIn("不是买入指令", summary["headline"])
 
+    def test_relay_stocks_carry_tradability(self) -> None:
+        """每只连板股必须带 tradable / reject_reason / reject_label。
+
+        三因子的「换手低」与可成交门槛「换手 ≥5%」方向相反 —— 只给「资金面最强」
+        而不说「买不进」，就是这份分组被读成买入名单的直接原因。
+        """
+        relays = L.build_relay_stocks([
+            self._stock(code="600001"),                                   # 通过
+            self._stock(code="600002", turnover=0.76),                    # 一字板，挂不上单
+            self._stock(code="600003", break_count=5),                    # 炸板过多
+        ])
+        by_code = {r["code"]: r for r in relays}
+        self.assertTrue(by_code["600001"]["tradable"])
+        self.assertIsNone(by_code["600001"]["reject_reason"])
+        self.assertIsNone(by_code["600001"]["reject_label"])
+        self.assertFalse(by_code["600002"]["tradable"])
+        self.assertEqual(by_code["600002"]["reject_reason"], "untradable")
+        self.assertTrue(by_code["600002"]["reject_label"])
+        self.assertEqual(by_code["600003"]["reject_reason"], "high_break")
+
+    def test_tier_group_splits_tradable_from_blocked(self) -> None:
+        """分组必须同时给 codes（谁分高）和 tradable_codes（谁买得进）—— 两者不是一回事。"""
+        relays = L.build_relay_stocks([
+            self._stock(code="600001"),                                # 3 分且可成交
+            self._stock(code="600002", seal_ratio=2.0, turnover=0.5),  # 分不低但换手 0.5% 挂不上
+            self._stock(code="600003", seal_ratio=0.1, turnover=40.0, break_count=5),
+        ])
+        summary = L.relay_tier_summary(relays)
+        g1 = next(g for g in summary["groups"] if g["tier"] == 1)
+        self.assertIn("600001", g1["tradable_codes"])
+        self.assertNotIn("600002", g1["tradable_codes"], "换手 0.5% 的一字板不得进可成交档")
+        self.assertIn("600002", g1["codes"], "但它仍应出现在强弱分组里（口径不同，不能剔除）")
+
+    def test_headline_says_who_is_buyable_not_only_who_scores_high(self) -> None:
+        """headline 只报「谁最强」是这份分组被读成买入名单的根因。
+
+        现场（2026-10-14）tier1 榜首百洋股份换手 0.76%，是同档第一个挂不上单的票 ——
+        所以 headline 必须同时说清「谁强」和「谁买得进」，并给出全池可成交比例。
+        """
+        relays = L.build_relay_stocks([
+            self._stock(code="600001"),                                # 榜首，可成交
+            self._stock(code="600002", seal_ratio=2.0, turnover=0.76),  # 同档，挂不上单
+        ])
+        summary = L.relay_tier_summary(relays)
+        headline = summary["headline"]
+        self.assertIn("买得进", headline)
+        self.assertIn("挂不上单", headline)
+        self.assertIn("可成交 1/2 只", headline)
+
+    def test_headline_all_tradable_says_so(self) -> None:
+        relays = L.build_relay_stocks([self._stock(code="600001")])
+        summary = L.relay_tier_summary(relays)
+        self.assertIn("全部满足可成交门槛", summary["headline"])
+
     def test_summary_empty_input(self) -> None:
         summary = L.relay_tier_summary([])
         self.assertEqual(summary["groups"], [])
 
 
 class PlaybookTests(unittest.TestCase):
-    """「可打板」档必须同时给出**打哪只 + 什么价 + 怎么执行**（用户反馈的缺口），
-    以及**环境不过关时不给清单**（否则等于用名单否掉自己刚给的结论）。"""
+    """「可打板」档必须同时给出**打哪只 + 什么价 + 怎么执行**（用户反馈的缺口）。
+
+    2026-10-14 改：原来的第二条纪律是「环境不过关时不给清单」，现已解耦 ——
+    清单（可执行性筛选）恒定下发，档位只决定它是否标记为「今日推荐」（focus_actionable）。
+    见 `test_non_hunt_levels_carry_the_list_but_not_as_recommendation`。
+    """
 
     @staticmethod
     def _sentiment(rate: float = 15.0, max_boards: int = 5, relay: int = 9, limit_up: int = 47) -> dict:
@@ -623,8 +681,14 @@ class PlaybookTests(unittest.TestCase):
         self.assertEqual([r["code"] for r in adv["focus"]["relay"]], ["600001"])
         self.assertTrue(adv["playbook"])
 
-    def test_non_hunt_levels_withhold_the_list(self) -> None:
-        """watch / avoid 两档不得给候选清单 —— 说「别动手」同时给名单是明确踩过的坑。"""
+    def test_non_hunt_levels_carry_the_list_but_not_as_recommendation(self) -> None:
+        """watch / avoid 两档**照给**清单，但 focus_actionable 必须是 False。
+
+        2026-10-14 改。旧设计是「非 hunt 不给清单」，理由是「说别动手同时给名单自相矛盾」。
+        实际效果：avoid 档连价位都拿不到，而资金面分组仍在点名「最强」的票
+        （现场实测该档榜首换手 0.76%，是一字板）—— 用户看到「空仓等待」+「某某等 7 只最强」，
+        反而更不知道买什么。可执行性筛选是**事实层**，与环境结论是两件事，故解耦。
+        """
         for adv in (
             # watch：炸板率中性
             L.play_advice(self._sentiment(28.0), self._ladder(), self._sectors(), self._pool()),
@@ -632,10 +696,25 @@ class PlaybookTests(unittest.TestCase):
             L.play_advice(self._sentiment(36.0), self._ladder(), self._sectors(), self._pool()),
         ):
             self.assertIn(adv["level"], ("watch", "avoid"))
-            self.assertIsNone(adv["focus"])
+            self.assertIsNotNone(adv["focus"], "非 hunt 档也必须下发可执行性清单")
+            self.assertEqual([r["code"] for r in adv["focus"]["relay"]], ["600001"])
+            self.assertFalse(adv["focus_actionable"], "非 hunt 档的清单不得标记为今日推荐")
             self.assertTrue(adv["focus_note"])
-            self.assertIn("不给候选清单", adv["focus_note"])
+            self.assertIn("不是今日推荐", adv["focus_note"])
             self.assertEqual(adv["playbook"], [])
+
+    def test_hunt_marks_the_list_as_actionable(self) -> None:
+        adv = L.play_advice(self._sentiment(), self._ladder(), self._sectors(), self._pool())
+        self.assertEqual(adv["level"], "hunt")
+        self.assertTrue(adv["focus_actionable"])
+
+    def test_reasons_are_echoed_into_the_non_actionable_note(self) -> None:
+        """清单与推荐解耦后，档位的判定理由不能丢 —— 它们要出现在 focus_note 里，
+        否则用户只看下面那张表就再也看不到「为什么今天不该动手」。"""
+        adv = L.play_advice(self._sentiment(36.0), self._ladder(), self._sectors(), self._pool())
+        self.assertEqual(adv["level"], "avoid")
+        for reason in adv["reasons"]:
+            self.assertIn(reason, adv["focus_note"], f"档位理由未进入 focus_note: {reason}")
 
     def test_advice_shape_is_uniform_across_levels(self) -> None:
         """三档载荷形状一致：前端不必为「这一档有没有这些字段」写分支。"""
@@ -644,8 +723,15 @@ class PlaybookTests(unittest.TestCase):
             L.play_advice(self._sentiment(36.0), self._ladder(), self._sectors()),
             L.play_advice(self._sentiment(), self._ladder(), self._sectors(), self._pool()),
         ):
-            for key in ("focus", "focus_note", "playbook"):
+            for key in ("focus", "focus_actionable", "focus_note", "playbook"):
                 self.assertIn(key, adv)
+
+    def test_no_stocks_yields_no_focus_at_all(self) -> None:
+        """当日没有涨停股时 focus 才是 None（「清单无从谈起」），并给一句说明。"""
+        adv = L.play_advice(self._sentiment(0, 0, relay=0, limit_up=0), [], [], [])
+        self.assertIsNone(adv["focus"])
+        self.assertFalse(adv["focus_actionable"])
+        self.assertTrue(adv["focus_note"])
 
 
 class FocusTests(unittest.TestCase):

@@ -56,6 +56,10 @@ async def _build_limitup_block(user_id: str | None) -> dict | None:
                 "label": top_group.get("label"),
                 "names": top_group.get("names", [])[:5],
                 "codes": top_group.get("codes", [])[:5],
+                # 首屏要回答的是「谁买得进」，不是「谁分高」——三因子的「换手低」与
+                # 可成交门槛「换手 ≥5%」方向相反，只给 names 会把一字板排在首屏最前。
+                "tradable_names": top_group.get("tradable_names", [])[:5],
+                "tradable_codes": top_group.get("tradable_codes", [])[:5],
                 "rate": top_group.get("rate"),
                 "rate_n": top_group.get("rate_n"),
             }

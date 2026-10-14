@@ -551,9 +551,14 @@ def play_advice(
     4. 以上都过关 → 环境相对友好，但仍强调选 2-4 板的「鱼腹」段，不追孤岛高位
 
     ``stocks`` 是当日涨停池（``get_snapshot`` 里已挂好 position / premium 的那份）。
-    传了它才会在「可打板」档下给出 ``focus`` 打板候选清单 —— 这正是用户反馈的
-    「说了可打板，却没说打板什么」。**只有环境过关时才给清单**：环境不过关时列股票，
-    等于用一张名单否掉自己刚给的结论（本项目在观察层踩过同一个坑）。
+    传了它才会给出 ``focus`` 可执行性清单 —— 这正是用户反馈的「说了可打板，却没说打板什么」。
+
+    ⚠️ 2026-10-14 改：``focus`` **恒定下发**，档位只决定 ``focus_actionable``。
+    原来的设计是「只有 hunt 才给清单」，理由是「说别动手的同时列名单自相矛盾」。实际效果是
+    avoid 档连价位都拿不到，而 ``relay_tier_summary`` 仍在点名「资金面最强」的票 ——
+    用户看到「空仓等待」+「某某等 7 只最强」，反而更不知道买什么（实测该档榜首换手 0.76%，
+    是一字板）。可执行性筛选是**事实层**，与环境结论是两件事：现在清单照给，
+    但非 hunt 时前端必须把它渲染成「可成交性筛选结果」，不是今日推荐。
     """
     rate = sentiment["break_rate"]
     relay = sentiment["relay_count"]
@@ -563,22 +568,27 @@ def play_advice(
     mainline_name = top_sector["sector"] if top_sector else "—"
     max_boards = sentiment["max_boards"]
 
-    # 三档共用同一份载荷形状：focus / focus_note / playbook 恒存在，
+    # 三档共用同一份载荷形状：focus / focus_note / playbook / focus_actionable 恒存在，
     # 前端不必为「这个档位有没有这些字段」写分支（旧后端读到 None 时也只退化成不显示）。
     def _pack(level: str, title: str, reasons: list[str]) -> dict:
-        # 只有「可打板」才给候选清单。其余两档一律 focus=None + 一句说明为什么没有 ——
-        # 说「别动手」的同时列一张可以买的名单，是本项目在观察层明确踩过的矛盾。
-        if level == "hunt":
-            focus = build_focus(stocks or [], mainline_name)
-            note = focus["note"]
-            playbook = _PLAYBOOK
+        if not stocks:
+            focus, actionable = None, False
+            note = "今日没有涨停股，谈不上可执行性清单。"
+            playbook: list[str] = []
         else:
-            focus = None
-            note = (
-                "环境判定不过关，因此不给候选清单：环境不过关时「打哪只」是个伪问题，"
-                "先等炸板率与梯队结构回到可接力的状态，再谈选股。"
-            )
-            playbook = []
+            focus = build_focus(stocks, mainline_name)
+            actionable = level == "hunt"
+            if actionable:
+                note = focus["note"]
+                playbook = list(_PLAYBOOK)
+            else:
+                # 纯文本直出（前端不跑 Markdown），不要在这里写 ** 加粗之类的标记。
+                note = (
+                    f"今日环境档位是「{title}」，所以这份清单不是今日推荐 —— 它只回答"
+                    "「这批涨停股里哪些挂得上单、按什么价挂」（换手 / 炸板 / 封板时间都是可复核字段）。"
+                    "环境结论是：" + "；".join(reasons) + "。"
+                )
+                playbook = []
         return {
             "level": level,
             "title": title,
@@ -586,6 +596,7 @@ def play_advice(
             "gaps": gaps,
             "mainline": mainline_name,
             "focus": focus,
+            "focus_actionable": actionable,
             "focus_note": note,
             "playbook": playbook,
         }
@@ -702,11 +713,18 @@ def build_relay_stocks(stocks: list[dict]) -> list[dict]:
     """从当日全景里抽出连板股（boards ≥2），挂上资金面评分，按概率降序。
 
     「抽离」的意义：梯队视图按高度分组看的是**结构**，这里按个股看的是**各自还接不接得动**。
+
+    ⚠️ 每只额外挂 ``tradable`` / ``reject_reason`` / ``reject_label``：
+    资金面三因子之一是「换手低」，而可成交门槛是「换手 ≥5%」—— **两者天然会打架**。
+    叠加后按得分排序，榜首常常正是换手 0.76% 的一字板（2026-10-14 实测：tier1 榜首
+    百洋股份换手 0.76%，是同档里第一个挂不上单的票）。只给「资金面最强」而不说
+    「买不进」，就是这份分组被读成「可以买这几只」的原因。
     """
     relays = [t for t in stocks if t["boards"] >= 2]
     out = []
     for t in relays:
         sc = relay_score(t)
+        reject = _focus_reject_key(t)
         out.append(
             {
                 "code": t["code"],
@@ -718,6 +736,9 @@ def build_relay_stocks(stocks: list[dict]) -> list[dict]:
                 "seal_ratio": t["seal_ratio"],
                 "turnover": t["turnover"],
                 "break_count": t["break_count"],
+                "tradable": reject is None,
+                "reject_reason": reject,
+                "reject_label": _FOCUS_REJECT_LABELS.get(reject) if reject else None,
                 **sc,
             }
         )
@@ -744,10 +765,14 @@ def relay_tier_summary(relay_stocks: list[dict]) -> dict:
         (3, "资金面偏弱", "至多一项达标，封板质量有短板，相对风险最高"),
     ]
     out_groups = []
+    top_members: list[dict] = []
     for tier, label, desc in tier_defs:
         members = groups.get(tier) or []
         if not members:
             continue
+        if not out_groups:
+            top_members = members
+        tradable = [m for m in members if m.get("tradable")]
         out_groups.append(
             {
                 "tier": tier,
@@ -757,16 +782,37 @@ def relay_tier_summary(relay_stocks: list[dict]) -> dict:
                 "rate_n": members[0]["rate_n"],
                 "codes": [m["code"] for m in members],
                 "names": [m["name"] for m in members],
+                "tradable_codes": [m["code"] for m in tradable],
+                "tradable_names": [m["name"] for m in tradable],
             }
         )
 
     top = out_groups[0] if out_groups else None
+    tradable_all = [r for r in relay_stocks if r.get("tradable")]
+    if not top:
+        return {"groups": out_groups, "headline": "今日无连板股"}
+
+    # headline 必须同时说「谁强」和「谁买得进」。
+    # 只报前者是这份分组被读成买入名单的直接原因：三因子里的「换手低」与可成交门槛
+    # 「换手 ≥5%」方向相反，按得分排序后榜首常常就是挂不上单的一字板。
     headline = (
         f"今日 {len(relay_stocks)} 只连板股中，{top['names'][0]}等 {len(top['names'])} 只资金面最强"
         f"（历史同档明日晋级读数 {top['rate']}%）。"
-        "这是相对强弱分组，不是买入指令 —— 晋级了也常一字板买不进。"
-        if top
-        else "今日无连板股"
+    )
+    blocked = [m for m in top_members if not m.get("tradable")]
+    if blocked:
+        reasons = sorted({str(m.get("reject_label") or "不可成交") for m in blocked})
+        headline += (
+            f"但该档有 {len(blocked)} 只挂不上单（{'、'.join(reasons)}）；该档买得进的是 "
+            + ("、".join(top["tradable_names"]) if top["tradable_names"] else "无")
+            + "。"
+        )
+    else:
+        headline += "该档全部满足可成交门槛。"
+    headline += (
+        f"全池可成交 {len(tradable_all)}/{len(relay_stocks)} 只。"
+        "这份分组按资金面强弱排、不看能不能买到 —— 换手越低越容易被判「资金面强」，"
+        "也越可能挂不上单。不是买入指令。"
     )
     return {"groups": out_groups, "headline": headline}
 
@@ -1003,7 +1049,7 @@ _PLAYBOOK = [
     "价位直接用清单里的数：今日打板价 = 今日涨停价；明日若继续封板，明日的打板价 = 清单里的「次日涨停价」，不必自己乘。",
     "清单已内建剔除：换手 <5%（缩量一字/秒板，挂不上单）、尾盘封板（唯一负期望档）、炸板 ≥3 次（期望降至 +0.68%）。被剔除的票封得再好看也不在执行范围内。",
     "卖出口径是「涨停价买入 → 次日集合竞价卖出」，不是持有到盘中高点；可成交档的历史读数见上方「次日溢价读数」块。",
-    "环境判定不过关（空仓等待 / 只看不动手）时不给清单 —— 那时「打哪只」是个伪问题。",
+    "清单恒定下发（含价位）：环境判定不过关时它仍会给出，但那是「可成交性筛选结果」，不是今日推荐 —— 档位不决定「给不给清单」，只决定「标不标记为今日推荐」。",
     "单票仓位不在这里给：本项目没有任何回测支持某个具体比例，编一个百分比出来就是假精确。",
 ]
 
