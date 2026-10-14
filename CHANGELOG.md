@@ -11,6 +11,23 @@
 ## [Unreleased]
 
 ### Added
+- **大盘推演新增「当前浪位」：艾略特波浪定位（日线 + 周线双级别）**（2026-10-14，V5.38）
+  - 新模块 `wave_service`：百分比 ZigZag 识别摆动高低点 → 波浪铁律（第 2 浪不破第 1 浪起点 /
+    第 3 浪越过第 1 浪终点 / 第 3 浪不是最短 / 第 4 浪不与第 1 浪重叠 / 第 5 浪创新极值）
+    + 斐波那契比例打分 → 输出「浪位 + 置信度 + 逐条铁律校验 + 子浪拆解 + 目标位」
+  - 「C1 / C2 / C3」的来处正是这里：大 A-B-C 调整中的 C 浪内部再走 5 个子浪（锯齿形 5-3-5）。
+    `_fit_nested_c` 专门匹配这一层嵌套，所以给出的就是「C 浪第 3 子浪（主跌段）」这种读法
+  - `market_prediction` 把结果挂在 `technical.wave`。**只读展示：不进 evidence_score、
+    也不进 LLM 上下文** —— 波浪分级且主观，进方向链路会让方向标签随划分漂移
+  - 缓存兼容：`technical.wave` 是后加字段，老缓存读路径由 `_backfill_wave` 用 30 分钟 TTL 的
+    指数历史补算一次（正常生成路径零额外取数）；任何异常一律降级为 `None`
+  - 前端新增 `components/prediction/`：`PredictionCard` 内「当前浪位」区块 + 走势图按浪终点标注浪号
+    （窗口外的坐标自动丢弃）；组件缺字段时整块隐藏，老缓存不会崩
+  - 测试：后端 `tests/test_wave_service.py`（19 条）；前端 `prediction/waveLogic.test.ts`（11 条）。
+    其中两条**用临时探针证明会失败**：ZigZag 退化成 0 个摆动点、以及「第 4 浪重叠」参数顺序写反
+    （写反时这条最硬的铁律会恒为 True，真实数据上永远通过）
+  - ⚠️ 已知边界（口径已写进界面）：C 浪内部**只有锯齿形（5-3-5）调整**才是 5 子浪，
+    平台型（3-3-5）/ 三角形（3-3-3-3-3）结构不同 —— 这正是不同分析师划分结果打架的根源
 - **跌停池每日落库 + 回测读累积表**（2026-10-13，迁移 v19）
   - `limitdown_service` 新增 `save_daily_snapshot` / `purge_old_snapshots`（90 天保留、下限 30 天）/
     `accumulated_stats` / `load_accumulated_snapshots`；`get_snapshot` 尾部 fire-and-forget 落库，
