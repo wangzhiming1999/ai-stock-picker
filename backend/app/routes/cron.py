@@ -79,6 +79,16 @@ async def daily_cron(request: Request):
         except Exception as le:
             print(f"[cron] limitup snapshot save failed: {le}")
             result["limitup_snapshot_rows"] = None
+        # 跌停池每日落库：与涨停池同一理由 —— 跌停板池接口同样只回溯约 15 个交易日，
+        # repair_backtest 的样本窗口不会随时间变长。表未建/Supabase 未配置时静默返回 0。
+        try:
+            from app.services import limitdown_service
+
+            result["limitdown_snapshot_rows"] = await limitdown_service.save_daily_snapshot()
+            result["limitdown_snapshot_purged"] = await limitdown_service.purge_old_snapshots()
+        except Exception as de:
+            print(f"[cron] limitdown snapshot save failed: {de}")
+            result["limitdown_snapshot_rows"] = None
         if not result.get("ok", True):
             raise HTTPException(
                 status_code=502,

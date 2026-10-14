@@ -221,11 +221,19 @@ class PurgeOldSnapshotsTests:
         assert L._SNAPSHOT_RETENTION_DAYS >= L._SNAPSHOT_MIN_RETENTION_DAYS
 
     def test_daily_cron_wires_the_purge(self):
-        """清理必须挂进每日 cron —— 写了函数没接线等于没写（本项目已踩过这类坑）。"""
+        """清理必须挂进每日 cron —— 写了函数没接线等于没写（本项目已踩过这类坑）。
+
+        ⚠️ 判据带调用签名：只查 `"...purge_old_snapshots" in src` 是**前缀匹配**，
+        把调用改名成 `purge_old_snapshots_TYPO()` 也会「通过」（2026-10-13 在跌停侧
+        新增同款断言时用探针实测踩到）。
+        """
         import pathlib
+        import re
 
         cron_src = (
             pathlib.Path(__file__).resolve().parents[1] / "app" / "routes" / "cron.py"
         ).read_text(encoding="utf-8")
-        assert "purge_old_snapshots" in cron_src, "每日 cron 没有调用快照清理"
+        assert re.search(
+            r"limitup_service\.purge_old_snapshots\s*\(", cron_src
+        ), "每日 cron 没有调用快照清理"
 

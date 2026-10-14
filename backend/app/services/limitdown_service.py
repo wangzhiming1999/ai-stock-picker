@@ -46,6 +46,11 @@ import requests
 from app.services import calibers, cache_utils, concurrency, tactic_evidence, trade_calendar_service
 from app.services.data_service import get_history
 
+try:  # supabase 未配置时落库/读回静默降级，不影响实时链路
+    from app.services import supabase_store
+except Exception:  # pragma: no cover
+    supabase_store = None
+
 _BASE = "https://push2ex.eastmoney.com"
 _UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -347,7 +352,212 @@ async def get_snapshot(force: bool = False) -> dict:
         "caliber": calibers.describe("limitdown_repair"),
     }
     cache_utils.put_bounded(_SNAP_CACHE, key, (now, data), max_entries=_SNAP_CACHE_MAX)
+
+    # 每日落库（fire-and-forget）：实时拉到的池子顺手写入累积表，收盘后的最后一次
+    # 请求会落最终状态。失败静默（save_daily_snapshot 内部已兜底），绝不影响实时链路。
+    try:
+        await save_daily_snapshot(key, stocks)
+    except Exception as e:  # pragma: no cover - 双保险，save 内部不应抛
+        print(f"[limitdown] 快照落库异常(主流程不受影响): {e}")
+
     return {**data, "cached": False}
+
+
+# ---------- 每日落库（解决 15 交易日回溯上限） ----------
+#
+# 与 limitup_service 的 v10 表完全对称：跌停板池接口对更早日期一律返回空池，
+# repair_backtest 的样本窗口永远只有 ~3 周且**不会随时间变长** —— 昨天跑是
+# 08-28~09-16，明天跑还是只剩最近 15 天，更早的样本永久丢失。每天收盘后把当日池子
+# 写进 Supabase，回测读路径优先用累积表补齐窗口外样本：跑得越久，可回测窗口越长。
+#
+# 表未建 / Supabase 未配置时**全部静默降级**（与 market_source_state、limitup 同策略）：
+# 实时快照与现有 repair_backtest 行为完全不受影响。
+#
+# ⚠️ 本表只解决**样本量**，不改变结论：`limitdown_repair` 的 unsupported 分级由口径决定，
+# 与样本多少无关（见 tactic_evidence）。要推翻它需要的是「换因果判据」或实测成交率，
+# 不是「样本更多」。这里解决的是「现有负期望结论建立在 133~190 个样本上」的脆弱性。
+
+# 落库字段 = normalize_limit_down 输出的子集（不含派生的 position 等展示字段）。
+# 字段名与涨停侧**不同名不同义**（down_days / last_seal_time / seal_ratio），不可照抄。
+_SNAPSHOT_COLUMNS = (
+    "code", "name", "price", "change_pct", "down_days", "last_seal_time",
+    "seal_fund_yi", "float_mv_yi", "seal_ratio", "turnover", "amount_yi", "sector",
+)
+
+
+def _snapshot_rows(trade_date: str, stocks: list[dict]) -> list[dict]:
+    """当日全景里的跌停股 → 落库行（trade_date 冗余进每行，UNIQUE 去重键）。"""
+    text_cols = {"name", "sector", "last_seal_time"}
+    rows = []
+    for t in stocks:
+        if not t.get("code"):
+            continue
+        row = {"trade_date": trade_date}
+        for col in _SNAPSHOT_COLUMNS:
+            v = t.get(col)
+            if v is None:
+                v = "" if col in text_cols else 0
+            row[col] = v
+        rows.append(row)
+    return rows
+
+
+async def save_daily_snapshot(trade_date: str | None = None, stocks: list[dict] | None = None) -> int:
+    """把某日跌停池写入 limitdown_daily_snapshot（幂等，重复写自动跳过已有行）。
+
+    默认落**当日**快照：盘中调用时池子还在变，只写不删 —— 以 UNIQUE(trade_date, code)
+    冲突时覆盖为最新状态，收盘后由 cron 再跑一次拿最终状态。直接传 ``stocks`` 时
+    （如从 ``get_snapshot`` 结果回填）用传入数据，否则拉当日池子。
+
+    返回新写入行数；Supabase 未配置 / 表未建时返回 0（静默降级，不抛异常）。
+    """
+    if supabase_store is None or not supabase_store.is_configured():
+        return 0
+    date_key = trade_date or trade_calendar_service.now_cn().date().isoformat()
+    try:
+        if stocks is None:
+            raw = await asyncio.to_thread(
+                _fetch_pool_sync, _DT_ENDPOINT, _DT_SORT, date_key.replace("-", "")
+            )
+            stocks = [normalize_limit_down(x) for x in raw]
+        rows = _snapshot_rows(date_key, stocks)
+        if not rows:
+            return 0
+        sb = await supabase_store.get_service_client()
+        # upsert on UNIQUE(trade_date, code)：盘中重复写自动覆盖为最新状态
+        res = await (
+            sb.table("limitdown_daily_snapshot")
+            .upsert(rows, on_conflict="trade_date,code")
+            .execute()
+        )
+        return len(res.data or [])
+    except Exception as e:
+        # 表未建是预期内降级（需执行 v19 迁移）；其他异常同样只记录，不拖垮调用方
+        print(f"[limitdown] 每日快照落库失败({date_key}): {e}")
+        return 0
+
+
+# 累积表保留窗口：跌停家数通常个位数/天（行情差时几十），比涨停池更小。
+# 90 天对免费额度是可控量级；更长历史没有增量价值（接口只回溯 ~15 天，
+# 落库的意义是把窗口拉到季度级，不是做长周期历史研究）。
+_SNAPSHOT_RETENTION_DAYS = 90
+# 保留窗口下限：防止误传 0 / 负数把整表清空（那是不可逆的数据丢失）。
+_SNAPSHOT_MIN_RETENTION_DAYS = 30
+
+
+async def purge_old_snapshots(keep_days: int = _SNAPSHOT_RETENTION_DAYS) -> int:
+    """删除保留窗口之外的跌停池快照，返回删除行数。
+
+    为什么必须清理：与涨停池同一理由 —— 只写不删 = 行数随交易日单调上涨，
+    最终以「写入开始失败」的形式撞上额度上限，而那条失败路径是**静默降级**的
+    （``save_daily_snapshot`` 捕获异常后返回 0），爆掉时不会报错，
+    只是回测窗口悄悄不再变长。清理是让这个静默失败不发生的前提。
+
+    保留窗口按自然日切（不做交易日换算）：SQL 侧只比日期大小，简单且与 trade_date 类型一致。
+    ``keep_days`` 有下限保护，传 0 也不会清空全表。
+    表未建 / 未配置 → 返回 0（与 save_daily_snapshot 同策略，不影响 cron 其它步骤）。
+    """
+    if supabase_store is None or not supabase_store.is_configured():
+        return 0
+    try:
+        days = max(_SNAPSHOT_MIN_RETENTION_DAYS, int(keep_days))
+    except (TypeError, ValueError):
+        days = _SNAPSHOT_RETENTION_DAYS
+    cutoff = (trade_calendar_service.now_cn().date() - dt.timedelta(days=days)).isoformat()
+    try:
+        sb = await supabase_store.get_service_client()
+        res = await (
+            sb.table("limitdown_daily_snapshot").delete().lt("trade_date", cutoff).execute()
+        )
+        return len(res.data or [])
+    except Exception as e:
+        print(f"[limitdown] 快照清理失败(cutoff={cutoff}): {e}")
+        return 0
+
+
+# 累积表扫描上限：跌停家数通常个位数/天，5000 行够覆盖远超保留窗口的天数。
+_ACCUMULATED_SCAN_LIMIT = 5000
+
+
+async def accumulated_stats() -> dict:
+    """累积表的观察期进度：已落库多少个交易日 / 多少行 / 起止日期。
+
+    跌停池接口只回溯约 15 个交易日，样本窗口永远 3 周且不会随时间变长 ——
+    每日落库（v19）就是为此把窗口自积累起来。这个读数让「观察到第几天了」
+    可被直接看到，而不是靠猜。
+
+    三种降级状态必须**说清楚原因**，不能混成同一个「未接入」，否则用户分不清是
+    配置问题还是迁移没跑：
+    - ``supabase_not_configured``：全站数据类功能都不可用（不只本面板）；
+    - ``table_missing``：v19 迁移没跑（limitdown_daily_snapshot 表不存在）——
+      需在 Supabase SQL Editor 执行 backend/supabase-schema-v19.sql；
+    - ``read_error:<Type>``：连接 / 权限等真实异常。
+    表已建但暂无数据是 ``configured=True 且 days=0``，那是正常的（每日落库会逐步积累）。
+    """
+    empty = {
+        "configured": False,
+        "days": 0,
+        "rows": 0,
+        "first_date": None,
+        "last_date": None,
+        "note": None,
+    }
+    if supabase_store is None or not supabase_store.is_configured():
+        return {**empty, "note": "supabase_not_configured"}
+    try:
+        sb = await supabase_store.get_service_client()
+        res = await (
+            sb.table("limitdown_daily_snapshot")
+            .select("trade_date")
+            .limit(_ACCUMULATED_SCAN_LIMIT)
+            .execute()
+        )
+        rows = res.data or []
+        dates = {r["trade_date"] for r in rows if r.get("trade_date")}
+        return {
+            "configured": True,
+            "days": len(dates),
+            "rows": len(rows),
+            "first_date": min(dates) if dates else None,
+            "last_date": max(dates) if dates else None,
+            "note": None,
+        }
+    except Exception as e:
+        msg = str(e)
+        # PostgrestError 报 relation "limitdown_daily_snapshot" does not exist（SQLSTATE 42P01）
+        if "does not exist" in msg or "42P01" in msg:
+            print(f"[limitdown] 累积表未建（v19 迁移未执行）: {e}")
+            return {**empty, "configured": True, "note": "table_missing"}
+        print(f"[limitdown] 累积表统计失败: {e}")
+        return {**empty, "configured": True, "note": f"read_error:{type(e).__name__}"}
+
+
+async def load_accumulated_snapshots(start_date: str, end_date: str) -> dict[str, list[dict]]:
+    """读取 [start_date, end_date] 内已落库的跌停池（trade_date -> normalize 后的 stocks）。
+
+    供 repair_backtest 补齐接口回溯窗口外的样本：本地窗口 + 累积表 = 更长回测窗口。
+    落库行字段与 ``normalize_limit_down`` 输出对齐，可直接当 ``per_day`` 的值用。
+    表未建 / 无数据返回空 dict，调用方按「没有累积样本」处理。
+    """
+    if supabase_store is None or not supabase_store.is_configured():
+        return {}
+    try:
+        sb = await supabase_store.get_service_client()
+        res = (
+            await sb.table("limitdown_daily_snapshot")
+            .select("*")
+            .gte("trade_date", start_date)
+            .lte("trade_date", end_date)
+            .order("trade_date", desc=False)
+            .execute()
+        )
+        out: dict[str, list[dict]] = {}
+        for row in (res.data or []):
+            out.setdefault(str(row["trade_date"]), []).append(row)
+        return out
+    except Exception as e:
+        print(f"[limitdown] 累积快照读取失败({start_date}~{end_date}): {e}")
+        return {}
 
 
 # ---------- 次日修复回测 ----------
@@ -440,6 +650,13 @@ async def repair_backtest(days: int = MAX_REPAIR_DAYS, force: bool = False) -> d
     **零额外行情请求**；这条必须为每只跌停股拉一次日 K（逐只请求是风控主因），
     因此样本上限 ``_MAX_SAMPLES`` 同时承担请求量控制与 serverless 超时保护，
     且结果缓存 6 小时。走 ``concurrency.gather_limited`` 的进程级配额。
+
+    ⚠️ **窗口的真正闸门是 ``_MAX_SAMPLES``，不是接口回溯范围**：接口空池日期现在会用
+    累积表（v19 ``limitdown_daily_snapshot``）补回，但样本一旦超过 ``_MAX_SAMPLES``
+    仍按「日期新→旧」截断。所以「落库 → 窗口变长」要真正生效，前提是放宽样本上限 ——
+    那意味着更多逐只日 K 请求（风控取舍），属另案评估，此处刻意不动。
+    返回体的 ``accumulated_days`` 是本次真正用累积表补回的天数，``candidate_size``
+    与 ``sample_size`` 的差额即被截断量。
     """
     days = max(2, min(days, 30))
     cache_key = str(days)
@@ -476,6 +693,20 @@ async def repair_backtest(days: int = MAX_REPAIR_DAYS, force: bool = False) -> d
             empty.append(d.isoformat())
             continue
         per_day[d.isoformat()] = [normalize_limit_down(x) for x in res]
+
+    # 累积表补样本：接口回溯窗口外（见 docstring）的日期，若已每日落库则有真实数据。
+    # 这是「窗口自积累」的读路径 —— 落库跑得越久，这里能补回来的天数越多。
+    accumulated_from = trading_days[0].isoformat() if trading_days else None
+    accumulated_to = trading_days[-1].isoformat() if trading_days else None
+    accumulated_days = 0
+    if accumulated_from and accumulated_to and empty:
+        saved = await load_accumulated_snapshots(accumulated_from, accumulated_to)
+        for d_key in list(empty):
+            rows = saved.get(d_key)
+            if rows:
+                per_day[d_key] = rows  # 落库行字段与 normalize_limit_down 输出对齐
+                empty.remove(d_key)
+                accumulated_days += 1
 
     zt_codes: dict[str, set[str]] = {}
     for d, res in zip(trading_days, zt_results):
@@ -607,6 +838,7 @@ async def repair_backtest(days: int = MAX_REPAIR_DAYS, force: bool = False) -> d
         "date_range": [trading_days[0].isoformat(), trading_days[-1].isoformat()] if trading_days else [],
         "data_window": [covered[0], covered[-1]] if covered else [],
         "effective_days": len(covered),
+        "accumulated_days": accumulated_days,
         "empty_dates": empty,
         "zero_down_dates": zero_down,
         "out_of_window_dates": out_of_window,
