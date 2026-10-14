@@ -112,7 +112,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="AI 选股分析工具",
     description="LLM 驱动的 A 股选股分析平台",
-    version="0.2.0",
+    version="0.3.0",
     lifespan=lifespan,
 )
 

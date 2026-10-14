@@ -1,7 +1,8 @@
 # 迭代日志 Changelog
 
 > 格式参考 [Keep a Changelog](https://keepachangelog.com/)，版本号遵循产品里程碑（V1 ~ V5.x）。
-> 代码仓库版本见 `backend/app/main.py` 的 `version` 字段，**当前为 `0.2.0`，对应产品里程碑 V1–V5.28**。
+> 代码仓库版本见 `backend/app/main.py` 的 `version` 字段，**当前为 `0.3.0`，对应产品里程碑 V1–V5.36**
+> （`0.2.0` 覆盖 V1–V5.28；十月主线 V5.29–V5.36 单独升一档）。
 >
 > 说明：历史条目按 ROADMAP 的「已完成」章节整理；里程碑日期以 ROADMAP 末次更新（2026-09-02）为最新基准，早期里程碑未逐日记录，具体提交时间以 git 历史为准。
 
@@ -10,6 +11,29 @@
 ## [Unreleased]
 
 ### Added
+- **跌停池每日落库 + 回测读累积表**（2026-10-13，迁移 v19）
+  - `limitdown_service` 新增 `save_daily_snapshot` / `purge_old_snapshots`（90 天保留、下限 30 天）/
+    `accumulated_stats` / `load_accumulated_snapshots`；`get_snapshot` 尾部 fire-and-forget 落库，
+    `repair_backtest` 优先读累积表并在返回体补 `accumulated_days`
+  - 跌停侧字段**不可照抄涨停侧**：`down_days`（非 `boards`）、`last_seal_time`（跌停池无首封）、
+    `seal_ratio` 语义相反（封单厚＝卖不掉）
+  - 接线：`routes/cron.py` 每日落库 + 清理（静默降级）；`routes/admin.py` `EXPECTED_TABLES` 登记
+  - 测试 `tests/test_limitdown_snapshot_store.py`（23 条）；顺带把 cron 接线断言从前缀匹配改成正则带调用签名
+    —— 旧判据把 `purge_old_snapshots` 改名成 `..._TYPO()` 仍判通过（假绿）
+  - ⚠️ `_MAX_SAMPLES=200` 与 `MAX_REPAIR_DAYS=15` **刻意未放宽**：样本上限才是窗口的真正闸门，
+    放宽等于更多逐只日 K 请求（行情源风控主因）
+  - ⚠️ 表未建时全链路静默降级，行为与改动前一致
+- **数据健康中心补齐预测侧结算覆盖**（2026-10-14）
+  - `data_health_service` 新增 `prediction_settlement` 块（与推荐侧同构：eligible / settled / pending /
+    oldest_pending_date / latest_settled_at），并新增 `prediction_settlement_backlog` 告警
+  - 此前健康检查**只覆盖推荐**：2026-10-07 生产巡检发现预测侧单轮 0 条 PATCH，却没有任何监控能看见
+    —— 「推荐正常」把「预测没在结算」掩盖了
+  - 采集失败与「零积压」严格区分：预测查询报错时块为 `null` + `health_query_failed`，不伪装成健康
+  - 前端 `DataHealthPanel` 拆出「推荐待结算 / 预测待结算」两个指标 + 「推荐结算 / 预测结算」两行明细
+  - 测试新增 4 条（`tests/test_data_health_service.py`，4 → 8 passed；后端全量 861 passed）
+
+### Changed
+- **版本号与里程碑对齐**：`main.py` `version` 由 `0.2.0`（V1–V5.28）升至 **`0.3.0`**（V1–V5.36）
 - **回测口径审计硬门槛 + ETF/板块/横截面滚动验证基础设施**（2026-10-04 ~ 10-05）
   - `recommend_history_replay_service` 新增 `assess_backtest_caliber`：逐项检查 T+1 结算、涨跌停成交限制、
     最小价位取整、费用模型、历史可交易状态、点时特征与基准日期对齐；任一关键项失败即 `blocked` +
