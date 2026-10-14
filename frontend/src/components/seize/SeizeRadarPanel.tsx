@@ -259,7 +259,7 @@ export default function SeizeRadarPanel() {
     }
   }, []);
 
-  // 收益追踪只在挂载时拉一次（后端结算有 30 分钟节流，轮询它只会白打）
+  // 收益追踪只在挂载时拉一次：收盘判定与 D+1 结算已改由每日 cron 驱动，轮询本端点不会改变结果
   useEffect(() => {
     let stopped = false;
     void fetchSeizeHistory()
