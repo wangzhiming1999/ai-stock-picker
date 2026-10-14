@@ -449,13 +449,15 @@ async def _ingest_candidates(trade_date: str, just_sealed: list[dict], reseal: l
         return 0
 
 
-async def _close_out_today(trade_date: str, zt_codes: set[str]) -> int:
+async def _close_out_today(trade_date: str, zt_codes: set[str]) -> dict:
     """收盘后判定：今天落库的票最终是否封住（= 收盘时仍在涨停池）。
 
-    零额外行情请求 —— 判定依据就是本次雷达已经拉到的涨停池成员。返回更新行数。
+    零额外行情请求 —— 判定依据就是调用方已经拉到的涨停池成员。
+    返回结构化结果（``enabled`` / ``pending`` / ``updated`` / ``error``）而不是一个整数：
+    闭环此前把失败与「今天没事发生」都表示成 0，是它静默三周没被发现的直接原因。
     """
     if supabase_store is None or not supabase_store.is_configured():
-        return 0
+        return {"enabled": False, "pending": 0, "updated": 0, "error": "storage_not_configured"}
     try:
         sb = await supabase_store.get_service_client()
         res = await (
@@ -473,20 +475,25 @@ async def _close_out_today(trade_date: str, zt_codes: set[str]) -> int:
                 sb.table("seize_radar_log").update({"sealed_final": sealed}).eq("id", row["id"]).execute()
             )
             updated += len(up.data or [])
-        return updated
+        return {"enabled": True, "pending": len(pending), "updated": updated, "error": None}
     except Exception as e:  # noqa: BLE001
         print(f"[seize] 收盘判定失败({trade_date}): {e}")
-        return 0
+        return {"enabled": True, "pending": 0, "updated": 0, "error": f"{type(e).__name__}: {e}"}
 
 
-async def _realize_pending(today_iso: str, cap: int = 30) -> int:
+async def _realize_pending(today_iso: str, cap: int = 30) -> dict:
     """给已判定但未结算的行补 D+1 开盘价并算实际收益。
 
     逐只拉日 K（腾讯 newfqkline）＝行情源风控主因，所以：只补 `trade_date < 今天` 的行、
     单次上限 cap 只、写入即固化（下次不再拉）。盘中/竞价阶段不拉（D+1 还没开盘）。
+
+    取数走 ``concurrency.gather_limited``：串行 30 只逐只拉在 serverless 60s 上限里极易被
+    截断，而截断后旧实现只 ``continue`` 不回话 —— 「全失败」与「本来就没数据」长得一模一样。
+    返回 attempted / settled / 按原因分类的 failed，让调用方能把失败带出去。
     """
+    empty = {"enabled": False, "attempted": 0, "settled": 0, "failed": {}, "error": None}
     if supabase_store is None or not supabase_store.is_configured():
-        return 0
+        return {**empty, "error": "storage_not_configured"}
     try:
         sb = await supabase_store.get_service_client()
         res = await (
@@ -501,62 +508,145 @@ async def _realize_pending(today_iso: str, cap: int = 30) -> int:
         )
         pending = res.data or []
         if not pending:
-            return 0
-        realized = 0
-        for row in pending:
+            return {**empty, "enabled": True}
+
+        async def _resolve(row: dict) -> tuple[dict, float | None, str | None]:
             try:
                 hist = await asyncio.to_thread(data_service.get_history, row["code"], 15)
-            except Exception:  # noqa: BLE001
-                continue
+            except Exception as exc:  # noqa: BLE001 - 分类后上报，不再静默
+                return row, None, f"history_error:{type(exc).__name__}"
             if not hist or not hist.dates or not hist.opens:
-                continue
+                return row, None, "history_empty"
             nxt = _resolve_next_open(hist.dates, hist.opens, row["trade_date"])
             if nxt is None:
+                return row, None, "next_open_missing"
+            return row, nxt, None
+
+        resolved = await concurrency.gather_limited(
+            [_resolve(row) for row in pending], return_exceptions=True
+        )
+
+        settled = 0
+        failed: dict[str, int] = {}
+
+        def _bump(reason: str) -> None:
+            failed[reason] = failed.get(reason, 0) + 1
+
+        for item in resolved:
+            if isinstance(item, BaseException):
+                _bump(f"resolve_error:{type(item).__name__}")
                 continue
-            ret = _calc_return_pct(float(row["buy_price"]), nxt)
-            up = await (
-                sb.table("seize_radar_log")
-                .update(
-                    {
-                        "next_open": nxt,
-                        "next_open_pct": round((nxt / float(row["buy_price"]) - 1) * 100, 2)
-                        if float(row["buy_price"]) > 0
-                        else None,
-                        "realized_return_pct": ret,
-                    }
+            row, nxt, reason = item
+            if reason is not None:
+                _bump(reason)
+                continue
+            buy_price = float(row["buy_price"])
+            try:
+                up = await (
+                    sb.table("seize_radar_log")
+                    .update(
+                        {
+                            "next_open": nxt,
+                            "next_open_pct": round((nxt / buy_price - 1) * 100, 2) if buy_price > 0 else None,
+                            "realized_return_pct": _calc_return_pct(buy_price, nxt),  # type: ignore[arg-type]
+                        }
+                    )
+                    .eq("id", row["id"])
+                    .execute()
                 )
-                .eq("id", row["id"])
-                .execute()
-            )
-            realized += len(up.data or [])
-        return realized
+            except Exception as exc:  # noqa: BLE001
+                _bump(f"update_error:{type(exc).__name__}")
+                continue
+            settled += len(up.data or [])
+        return {
+            "enabled": True,
+            "attempted": len(pending),
+            "settled": settled,
+            "failed": failed,
+            "error": None,
+        }
     except Exception as e:  # noqa: BLE001
         print(f"[seize] 收益结算失败: {e}")
-        return 0
+        return {**empty, "enabled": True, "error": f"{type(e).__name__}: {e}"}
 
 
-async def get_history_log(days: int = 14) -> dict:
-    """收益追踪：近 N 个自然日的落库记录 + 已结算汇总。
+# ---------- 调度入口（每日 cron / 盘中 monitor cron） ----------
+#
+# 纪律：这两步**必须由调度器驱动**，不能挂在 GET 读路径上。
+# 2026-10-14 实测：闭环只在 ``get_history_log`` 里触发（即「用户打开抢板历史页」才跑），
+# 于是 20 天里 56 条落库、0 条结算、``next_open`` 恒空 —— 页面能打开，样本却从没进过账。
 
-    顺带触发收盘判定与结算（各自带节流：收盘判定 10 分钟一次、结算 30 分钟一次），
-    让前端打开一次就能看到最新结果，不需要独立维护 cron。
+
+async def settle_daily() -> dict:
+    """收盘后闭环：当日封板判定 + 历史待结算行的 D+1 开盘结算。
+
+    挂在每日 cron（北京 15:30，收盘后）：
+    - 收盘判定用当日**最终**涨停池成员（收盘后仍在池 = 封住）；
+    - D+1 结算只处理 `trade_date < 今天` 的行，所以同一次 cron 同时补上往日欠账。
+
+    任何一步失败都进 ``errors`` 返回，不吞。
     """
-    today = _cn_now().date()
-    today_iso = today.isoformat()
-    # 雷达失败不拖垮台账读回：跳过收盘判定，闭环照常返回（否则 push2ex 抖动会把整个
-    # history 端点打成 500，而台账本身不依赖行情源）。
+    now = _cn_now()
+    today_iso = now.date().isoformat()
+    out: dict = {"trade_date": today_iso, "closed_out": None, "realized": None, "errors": []}
+
+    zt_codes: set[str] | None = None
+    try:
+        zt_raw = await _fetch_pool("zt", now.strftime("%Y%m%d"))
+        zt_codes = {normalize_limit_up(x)["code"] for x in zt_raw}
+    except Exception as e:  # noqa: BLE001
+        out["errors"].append(f"zt_pool:{type(e).__name__}: {e}")
+
+    if zt_codes is not None:
+        try:
+            out["closed_out"] = await _close_out_today(today_iso, zt_codes)
+        except Exception as e:  # noqa: BLE001
+            out["errors"].append(f"close_out:{type(e).__name__}: {e}")
+
+    try:
+        out["realized"] = await _realize_pending(today_iso)
+    except Exception as e:  # noqa: BLE001
+        out["errors"].append(f"realize:{type(e).__name__}: {e}")
+
+    return out
+
+
+async def ingest_intraday() -> dict:
+    """盘中信号落库（供 ``POST /api/cron/monitor`` 每 5 分钟调度）。
+
+    此前 ``_ingest_candidates`` 只在封板雷达被前端轮询时触发 → 实测 20 天里只有 3 天留下
+    样本（没人打开「抢板」页的交易日一片空白），刚封板档因此连一条样本都没有。
+    这里复用 ``get_radar``（自带 15s 取数缓存 + 120s 落库节流），**不为调度新增额外行情请求**。
+    """
+    now = _cn_now()
+    local = now.time()
+    market_open = now.weekday() < 5 and (
+        dt.time(9, 15) <= local <= dt.time(11, 30) or dt.time(13, 0) <= local <= dt.time(15, 0)
+    )
+    if not market_open:
+        return {"ok": True, "skipped": "market_closed", "trade_date": now.date().isoformat()}
     try:
         radar = await get_radar()
     except Exception as e:  # noqa: BLE001
-        print(f"[seize] history 跳过收盘判定（雷达不可用）: {e}")
-        radar = None
-    if radar is not None and radar["trade_date"] == today_iso:
-        zt_codes = set(radar.get("zt_codes") or [])
-        # 收盘判定用全量涨停池成员（收盘后仍在池 = 封住）。
-        if not _throttled("close_out", 600):
-            await _close_out_today(today_iso, zt_codes)
-    if not _throttled("realize", 1800):
-        await _realize_pending(today_iso)
+        return {"ok": False, "trade_date": now.date().isoformat(), "error": f"{type(e).__name__}: {e}"}
+    counts = radar.get("counts") or {}
+    return {
+        "ok": True,
+        "trade_date": radar.get("trade_date"),
+        "session": radar.get("session"),
+        "counts": counts,
+    }
+
+
+async def get_history_log(days: int = 14) -> dict:
+    """收益追踪（**纯读**）：近 N 个自然日的落库记录 + 已结算汇总。
+
+    这里刻意**不再**触发收盘判定与结算。GET 携带重副作用是闭环静默三周的直接原因：
+    30 只逐只拉日 K 跑在请求路径里，超时就被截断、失败还只打一行 print ——
+    页面打得开，样本却从没进过账（实测 20 天 56 条落库 / 0 条结算 / next_open 恒空）。
+    判定与结算改由 ``settle_daily()`` 在每日 cron 驱动；本端点只读、不再触碰行情源。
+    """
+    today = _cn_now().date()
 
     enabled = True
     rows: list[dict] = []

@@ -89,6 +89,17 @@ async def daily_cron(request: Request):
         except Exception as de:
             print(f"[cron] limitdown snapshot save failed: {de}")
             result["limitdown_snapshot_rows"] = None
+        # 抢封板收益闭环：当日封板判定 + 历史待结算行的 D+1 开盘结算。
+        # 此前这两步只在 GET /api/seize/history（用户打开抢板历史页）里触发 ——
+        # 实测 20 天 56 条落库 / 0 条结算 / next_open 恒空，样本从没进过账。
+        # 内部任何一步失败都进 errors 返回，不吞。
+        try:
+            from app.services import seize_service
+
+            result["seize_settle"] = await seize_service.settle_daily()
+        except Exception as ze:
+            print(f"[cron] seize settle failed: {ze}")
+            result["seize_settle"] = None
         if not result.get("ok", True):
             raise HTTPException(
                 status_code=502,
@@ -139,6 +150,16 @@ async def monitor_cron(request: Request):
                 print(f"[cron] relay auto buy failed: {re_}")
                 relay_result = {"errors": [f"fatal:{re_}"]}
         result = await alert_service.evaluate_all()
+        # 抢封板信号落库：此前只在封板雷达被前端轮询时触发 → 没人打开「抢板」页的交易日
+        # 一条样本都没有（实测 20 天只有 3 天有数据）。复用 get_radar 的 15s 缓存与
+        # 120s 落库节流，不为调度新增额外行情请求。
+        try:
+            from app.services import seize_service
+
+            result["seize_ingest"] = await seize_service.ingest_intraday()
+        except Exception as ze:
+            print(f"[cron] seize ingest failed: {ze}")
+            result["seize_ingest"] = None
         return {
             "ok": True,
             "executed_at": now.isoformat(timespec="seconds"),
