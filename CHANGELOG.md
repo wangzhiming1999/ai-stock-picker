@@ -55,6 +55,24 @@
     合并挂载导致的重复请求改为共享单飞缓存
 
 ### Fixed
+- **抢封板收益闭环从未结算：闭环挂在 GET 读路径上没有调度**（2026-10-14）
+  > 实测 `GET /api/seize/history?days=20`：**56 条落库 / 0 条结算 / `next_open` 恒空**，
+  > 且只有 3 个交易日有数据、全是负期望的回封档（`just_sealed` 0 条）。
+  > 页面一切正常，样本却从没进过账 —— 十月主线「约 10 月底出首批实测胜率」的通道是断的。
+  - 根因一：`_close_out_today`（收盘判定）/ `_realize_pending`（D+1 结算）的**唯一调用点**是
+    `get_history_log()`，即「用户打开抢板历史页」才跑；`routes/cron.py` 里没有任何 seize 接线
+  - 根因二：结算串行跑在 HTTP 请求路径里（30 只 × 逐只拉日 K，叠在 `get_radar` 之后），
+    serverless 60s 极易被截断，而失败只 `continue` + 一行 print —— 「全失败」与「本来就没数据」同形
+  - 修法：新增 `settle_daily()`（判定 + 结算，结构化返回 errors）挂进每日 cron；
+    新增 `ingest_intraday()` 挂进盘中 `POST /api/cron/monitor`（每 5 分钟，复用 `get_radar` 的
+    15s 取数缓存与 120s 落库节流，**不新增额外行情请求**）
+  - `get_history_log` 改为**纯读**：不再触发判定 / 结算 / 雷达，端点不再触碰行情源
+  - 失败可见：`_close_out_today` / `_realize_pending` 由返回整数改为结构化 dict
+    （`enabled` / `attempted` / `settled` / 按原因分类的 `failed` / `error`），
+    取数异常、返回空、缺 D+1 开盘价、写入失败**分开计数**，不再一律记 0
+  - 结算取数走 `concurrency.gather_limited`（此前串行，是超时截断的直接原因）
+  - 测试 `tests/test_seize_settlement_loop.py`（15 条）；三条源码级守卫（cron 接线 ×2、
+    读路径无副作用 ×1）已用临时探针验证判别力；后端全量 **876 passed**
 - **生产依赖层「运行时安装」炸弹：385MB 依赖树撑爆 /tmp → 全站 500**（2026-10-06）
   > 当天 16:02–16:11 全部接口 500（`could not import "app/main.py"`），日志伴随
   > `No space left on device (os error 28)` 与 `ModuleNotFoundError: No module named 'akshare.stock'`。
