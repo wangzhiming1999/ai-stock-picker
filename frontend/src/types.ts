@@ -1154,6 +1154,67 @@ export interface DirectionModel {
   final_score: number;
 }
 
+/** 波浪铁律的逐条校验结果（后端 wave_service 回传，用于复核划分依据，不藏黑箱结论）。 */
+export interface WaveRule {
+  name: string;
+  ok: boolean;
+  detail: string;
+  /** false = 该规则当前无法评估（例如第 3 浪还没走完），不计入必过项 */
+  applicable: boolean;
+  /** false = 软性规则（形态交替 / 斐波那契比例），不参与「划分是否成立」判定 */
+  required: boolean;
+}
+
+/** 一段「浪」的起止信息。 */
+export interface WaveLeg {
+  /** 浪位标签：1~5 / A~C / c1~c5 */
+  label: string;
+  label_cn: string;
+  from_date: string;
+  to_date: string;
+  from_price: number;
+  to_price: number;
+  pct: number;
+  bars: number;
+  /** true = 这一段还没走完（以最后一个摆动点为界） */
+  provisional: boolean;
+  /** true = 当前所处的那一段 */
+  current: boolean;
+}
+
+/** 单级别（日线 / 周线）的波浪定位。 */
+export interface WaveLevel {
+  degree: string;
+  pattern: "impulse" | "abc" | "unknown";
+  /** 浪位标签，如 "5" / "C" / "c3"；无法定位时为 null */
+  position: string | null;
+  position_cn: string | null;
+  direction: "up" | "down" | null;
+  /** 0~1，铁律通过率 + 斐波那契贴合度 + 结构完整度的合成 */
+  confidence: number;
+  bars: number;
+  threshold_pct: number | null;
+  pivots: { date: string; price: number; kind: string; provisional: boolean }[];
+  waves: WaveLeg[];
+  rules: WaveRule[];
+  targets: { label: string; price: number; basis: string }[];
+  /** 嵌套读法时的外层结构（C 浪内部子浪才有） */
+  parent: ({ pattern: string; label: string; label_cn: string } & Record<string, unknown>) | null;
+  note: string;
+}
+
+/**
+ * 波浪定位（只读辅助读数，不参与方向分）。
+ *
+ * ⚠️ 口径：波浪划分是**分级 + 主观**的，同一段行情在日线/周线会有不同浪数。
+ * 界面上必须带级别，且必须与「方向」「关键点位」分开呈现。
+ */
+export interface WaveAnalysis {
+  daily: WaveLevel;
+  weekly: WaveLevel;
+  note: string;
+}
+
 export interface MarketPrediction {
   index: string;
   date: string;
@@ -1184,6 +1245,8 @@ export interface MarketPrediction {
     evidence_score?: number;
     data_date?: string;
     target_date?: string;
+    /** 波浪定位；老缓存里可能缺失（后端会补算，仍缺时为 undefined） */
+    wave?: WaveAnalysis | null;
   };
 }
 

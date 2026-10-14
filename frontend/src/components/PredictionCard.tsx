@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { fetchIndexHistory, fetchPrediction, fetchPredictionHistory, fetchPredictionStats } from "../api/client";
 import CollapsiblePanel from "./ui/CollapsiblePanel";
 import KLineChart from "./KLineChart";
+import WaveBlock from "./prediction/WaveBlock";
+import { waveMarks } from "./prediction/waveLogic";
 import { safeArray, safeObj } from "../lib/safe";
 import { FORCE_ANALYSIS_HINT, confirmForceRefresh } from "../lib/spotGuard";
 import type { IndexHistory, MarketPrediction, PredictionRecord, PredictionStats, StockHistory } from "../types";
@@ -51,6 +53,10 @@ export default function PredictionCard() {
   const chartHistory: StockHistory | undefined = indexHist
     ? { dates: indexHist.dates, closes: indexHist.closes, volumes: indexHist.volumes }
     : undefined;
+
+  // 图上的浪位标注只取**日线**：图里画的是日 K，周线级别的摆动点远在窗口之外，
+  // 标上去会被 clamp 掉。老缓存里没有 wave 字段，取值全程可选链。
+  const chartMarks = useMemo(() => waveMarks(data?.technical?.wave?.daily), [data]);
 
   useEffect(() => {
     void load();
@@ -121,9 +127,12 @@ export default function PredictionCard() {
                   </span>
                 )}
               </div>
-              <KLineChart history={chartHistory} height={200} />
+              <KLineChart history={chartHistory} height={200} marks={chartMarks} />
             </div>
           )}
+
+          {/* 当前浪位（只读辅助读数，不参与方向分） */}
+          <WaveBlock wave={data.technical?.wave} />
 
           {/* 关键点位 */}
           {data.summary.key_levels && (
