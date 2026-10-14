@@ -978,6 +978,13 @@ export interface DataHealth {
     oldest_pending_date: string | null;
     latest_settled_at: string | null;
   } | null;
+  prediction_settlement: {
+    eligible_rows: number;
+    settled_rows: number;
+    pending_rows: number;
+    oldest_pending_date: string | null;
+    latest_settled_at: string | null;
+  } | null;
   market_cache: { updated_at: string | null; age_hours: number | null } | null;
   snapshot_readiness: {
     ready_for_full_factor_replay: boolean;
