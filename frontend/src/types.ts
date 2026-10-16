@@ -1479,6 +1479,8 @@ export interface Briefing {
     direction_score: number;
     position_pct: number;
     position_suggestion: string;
+    /** 结构化仓位决策（A）。替代用正则从 position_suggestion 抠「N成」的写法。 */
+    position_plan?: PositionPlan;
     summary?: string;
     trading_advice?: string;
     key_levels?: Record<string, number | undefined>;
@@ -1497,6 +1499,10 @@ export interface Briefing {
     summary?: string | null;
     need_login: boolean;
     risk_level?: string;
+    /** 结构化持仓决策（B），按风险优先排序；取数失败时缺省 */
+    decisions?: HoldingDecision[];
+    /** 组合层汇总：卖出/减仓/持有/不参与各几只 */
+    decisions_summary?: HoldingDecisionsSummary;
   };
   /** 当日复盘（登录用户）：持仓盈亏快照 + 今日预警 + 一句话总结 */
   review?: {
@@ -2692,4 +2698,66 @@ export interface SectorFollow {
   /** 四态 key → 中文标签 */
   states: Record<SectorFollowState, string>;
   source: string;
+}
+
+/* ── 结构化仓位决策（A，position_service）与持仓决策层（B，holding_decision_service） ── */
+
+/** 决策四要素（与后端 services/decision.py 的 decision.make() 对应）。 */
+export interface DecisionQuad {
+  action: Decision;
+  label: string;
+  reason: string;
+  trigger: string | null;
+  invalidation: string | null;
+}
+
+/** A：结构化仓位决策。替代此前靠正则从 position_suggestion 文案里抠「N成」的写法。 */
+export interface PositionPlan extends DecisionQuad {
+  /** 总仓位上限（成，0-10） */
+  position_cap: number;
+  /** 总仓位上限（百分比，= position_cap × 10） */
+  position_cap_pct: number;
+  /** 展示文案，如「总仓位最多 5 成（50%）」 */
+  position_cap_label: string;
+  /** 可参与板块名单（板块资金处于加速流入） */
+  sectors_long: string[];
+  /** 回避板块名单（板块资金处于撤离） */
+  sectors_avoid: string[];
+  /** 判据可复核：这个仓位是怎么来的 */
+  basis: {
+    direction_score: number | null;
+    direction: string | null;
+    base_cap: number;
+    sentiment_penalty: number;
+    sentiment_reason: string | null;
+    sector_note: string | null;
+    sector_source: string | null;
+  };
+  disclaimer: string;
+}
+
+/** B：单只持仓的结构化决策。止盈/止损全部锚结构位，不用现价系数。 */
+export interface HoldingDecision {
+  code: string | null;
+  name: string | null;
+  price: number | null;
+  pnl_pct: number | null;
+  position_pct: number | null;
+  /** 主支撑（结构位，决策锚点） */
+  support: number | null;
+  /** 主压力（结构位，决策锚点） */
+  resistance: number | null;
+  /** 止损位（结构位，决策锚点） */
+  stop_loss: number | null;
+  sector: string | null;
+  /** 所属板块的资金四态；未知时为 null */
+  sector_state: SectorFollowState | null;
+  decision: DecisionQuad;
+}
+
+/** B：组合层汇总。只计数不做加权打分（各票结构位/浮盈/板块状态不可比）。 */
+export interface HoldingDecisionsSummary {
+  counts: Record<string, number>;
+  summary: string;
+  disclaimer: string;
 }

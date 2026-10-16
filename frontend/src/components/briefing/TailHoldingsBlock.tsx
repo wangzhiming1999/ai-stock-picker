@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { addToWatchlist, getAuthToken, simTrade } from "../../api/client";
-import type { Briefing, BriefingHolding } from "../../types";
+import type { Briefing, BriefingHolding, HoldingDecision } from "../../types";
 import { SUB, SUB_QUIET, TEXT } from "../../lib/ui";
-import { actionBadge, actionTone, CHIP, pnlTone } from "../../lib/tone";
+import { CHIP, actionTone, pnlTone } from "../../lib/tone";
+import DecisionBadge from "../ui/DecisionBadge";
 import { toast } from "sonner";
 import { AlgoTag, Money, simErrMsg } from "./shared";
 
-function TailHoldingCard({ h }: { h: BriefingHolding }) {
-  const tone = actionBadge(h.action);
+function TailHoldingCard({ h, d }: { h: BriefingHolding; d?: HoldingDecision }) {
   const [watching, setWatching] = useState(false);
   const [busy, setBusy] = useState(false);
   const [tip, setTip] = useState("");
@@ -78,7 +78,11 @@ function TailHoldingCard({ h }: { h: BriefingHolding }) {
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
-          <span className={`rounded-lg px-2 py-1 text-meta font-medium ${tone.bg} ${tone.text}`}>{tone.label}</span>
+          {/* 动作一律走 DecisionBadge（决策契约唯一渲染点）。
+              有结构化决策（B）时用它的动作，否则退回旧文案。 */}
+          {d ? <DecisionBadge decision={d.decision.action} long /> : (
+            <span className="rounded-lg bg-surface-inset px-2 py-1 text-meta font-medium text-ink-soft">{h.action || "持有不动"}</span>
+          )}
           <button
             onClick={() => void simOrder("sell")}
             disabled={simBusy}
@@ -133,6 +137,33 @@ function TailHoldingCard({ h }: { h: BriefingHolding }) {
         </ul>
       )}
 
+      {/* 结构化持仓决策（B）：理由 + 触发价 + 失效条件。
+          此前这里只有 tips 文字 —— 用户读完仍不知道「到什么价该动手」。
+          止盈/止损全部锚结构位（支撑/压力/止损位），不用现价系数。 */}
+      {d && (
+        <div className="mt-2 space-y-1">
+          <p className="text-meta leading-relaxed text-ink-soft">{d.decision.reason}</p>
+          <div className="grid gap-1.5 sm:grid-cols-2">
+            <div className="rounded-lg bg-surface-inset/60 px-2 py-1.5">
+              <div className="text-label font-medium text-ink-muted">触发</div>
+              <p className="mt-0.5 text-meta leading-relaxed text-ink-soft">{d.decision.trigger || "—"}</p>
+            </div>
+            <div className="rounded-lg bg-surface-inset/60 px-2 py-1.5">
+              <div className="text-label font-medium text-ink-muted">失效</div>
+              <p className="mt-0.5 text-meta leading-relaxed text-ink-soft">{d.decision.invalidation || "—"}</p>
+            </div>
+          </div>
+          {d.sector_state && d.sector_state !== "follow_steady" && d.sector_state !== "unknown" && (
+            <p className="text-micro text-ink-muted">
+              所属板块「{d.sector}」资金状态：
+              <b className={d.sector_state === "follow_exit" ? "text-green-400" : d.sector_state === "follow_ebb" ? "text-amber-300" : "text-red-400"}>
+                {d.sector_state === "follow_accel" ? "加速流入" : d.sector_state === "follow_exit" ? "撤离" : "退潮"}
+              </b>
+            </p>
+          )}
+        </div>
+      )}
+
       {(h.order_action || h.limit_price != null) && (
         <div
           className={`mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border px-2 py-1.5 text-meta ${
@@ -169,10 +200,18 @@ export function TailHoldingsBlock({ tail }: { tail: Briefing["tail"] }) {
       </div>
     );
   }
+  // 结构化决策按 code 索引（后端已按风险优先排序，前端不二次排序）
+  const byCode = new Map((tail.decisions ?? []).map((d) => [String(d.code), d]));
   return (
     <div className="space-y-2">
+      {tail.decisions_summary && (
+        <p className="text-meta text-ink-muted">
+          {tail.decisions_summary.summary}
+          <span className="ml-1.5 text-ink-faint">按风险优先排序</span>
+        </p>
+      )}
       {tail.holdings.map((h) => (
-        <TailHoldingCard key={h.code} h={h} />
+        <TailHoldingCard key={h.code} h={h} d={byCode.get(String(h.code))} />
       ))}
     </div>
   );
