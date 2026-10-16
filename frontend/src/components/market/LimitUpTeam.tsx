@@ -1,4 +1,4 @@
-import { SUB_QUIET, TEXT } from "../../lib/ui";
+import { SECTION_SUB, SUB, SUB_QUIET, TEXT } from "../../lib/ui";
 import { playAdviceTone, upTone } from "../../lib/tone";
 import type {
   LimitUpFocus,
@@ -10,8 +10,11 @@ import type {
   LimitUpSnapshot,
   LimitUpStock,
   LimitUpTierSummary,
+  MainlineWave,
 } from "../../types";
 import { adviceBadgeText, ladderGaps } from "../limitUpLogic";
+import { hasWave } from "../prediction/waveLogic";
+import WaveBlock from "../prediction/WaveBlock";
 import { REJECT_CHIP, rejectChipText, tierChip, upPositionChip } from "./constants";
 
 /**
@@ -464,6 +467,74 @@ function SectorSection({ snapshot }: { snapshot: LimitUpSnapshot }) {
         按家数排序而非封单金额 —— 家数更能反映资金是否在这个板块里抱团。
         但下面对照表显示：聚集度越高，首板晋级率反而越低，所以它只能当情绪读，不能当买点。
       </p>
+    </div>
+  );
+}
+
+/**
+ * 主线板块浪位 —— 「今天涨停聚集度最高的那条线，指数自己走到第几浪了」。
+ *
+ * 与上面的板块聚集度是同一件事的两面：那里回答**谁在抱团**，这里回答
+ * **抱团那条线自己走到哪一段**。数据是东财的**板块指数**（不是成分股合成），
+ * 日线 + 周线双级别，复用大盘推演那套引擎与展示件（`WaveBlock`）。
+ *
+ * ## 为什么这里必须摊开「原始名 → 真实板块」
+ * 涨停池给的板块名是**截断到 4 个字符**的（「汽车零部」= 汽车零部件、
+ * 「家电零部」= 家电零部件Ⅱ）。如果只显示归一化后的名字，用户拿涨停池字段对不上，
+ * 会以为是另一个板块；所以 `match` 不是 `exact` 时把这一步显式写出来。
+ *
+ * ## 口径
+ * 读数是**只读**的：不进方向分、不进 LLM 上下文，所以这里不出现任何动作话术。
+ * `wave === null` 是正常降级（无主线 / 名字对不上 / 取数失败 / 样本不足），
+ * 按读数缺失展示原因，不弹错误。
+ */
+export function MainlineWaveSection({
+  data,
+  loading,
+  error,
+}: {
+  data: MainlineWave | null;
+  loading: boolean;
+  error: string | null;
+}) {
+  if (loading && !data) return <p className="text-meta text-ink-soft">正在定位主线板块浪位…</p>;
+
+  if (!data) {
+    if (!error) return null;
+    return (
+      <div>
+        <h3 className={TEXT.label}>主线板块浪位</h3>
+        <p className="mt-1 text-meta text-amber-300">{error}</p>
+      </div>
+    );
+  }
+
+  // 归一化那一步对不上是常态（hybk 截断），但只有真的发生过才值得占一行
+  const renamed =
+    (data.match === "prefix" || data.match === "prefix_ii") && data.raw_sector !== data.sector;
+  const renameNote = renamed
+    ? `涨停池给的「${data.raw_sector}」是截断名，已归一到「${data.sector}」` +
+      (data.match === "prefix_ii" ? "（Ⅱ/Ⅲ 两个候选，按二级行业口径取 Ⅱ）" : "")
+    : "";
+
+  const subtitle =
+    `${data.sector}${data.code ? ` ${data.code}` : ""} · 板块指数 · ${data.degree}` +
+    (data.bars > 0 ? `（${data.bars} 根）` : "");
+
+  return (
+    <div>
+      {hasWave(data.wave) ? (
+        <WaveBlock wave={data.wave} label="主线板块浪位" subtitle={subtitle} />
+      ) : (
+        <>
+          <div className="mb-1.5 flex flex-wrap items-center gap-2">
+            <span className={SECTION_SUB}>主线板块浪位</span>
+            <span className="text-meta text-ink-muted">{subtitle}</span>
+          </div>
+          <p className={`${SUB} p-3 text-meta text-ink-soft`}>{data.note}</p>
+        </>
+      )}
+      {renameNote && <p className="mt-1.5 text-meta text-ink-faint">{renameNote}</p>}
     </div>
   );
 }

@@ -135,15 +135,30 @@ function LevelRow({ level }: { level: WaveLevel }) {
   );
 }
 
-export default function WaveBlock({ wave }: { wave?: WaveAnalysis | null }) {
+/**
+ * @param wave 双级别浪位读数；缺失或全空时整块不渲染（调用方自己给降级文案）
+ * @param label 区块标题，默认「当前浪位」
+ * @param subtitle 标题旁的口径说明，默认大盘双级别口径；
+ *   板块浪位复用时传「板块名 + 代码 + 板块指数」——**必须**带上标的，
+ *   否则读者会把板块的浪位当成大盘的
+ */
+export default function WaveBlock({
+  wave,
+  label = "当前浪位",
+  subtitle = "艾略特波浪 · 日线 / 周线双级别",
+}: {
+  wave?: WaveAnalysis | null;
+  label?: string;
+  subtitle?: string;
+}) {
   if (!hasWave(wave)) return null;
   const levels = [wave?.daily, wave?.weekly].filter((l): l is WaveLevel => Boolean(l));
 
   return (
     <div>
       <div className="mb-1.5 flex flex-wrap items-center gap-2">
-        <span className={SECTION_SUB}>当前浪位</span>
-        <span className="text-meta text-ink-muted">艾略特波浪 · 日线 / 周线双级别</span>
+        <span className={SECTION_SUB}>{label}</span>
+        <span className="text-meta text-ink-muted">{subtitle}</span>
         <span className="text-meta text-ink-muted">只读读数，不参与方向分</span>
       </div>
       <div className="space-y-2">
