@@ -9,7 +9,7 @@ import time
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from app.services import akshare_guard, concurrency, data_health_service, data_service, evidence_ledger, market_prediction, opportunity_service, pattern_service, recommend_service, spot_service, supabase_store, tactic_evidence, winrate_service
+from app.services import akshare_guard, concurrency, data_health_service, data_service, evidence_ledger, market_prediction, opportunity_service, pattern_service, recommend_service, sector_flow_service, spot_service, supabase_store, tactic_evidence, winrate_service
 
 router = APIRouter(prefix="/api/market", tags=["market"])
 
@@ -341,6 +341,24 @@ class ScanRequest(BaseModel):
     max_pe: float = Field(1000, gt=0, description="最高市盈率（0表示不限）")
     limit: int = Field(50, ge=1, le=200, description="返回数量上限")
     force: bool = Field(False, description="强制刷新：忽略行情快照缓存，重新拉取全市场行情")
+
+
+@router.get("/sector-follow")
+async def get_sector_follow(force: bool = False):
+    """跟随主力的板块：资金流入的结构读数（加速流入 / 持续流入 / 退潮 / 撤离）。
+
+    数据源是东财**板块级**资金流（clist 排行 + fflow/daykline 日线），两个端点都带
+    各自的缓存；``force=true`` 只穿透本模块的排行缓存，且受最小间隔保护。
+
+    ⚠️ 口径（前端必须渲染 ``caveats``，不得隐藏）：
+      * 「主力」= 东财口径超大单 + 大单净额，**不是真实暗盘成交**；
+      * 四态由**当日横截面分位**判出，换日即换基准、**不可跨日比较**；
+      * 本模块是结构读数、**不产出买卖动作**（未定义收益口径，不得接入决策链路）。
+
+    任何取数失败都在服务内降级成结构完整的载荷（``available=false`` + ``note``），
+    因此这个端点不抛 502 —— 前端据``available`` 渲染降级提示即可。
+    """
+    return await sector_flow_service.get_sector_follow(force=force)
 
 
 @router.get("/industries")
