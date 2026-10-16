@@ -2087,6 +2087,31 @@ export interface LimitUpSnapshot {
   caliber: Caliber;
 }
 
+/**
+ * 主线板块波浪定位（GET /api/limitup/mainline-wave）—— 只读读数，不参与方向分。
+ *
+ * `raw_sector` 是涨停池给的原始板块名，它是**被截断到 4 个字符**的
+ * （如「汽车零部」= 汽车零部件、「家电零部」= 家电零部件Ⅱ），
+ * `sector` 是归一化后的真实板块名，`match` 说明用的是哪条规则。
+ *
+ * `wave === null` 是**正常的降级路径**（没有主线板块 / 名字对不上 / 取数失败 /
+ * 样本不足），原因在 `note` 里，不要当错误处理，也不要显示成空白。
+ */
+export interface MainlineWave {
+  /** 归一化后的真实板块名；无法归一化时是原始名 */
+  sector: string;
+  /** 涨停池给的原始名（可能是 4 字截断） */
+  raw_sector: string;
+  /** 板块代码 BK####；未匹配上时为 null */
+  code: string | null;
+  match: "exact" | "prefix" | "prefix_ii" | "none" | "ambiguous";
+  wave: WaveAnalysis | null;
+  bars: number;
+  /** 判浪级别说明（固定为「日线 + 周线」） */
+  degree: string;
+  note: string;
+}
+
 /** 晋级率按连板高度分档。 */
 export interface LimitUpRelayRow {
   key: number;
@@ -2575,4 +2600,96 @@ export interface SeizeHistoryResult {
   };
   rows: SeizeLogRow[];
   note: string;
+}
+
+/* ── 跟随主力的板块（sector-follow） ─────────────────────────────
+ * 四态是**资金结构读数**，不是买卖信号：口径由后端 caveats 下发，前端必须渲染。
+ */
+
+/** 资金流向四态。判据是「持续性 + 加速度」的横截面分位，不是当日流入排名。 */
+export type SectorFollowState = "follow_accel" | "follow_steady" | "follow_ebb" | "follow_exit" | "unknown";
+
+/** 近 N 日主力净额序列（亿元）。 */
+export interface SectorFollowTrend {
+  date: string;
+  /** 主力净额（亿元）。该日缺数据时为 null —— 与 0 有本质区别，不要折成 0。 */
+  main_yi: number | null;
+}
+
+export interface SectorFollowTrendMetrics {
+  days: number;
+  /** 窗口内主力净额累计（亿元）—— 持续性 */
+  main_sum_yi: number;
+  /** 窗口内日均净额（亿元） */
+  main_avg_yi: number;
+  /** 最新一日主力净额（亿元） */
+  today_yi: number;
+  /** 加速度 = 最新一日 − 日均（亿元）。边际方向，本模块的核心量。 */
+  accel_yi: number;
+  /** 超大单占主力净额比；缺数据时 null */
+  super_share: number | null;
+  latest_date: string | null;
+  window: SectorFollowTrend[];
+}
+
+export interface SectorFollowItem {
+  code: string;
+  name: string;
+  state: SectorFollowState;
+  state_label: string;
+  state_hint: string;
+  change_pct: number | null;
+  /** 当日主力净额（亿元） */
+  main_net_yi: number | null;
+  /** 当日主力净占比（%） */
+  main_pct: number | null;
+  super_pct: number | null;
+  large_pct: number | null;
+  up_count: number | null;
+  down_count: number | null;
+  /** 上涨家数占比（0~1） */
+  breadth: number | null;
+  leader_name: string | null;
+  leader_code: string | null;
+  leader_change_pct: number | null;
+  laggard_name: string | null;
+  laggard_code: string | null;
+  /** 时序是否取到。false 时四态只按当日净额降级推断，UI 须标注。 */
+  trend_available: boolean;
+  trend: SectorFollowTrendMetrics | null;
+  ranks: {
+    /** 持续性横截面分位（0~1），换日换基准 */
+    continuity: number;
+    /** 加速度横截面分位（0~1） */
+    acceleration: number;
+    /** 超大单净占比（%），结构质量 */
+    structure: number | null;
+  };
+}
+
+export interface SectorFollow {
+  sectors: SectorFollowItem[];
+  /** 取数是否可用。false 时前端必须渲染 note 而不是空表。 */
+  available: boolean;
+  /** 板块名录是否翻页拿全（翻页漂移可能漏项） */
+  complete: boolean;
+  total_sectors: number;
+  /** 参与四态判定的板块数（当日主力净流入前 N 名），通常 ≤ total_sectors */
+  ranked_sectors: number;
+  /** 是否至少有一个板块拿到时序 */
+  trend_available: boolean;
+  /**
+   * 四态分布（中文标签 → 个数），按参与判定的全量统计而非展示条数。
+   * 取样天然偏向流入端，占比要配合 sample_note 一起读。
+   */
+  state_distribution: Record<string, number>;
+  /** 取样口径说明：为什么「撤离」在这批里占比偏高 */
+  sample_note: string;
+  note: string;
+  rank_note: string;
+  /** 口径免责。必须原样渲染，不得折叠隐藏。 */
+  caveats: string[];
+  /** 四态 key → 中文标签 */
+  states: Record<SectorFollowState, string>;
+  source: string;
 }

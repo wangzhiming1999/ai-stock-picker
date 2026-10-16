@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Activity, RefreshCw } from "lucide-react";
-import { fetchLimitUpRelay, fetchLimitUpSnapshot } from "../api/client";
+import { fetchLimitUpRelay, fetchLimitUpSnapshot, fetchMainlineWave, fetchSectorFollow } from "../api/client";
 import { breakRateTone, sentimentTone, upTone } from "../lib/tone";
 import { DIVIDER, TEXT } from "../lib/ui";
-import type { LimitUpRelayResult, LimitUpSnapshot } from "../types";
+import type { LimitUpRelayResult, LimitUpSnapshot, MainlineWave, SectorFollow } from "../types";
 import { CaliberLine } from "./CaliberNote";
 import { TapeShell } from "./market/TapeShell";
 import { POLL_INTERVAL } from "./market/constants";
+import SectorFollowPanel from "./market/SectorFollowPanel";
 import {
   AdviceBadge,
   AdviceSection,
   LadderSection,
+  MainlineWaveSection,
   RelaySection,
   RelayStocksSection,
   SectorSection,
@@ -60,6 +62,14 @@ export default function LimitUpBar({
   const [relayLoading, setRelayLoading] = useState(false);
   const [relayError, setRelayError] = useState<string | null>(null);
   const relayRequested = useRef(false);
+  const [wave, setWave] = useState<MainlineWave | null>(null);
+  const [waveLoading, setWaveLoading] = useState(false);
+  const [waveError, setWaveError] = useState<string | null>(null);
+  const waveRequested = useRef(false);
+  const [follow, setFollow] = useState<SectorFollow | null>(null);
+  const [followLoading, setFollowLoading] = useState(false);
+  const [followError, setFollowError] = useState<string | null>(null);
+  const followRequested = useRef(false);
 
   const loadSnapshot = useCallback(async () => {
     try {
@@ -82,6 +92,30 @@ export default function LimitUpBar({
     }
   }, []);
 
+  const loadWave = useCallback(async () => {
+    setWaveLoading(true);
+    try {
+      setWave(await fetchMainlineWave());
+      setWaveError(null);
+    } catch (err) {
+      setWaveError(err instanceof Error ? err.message : "获取主线板块浪位失败");
+    } finally {
+      setWaveLoading(false);
+    }
+  }, []);
+
+  const loadFollow = useCallback(async (force = false) => {
+    setFollowLoading(true);
+    try {
+      setFollow(await fetchSectorFollow(force));
+      setFollowError(null);
+    } catch (err) {
+      setFollowError(err instanceof Error ? err.message : "获取板块资金流跟随失败");
+    } finally {
+      setFollowLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     void loadSnapshot();
     const timer = window.setInterval(() => void loadSnapshot(), POLL_INTERVAL);
@@ -94,6 +128,23 @@ export default function LimitUpBar({
     relayRequested.current = true;
     void loadRelay();
   }, [open, loadRelay]);
+
+  // 主线板块浪位同样只在展开时拉一次：它比涨停池贵（首次要翻 5 页板块名录 +
+  // 拉一条板块指数日线），且浪位本身是慢变量 —— 后端也缓存 30 分钟。
+  // 跟着 15s 轮询走纯属白打行情源。
+  useEffect(() => {
+    if (!open || waveRequested.current) return;
+    waveRequested.current = true;
+    void loadWave();
+  }, [open, loadWave]);
+
+  // 板块资金流跟随同理：展开时拉一次。首次要翻 5 页板块排行 + 逐个板块拉资金流日线，
+  // 比涨停池贵得多；且资金流是慢变量（后端 10 分钟缓存），跟15s 轮询纯属白打行情源。
+  useEffect(() => {
+    if (!open || followRequested.current) return;
+    followRequested.current = true;
+    void loadFollow();
+  }, [open, loadFollow]);
 
   const s = snapshot?.sentiment;
   const topSector = snapshot?.sectors[0];
@@ -159,9 +210,11 @@ export default function LimitUpBar({
               onClick={() => {
                 void loadSnapshot();
                 void loadRelay();
+                void loadWave();
+                void loadFollow();
               }}
               className="inline-flex items-center gap-1 text-ink-muted hover:text-ink"
-              title="刷新连板梯队与晋级率（读后端 60s 缓存，不会穿透到行情源）"
+              title="刷新连板梯队与晋级率（读后端缓存，不会穿透到行情源）"
             >
               <RefreshCw className="h-3.5 w-3.5" aria-hidden />
               刷新
@@ -187,6 +240,24 @@ export default function LimitUpBar({
       {snapshot && <LadderSection ladder={snapshot.ladder} />}
 
       {snapshot && <SectorSection snapshot={snapshot} />}
+
+      <div className={DIVIDER} />
+
+      <div>
+        <h3 className={TEXT.label}>跟随主力的板块</h3>
+        <p className="mt-1 text-meta text-ink-muted">
+          板块资金的**边际方向**（持续性 + 加速度），不是当日流入排名。
+        </p>
+      </div>
+
+      <SectorFollowPanel
+        data={follow}
+        loading={followLoading}
+        err={followError ?? undefined}
+        onRefresh={() => void loadFollow(true)}
+      />
+
+      <MainlineWaveSection data={wave} loading={waveLoading} error={waveError} />
 
       <RelaySection relay={relay} loading={relayLoading} error={relayError} />
 

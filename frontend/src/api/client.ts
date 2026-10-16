@@ -18,8 +18,10 @@ import type {
   LimitDownSnapshot,
   LimitUpRelayResult,
   LimitUpSnapshot,
+  MainlineWave,
   SeizeRadar,
   SeizeHistoryResult,
+  SectorFollow,
   MonitorInterval,
   MonitorResult,
   MarketPrediction,
@@ -413,6 +415,41 @@ export async function fetchLimitUpRelay(days?: number, force = false): Promise<L
   const query = qs.toString();
   const res = await fetch(`${API}/limitup/relay${query ? `?${query}` : ""}`);
   if (!res.ok) throw await errorFrom(res, "获取连板晋级率失败");
+  return res.json();
+}
+
+/**
+ * 主线板块波浪定位 —— 「今天涨停聚集度最高的板块，指数自己走到第几浪」。
+ *
+ * 不传 `sector` 时后端自动取当日主线板块。返回值里 `wave === null` 是**正常降级**
+ * （无主线 / 名字对不上 / 取数失败 / 样本不足），原因在 `note`，调用方应按读数缺失
+ * 处理而不是当错误弹提示。
+ *
+ * ⚠️ 只读读数：浪位不进方向分、不进 LLM 上下文，不得渲染成买卖建议。
+ * 后端缓存 30 分钟；板块指数日线来自东财，与涨停池同属东财体系（不是 push2 快照），
+ * 因此**不接** spotGuard 冷却闸门。
+ */
+export async function fetchMainlineWave(sector?: string): Promise<MainlineWave> {
+  const qs = sector ? `?sector=${encodeURIComponent(sector)}` : "";
+  const res = await fetch(`${API}/limitup/mainline-wave${qs}`);
+  if (!res.ok) throw await errorFrom(res, "获取主线板块浪位失败");
+  return res.json();
+}
+
+/**
+ * 跟随主力的板块：资金流入的四态结构读数。
+ *
+ * ⚠️ 只读读数：四态是资金结构（加速流入 / 持续流入 / 退潮 / 撤离），
+ * **不是买卖信号** —— 未定义收益口径，不得渲染成建议。判据是「持续性 + 加速度」
+ * 的当日横截面分位，**不可跨日比较**；「主力」是东财口径（超大单 + 大单），
+ * 不是真实暗盘成交。免责口径由响应里的 `caveats` 下发，前端必须原样渲染。
+ *
+ * 数据源是东财板块级资金流（clist 排行 + fflow/daykline 日线），各自带缓存；
+ * 后端 10 分钟内存缓存，`force=true` 穿透且受最小间隔保护。
+ */
+export async function fetchSectorFollow(force = false): Promise<SectorFollow> {
+  const res = await fetch(`${API}/market/sector-follow${force ? "?force=true" : ""}`);
+  if (!res.ok) throw await errorFrom(res, "获取板块资金流跟随失败");
   return res.json();
 }
 
