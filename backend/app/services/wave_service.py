@@ -71,6 +71,10 @@ _OVERLAP_TOL = 0.012
 
 _MAX_WAVES = 5
 
+# 每种结构「满编」时的必过铁律条数（impulse：R1~R5；abc：R1 B不破A起点、R2 C越过A终点）。
+# 置信度里的通过率必须按这个数当分母，见 ``_finish``。
+_FULL_REQUIRED = {"impulse": 5, "abc": 2}
+
 _LABELS_CN = {
     "1": "第 1 浪（推动）",
     "2": "第 2 浪（回调）",
@@ -174,6 +178,24 @@ def zigzag(bars: list[dict], threshold_pct: float) -> list[dict]:
         pivots.append({"index": lo_i, "date": pts[lo_i][1], "price": lo_p, "kind": "L", "provisional": True})
     elif expect == "H" and (not pivots or hi_i > pivots[-1]["index"]):
         pivots.append({"index": hi_i, "date": pts[hi_i][1], "price": hi_p, "kind": "H", "provisional": True})
+
+    # 补回序列最左端的那个极值。
+    #
+    # 上面的状态机只在「价格从极值反向走满阈值」时才确认摆动点，于是序列起点永远等不到
+    # 确认 —— 而它可能正是一浪的起点。实测：`100→120→110→150→135→160`（6 个摆动点）
+    # 只识别出 5 个，一个标准的 5 浪推动浪因此被误判成 A-B-C。
+    #
+    # 只在「起点到第一个摆动点之间本身就够一个阈值幅度」时才补 —— 否则会把一段不满足
+    # 阈值的噪声首段当成一浪，而那恰恰是 ZigZag 惯例不锚定起点的原因。
+    if pivots:
+        first = pivots[0]
+        head = closes[: first["index"] + 1]
+        p0 = closes[0]
+        if abs(first["price"] - p0) >= p0 * threshold_pct:
+            if first["kind"] == "H" and p0 <= min(head):
+                pivots.insert(0, {"index": 0, "date": pts[0][1], "price": p0, "kind": "L"})
+            elif first["kind"] == "L" and p0 >= max(head):
+                pivots.insert(0, {"index": 0, "date": pts[0][1], "price": p0, "kind": "H"})
     return pivots
 
 
@@ -381,16 +403,44 @@ def _fib_score(legs: list[dict], down: bool) -> float:
 
 
 def _finish(count: int, labels: list[str], down: bool, rules: list[dict], fib: float, pattern: str) -> dict:
-    """把逐条铁律合成为候选结构的得分与置信度。"""
+    """把逐条铁律合成为候选结构的得分与置信度。
+
+    ## 「通过率」的分母必须用**满编**项数，不能用当前产出项数
+
+    ``_eval_impulse`` 是**按腿数产出铁律**的：2 条腿只产出 1 条（第2浪不破起点）、
+    3 条腿 3 条、4 条腿 4 条、5 条腿 5 条。所以「当前产出项数」在短结构下天然很小，
+    拿它当分母会让**看得越少、通过率越容易满分** —— 实测 2 条腿的 A-B 划分
+    1/1 = 100%，置信度 **0.76**，只比走完 5 浪的 0.83 低 0.07，界面上却同样是一个
+    可信读数。改用满编分母（``_FULL_REQUIRED``）后同一条 A-B 划分降到 **0.485**、
+    2 条腿的 1-2 浪降到 **0.245**，通过率随腿数单调递增（1/5 → 3/5 → 4/5 → 5/5）。
+
+    这个分母同时修掉了「引擎分不出完整 A-B-C 与残缺推动浪」的毛病：3 条腿时
+    impulse 与 abc 的旧通过率都是 1.0、置信度都是 0.811，选版只能靠候选列表顺序
+    让 impulse 胜出 —— 而 3 条腿恰好是**走完的** A-B-C、只是**没走完**的推动浪。
+
+    ## 「是否全过」（``required_ok``）是另一个口径，别合并
+
+    它只看当前能评估的项：4 条腿的 1-2-3-4 浪是合法的**部分**结构，不该因为
+    「还没走到第 5 浪」被判成没全过、进而被压到 ≤0.30。所以它不能用
+    ``required_pass >= 1.0`` 表达 —— 那会把「部分结构」和「违背铁律」混为一谈。
+    """
     required = [r for r in rules if r["required"] and r["applicable"]]
     soft = [r for r in rules if not r["required"]]
-    required_pass = sum(1 for r in required if r["ok"]) / len(required) if required else 1.0
+    passed = sum(1 for r in required if r["ok"])
+
+    # 分母＝满编必过项数（impulse 5 / abc 2），减掉「产出了但当下评估不了」的项
+    # （`applicable=fresh` 那几条斐波那契规则）；漏掉它们等于让结构白背一条罪名。
+    full = _FULL_REQUIRED.get(pattern, len(required) or 1)
+    skipped = sum(1 for r in rules if r["required"] and not r["applicable"])
+    required_pass = passed / max(1, full - skipped)
+    required_ok = all(r["ok"] for r in required)
+
     soft_pass = sum(1 for r in soft if r["ok"]) / len(soft) if soft else 0.5
 
     # 结构完整度：走完 5 浪才算看了全貌；只看到 2 条腿时不该有高置信度
     completeness = count / _MAX_WAVES
     confidence = 0.55 * required_pass + 0.15 * soft_pass + 0.15 * fib + 0.15 * completeness
-    if required_pass < 1.0:
+    if not required_ok:
         confidence = min(confidence, 0.30)
 
     return {
@@ -398,7 +448,7 @@ def _finish(count: int, labels: list[str], down: bool, rules: list[dict], fib: f
         "direction": "down" if down else "up",
         "count": count,
         "labels": labels[:count],
-        "required_ok": required_pass >= 1.0,
+        "required_ok": required_ok,
         "required_pass": round(required_pass, 3),
         "soft_pass": round(soft_pass, 3),
         "fib_score": fib,

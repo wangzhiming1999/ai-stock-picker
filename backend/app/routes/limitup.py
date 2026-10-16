@@ -1,9 +1,10 @@
 """连板梯队与晋级率接口。
 
-两个端点：
+三个端点：
 
 * ``GET /api/limitup/snapshot`` —— 当日连板全景（情绪 / 梯队 / 板块 / 个股位置），60s 内存缓存；
-* ``GET /api/limitup/relay`` —— 历史 N 连板 → 次日晋级率，默认取满接口回溯窗口。
+* ``GET /api/limitup/relay`` —— 历史 N 连板 → 次日晋级率，默认取满接口回溯窗口；
+* ``GET /api/limitup/mainline-wave`` —— 主线板块的波浪定位（只读，不参与方向分）。
 
 ⚠️ 两个端点返回的 ``evidence.actionable`` 恒为 ``false``。连板接力只在「能否继续封板」
 这个中间指标上有正向线索，缺少收益口径（涨停池拿不到次日成交价），因此按项目证据闸门
@@ -11,12 +12,14 @@
 
 数据源是东财 ``push2ex`` 涨停板池 —— 与 ``spot_service`` 使用的 ``push2`` 全市场快照
 是不同域名/不同业务端点，push2 被风控时本模块不受影响，因此这里**不接**快照那套冷却机制。
+``/mainline-wave`` 额外会打东财板块列表与板块指数两个端点（各自带缓存），口径见
+``board_wave_service`` 模块说明。
 """
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query
 
-from app.services import limitup_service
+from app.services import board_wave_service, limitup_service
 
 router = APIRouter(prefix="/api/limitup", tags=["limitup"])
 
@@ -32,6 +35,27 @@ async def snapshot(force: bool = False) -> dict:
         return await limitup_service.get_snapshot(force=force)
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get("/mainline-wave")
+async def mainline_wave(sector: str | None = Query(None)) -> dict:
+    """主线板块的波浪定位（只读辅助读数）。
+
+    不传 ``sector`` 时取当日涨停聚集度最高的板块（``snapshot.sectors[0]``）。
+    返回体的 ``match`` 说明名称是怎么归一化的（涨停池的板块名是 4 字截断的），
+    ``wave=null`` 时看 ``note`` 里的原因 —— 降级是正常返回，不是错误。
+
+    ⚠️ 这是**读数不是建议**：浪位不进方向分、不进 LLM 上下文（见 ``board_wave_service``）。
+    """
+    target = (sector or "").strip()
+    if not target:
+        try:
+            snap = await limitup_service.get_snapshot()
+        except RuntimeError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        sectors = snap.get("sectors") or []
+        target = str((sectors[0] or {}).get("sector") or "") if sectors else ""
+    return await board_wave_service.get_mainline_wave(target)
 
 
 @router.get("/relay")

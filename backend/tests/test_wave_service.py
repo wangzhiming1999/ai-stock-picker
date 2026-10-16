@@ -88,13 +88,47 @@ def test_zigzag_必须产出摆动点且严格交替() -> None:
     assert pivots[-1].get("provisional") is True
 
 
-def test_zigzag_首个摆动点取区间真实极值而不是扫描末位() -> None:
+def test_zigzag_首个高点取区间真实极值而不是扫描末位() -> None:
     # 先涨后跌、跌途中有小反弹：真正的顶是 4000，不是触发阈值那一根
     bars = pack([3000, 3800, 4000, 3900, 3600, 3700, 3400, 3500, 3200])
     pivots = ws.zigzag(bars, 0.08)
-    assert pivots, "应当至少识别出一个高点"
-    assert pivots[0]["kind"] == "H"
-    assert pivots[0]["price"] == 4000
+    highs = [p for p in pivots if p["kind"] == "H"]
+    assert highs, "应当至少识别出一个高点"
+    assert (highs[0]["index"], highs[0]["price"]) == (2, 4000)
+
+
+def test_zigzag_补回序列起点的摆动点_否则标准5浪被误判成ABC() -> None:
+    """回归守卫：状态机只在「价格从极值反向走满阈值」时才确认摆动点，于是序列起点
+    永远等不到确认（它前面没有数据可供反向走）。实测 `100→120→110→150→135→160`
+    这 6 个摆动点曾只识别出 5 个，一个**完整的 5 浪推动浪**因此被误判成 A-B-C。"""
+    bars = pack(ramp([100, 120, 110, 150, 135, 160]))
+    pivots = ws.zigzag(bars, 0.05)
+    assert len(pivots) == 6, f"应识别出含起点在内的 6 个摆动点，实际 {[(p['index'], p['kind']) for p in pivots]}"
+    assert (pivots[0]["index"], pivots[0]["kind"], pivots[0]["price"]) == (0, "L", 100)
+
+    res = ws.analyze(bars, "daily")
+    assert res["pattern"] == "impulse"
+    assert res["position"] == "5"
+    assert [w["label"] for w in res["waves"]] == ["1", "2", "3", "4", "5"]
+
+
+def test_zigzag_首段不足一个阈值时不补起点() -> None:
+    """补起点不能把噪声首段当成一浪 —— 那恰恰是 ZigZag 惯例不锚定起点的原因。"""
+    # 起点 3000 → 首个确认高点 3200 只有 6.7%，不够 8% 阈值 → 不该锚定起步点
+    bars = pack([3000, 3020, 3200, 2800, 3100])
+    pivots = ws.zigzag(bars, 0.08)
+    assert pivots and pivots[0]["index"] != 0, "首段只有 6.7% 波动，不该被补成摆动点"
+    assert (pivots[0]["kind"], pivots[0]["price"]) == ("H", 3200)
+
+
+def test_zigzag_起点本身就是极值时不会重复补一个点() -> None:
+    """起点已在首个摆动点上（价格从起点一路跌）时，补回逻辑必须认出并跳过，
+    否则会插入一个与首点同价的假摆动点、把腿数整体错位。"""
+    bars = pack(ramp([4000, 3000, 3500, 3100, 3600]))
+    pivots = ws.zigzag(bars, 0.05)
+    assert (pivots[0]["index"], pivots[0]["kind"], pivots[0]["price"]) == (0, "H", 4000)
+    idx = [p["index"] for p in pivots]
+    assert len(set(idx)) == len(idx), f"索引不得重复：{idx}"
 
 
 def test_zigzag_阈值过大时不给摆动点而不是硬凑() -> None:
@@ -147,6 +181,72 @@ def test_有铁律没过时置信度被压到低位() -> None:
     fit = ws._eval_impulse(broken, ws._IMPULSE_LABELS)
     assert fit["required_ok"] is False
     assert fit["confidence"] <= 0.30, "没过铁律的划分不得给出高置信度"
+
+
+# ---------------------------------------------------------------- ②b 通过率口径
+
+
+def _impulse_fit(prices: list[float]) -> dict:
+    return ws._eval_impulse(legs_from(prices), ws._IMPULSE_LABELS)
+
+
+def test_通过率分母用满编项数_短结构拿不到满分() -> None:
+    """回归守卫：分母若用「当前产出的铁律数」，看得越少越容易满分。
+
+    `_eval_impulse` 按腿数产出铁律（2 腿 1 条 / 3 腿 3 条 / 4 腿 4 条 / 5 腿 5 条），
+    改前 2 腿的通过率就是 1/1 = 100%，置信度 0.685 —— 跟「走完 5 浪」几乎一样可信。
+    """
+    pass_rates = [
+        _impulse_fit([4000, 3600, 3800])["required_pass"],
+        _impulse_fit([4000, 3600, 3900, 3100])["required_pass"],
+        _impulse_fit([4000, 3600, 3900, 3100, 3560])["required_pass"],
+        _impulse_fit([4000, 3600, 3900, 3100, 3560, 2950])["required_pass"],
+    ]
+    assert pass_rates == sorted(pass_rates), f"通过率必须随腿数单调递增，实际 {pass_rates}"
+    assert pass_rates[0] == 0.2 and pass_rates[-1] == 1.0, f"2 腿应为 1/5、5 腿才满编，实际 {pass_rates}"
+    assert len(set(pass_rates)) == len(pass_rates), f"各腿数的通过率不得相同（改前 2~5 腿会一起挤到 1.0）：{pass_rates}"
+
+
+def test_两腿的AB划分置信度必须显著低于满编结构() -> None:
+    """回归守卫：2 条腿的 A-B 划分曾拿到 0.76 —— 只比走完 5 浪的 0.83 低 0.07，
+    界面上同样呈现为一个可信读数。它现在必须掉到 0.55 以下。"""
+    ab = ws._eval_abc(legs_from([4000, 3600, 3800]), ws._ABC_LABELS)
+    full_abc = ws._eval_abc(legs_from([4000, 3600, 3800, 3300]), ws._ABC_LABELS)
+    assert ab["required_pass"] < full_abc["required_pass"], "残缺的 A-B 通过率不该等于完整的 A-B-C"
+    assert ab["confidence"] < 0.55, f"2 腿 A-B 置信度仍偏高：{ab['confidence']}"
+
+    short_impulse = _impulse_fit([4000, 3600, 3800])
+    assert short_impulse["confidence"] <= 0.30, f"2 腿的 1-2 浪置信度仍偏高：{short_impulse['confidence']}"
+
+
+def test_部分结构不算未全过_四腿的一二三四浪必须放行() -> None:
+    """``required_ok`` 只看当前能评估的项：4 条腿的 1-2-3-4 是合法的**部分**结构，
+    不该因为「还没走到第 5 浪」被判成没全过、进而被压到 ≤0.30。"""
+    fit = _impulse_fit([4000, 3600, 3900, 3100, 3560])
+    assert fit["required_ok"] is True, "部分结构被误判成「铁律没过」"
+    assert fit["confidence"] > 0.30, "部分结构不该被压到低位"
+    assert fit["required_pass"] < 1.0, "没走完的推动浪不该拿满通过率"
+
+
+def test_三条腿时完整ABC应当胜过残缺推动浪() -> None:
+    """改前 3 条腿的 impulse 与 abc 通过率都是 1.0、置信度都是 0.811，选版只能靠
+    候选列表顺序让 impulse 胜出 —— 而 3 条腿恰好是**走完的** A-B-C、只是**没走完**的推动浪。"""
+    legs = legs_from([4000, 3600, 3900, 3100])
+    impulse = ws._eval_impulse(legs, ws._IMPULSE_LABELS)
+    abc = ws._eval_abc(legs, ws._ABC_LABELS)
+    assert abc["confidence"] > impulse["confidence"], "完整 A-B-C 的置信度必须高于残缺推动浪"
+
+
+def test_满编必过项数与实际产出的铁律数一致() -> None:
+    """``_FULL_REQUIRED`` 是通过率的分母。哪天给某个结构加了一条铁律却忘了同步这个
+    常量，分母就会小于实际项数、通过率又能冲破 1.0 —— 这条守卫专门拦这个。"""
+    full_impulse = _impulse_fit([4000, 3600, 3900, 3100, 3560, 2950])
+    n_impulse = sum(1 for r in full_impulse["rules"] if r["required"] and r["applicable"])
+    assert n_impulse == ws._FULL_REQUIRED["impulse"], "推动浪满编铁律数与 _FULL_REQUIRED 不符"
+
+    full_abc = ws._eval_abc(legs_from([4000, 3600, 3800, 3300]), ws._ABC_LABELS)
+    n_abc = sum(1 for r in full_abc["rules"] if r["required"] and r["applicable"])
+    assert n_abc == ws._FULL_REQUIRED["abc"], "A-B-C 满编铁律数与 _FULL_REQUIRED 不符"
 
 
 # ---------------------------------------------------------------- ③ 浪位识别
