@@ -16,10 +16,13 @@ from app.services import (
     akshare_guard,
     data_service,
     decision,
+    holding_decision_service,
     market_prediction,
     pattern_service,
     portfolio_service,
+    position_service,
     recommend_service,
+    sector_flow_service,
     signal_service,
     trade_calendar_service,
 )
@@ -390,7 +393,18 @@ async def build_today(user_id: str | None = None) -> dict:
     summary = (pred.get("summary") or {}) if isinstance(pred, dict) else {}
     direction = market_prediction.normalize_direction(str(summary.get("direction", "震荡")))
     direction_score = float(summary.get("direction_score", 5) or 5)
+    # 仓位成数仍走既有映射（供「每只买多少」分钱用），但**展示口径**改用
+    # position_service 的结构化决策 —— 那里带触发/失效条件与板块名单，
+    # 且修正只降档不上调（避免多信号相加放大同一轮行情）。
     pos_pct = _direction_to_position(direction_score)
+
+    # 板块资金四态：给仓位决策提供「可参与 / 回避」名单。
+    # 取数失败不影响简报主链（position_plan 会带空名单 + 说明）。
+    sector_follow = None
+    try:
+        sector_follow = await sector_flow_service.get_sector_follow()
+    except Exception:  # noqa: BLE001 — 辅助读数不许影响主链路
+        sector_follow = None
 
     # 早盘关注：取推荐前 6 只并补信号 + 仓位
     profile = None
@@ -418,6 +432,12 @@ async def build_today(user_id: str | None = None) -> dict:
             tail["holdings"] = holdings
             tail["summary"] = _tail_summary(holdings)
             tail["risk_level"] = advice.get("risk_level")
+            # 结构化持仓决策（B）：把两态提示升级为 4 态决策，
+            # 止盈/止损改锚结构位，并接入板块资金四态。
+            tail["decisions"] = holding_decision_service.build_holding_decisions(
+                holdings, sector_follow
+            )
+            tail["decisions_summary"] = holding_decision_service.summarize(tail["decisions"])
         except Exception as e:
             print(f"[briefing] 获取持仓建议失败: {e}")
             tail["summary"] = "持仓建议获取失败"
@@ -444,6 +464,15 @@ async def build_today(user_id: str | None = None) -> dict:
     # 连板结论块：环境三档 + 资金面最强分组 + 持仓连板盯盘提示（失败为 None，前端隐藏）
     limitup_block = await _build_limitup_block(user_id)
 
+    # 结构化仓位决策（A）：方向分 + 情绪温度 + 板块四态 → 一条带触发/失效的决策。
+    # 情绪取自涨停池快照（与 limitup_block 同源，不额外打源）；修正只降档不上调。
+    position_plan = position_service.build_position_plan(
+        direction_score=direction_score,
+        direction=direction,
+        sentiment=(limitup_block or {}).get("sentiment"),
+        sector_follow=sector_follow,
+    )
+
     # 目标交易日：pred 里 target_date 才是"这份简报针对哪个交易日"；
     # pred["date"] 只是行情数据的最后一根 K 线日（数据基准），不能当目标日展示
     pred_date = pred.get("date") if isinstance(pred, dict) else None
@@ -464,7 +493,10 @@ async def build_today(user_id: str | None = None) -> dict:
             "direction": direction,
             "direction_score": direction_score,
             "position_pct": pos_pct,
+            # 结构化仓位决策（A）。position_suggestion 保留给旧消费方，
+            # 新前端只读 position_plan，不再用正则从文案里抠「N成」。
             "position_suggestion": f"{pos_pct}成仓",
+            "position_plan": position_plan,
             "summary": summary.get("summary"),
             "trading_advice": summary.get("trading_advice"),
             "key_levels": summary.get("key_levels"),
