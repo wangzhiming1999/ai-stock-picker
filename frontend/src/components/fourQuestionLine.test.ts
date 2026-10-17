@@ -181,6 +181,22 @@ test("seize 两个回测类型：期望符号相反，必须标注不可混读",
   assert.match(types, /四问的 n 用它，不用 n（含未结算行会虚高）/);
 });
 
+/* ── 覆盖率提示（2026-10-17 线上实测后加）───────────────────────── */
+
+test("执行追踪覆盖率必须显式渲染，否则「可成交 100%」会掩盖「只有 1 个样本」", () => {
+  const panel = readFileSync(join(ROOT, "components/WinratePanel.tsx"), "utf8");
+  assert.match(panel, /execution_tracked_ratio/, "未渲染执行追踪覆盖率");
+  assert.match(panel, /legacy_without_execution_tracking/, "未说明迁移前历史行数量");
+  // 阈值：低于 80% 就要提示（线上实测只有 4%）
+  assert.match(panel, /execution_tracked_ratio < 80/, "缺少覆盖率阈值判断");
+});
+
+test("覆盖率字段的类型注释点明它比可成交比例更该先看", () => {
+  const types = readFileSync(join(ROOT, "types.ts"), "utf8");
+  assert.match(types, /这个数比可成交比例更该先看/);
+  assert.match(types, /legacy_without_execution_tracking/, "缺 legacy 行数字段");
+});
+
 test("四问是可选字段，缺失时组件返回 null 而不是崩", () => {
   // 四问是后端新增字段；老缓存 / 降级响应里可能没有它。
   // 渲染层必须能容 null，否则一次后端降级会让整个胜率面板白屏。

@@ -166,6 +166,19 @@ export default function WinratePanel() {
             {data.recommendation?.sample_status === "insufficient" && data.recommendation.total > 0 && (
               <p className="mt-2 text-meta text-amber-400">样本不足 30 只，暂不据此判断策略有效性。</p>
             )}
+            {/* 执行追踪覆盖率必须显式说明：可成交比例的分母只含有执行追踪的行，
+                覆盖率低时那个比例「看起来完美」其实只是 1 个样本的结论。
+                不显示它 = 把「不知道」读成「都成交了」。 */}
+            {data.recommendation?.execution_tracked_ratio != null &&
+              data.recommendation.execution_tracked_ratio < 80 && (
+                <p className="mt-2 text-meta text-amber-400">
+                  执行追踪覆盖率 {data.recommendation.execution_tracked_ratio}%
+                  {data.recommendation.legacy_without_execution_tracking
+                    ? `（另有 ${data.recommendation.legacy_without_execution_tracking} 条迁移前历史行没有执行追踪，已排除在可成交比例之外）`
+                    : ""}
+                  —— 下方「可成交」那一问只基于有追踪的样本，比例再高也只是少量样本的结论。
+                </p>
+              )}
             {data.recommendation?.error && (
               <p className="mt-2 text-meta text-amber-400">推荐记录查询失败：{data.recommendation.error}</p>
             )}

@@ -453,17 +453,42 @@ async def get_winrate_stats() -> dict:
     # 第四问（换基准符号翻转）本口径答不上来 —— 它需要第二个基准的对照数据，
     # 而这里只有沪深300 一条；**如实标 unknown，不折算成「通过」**。
     #
-    # 可成交比例的分母口径：`execution_status` 是 v16 新列，旧行为 null。
-    # null 视为「无法判定」→ 整问 answered=False，而不是当成 0%（那会假装全买不进）。
-    _status_known = [r for r in rec_rows if r.get("execution_status")]
-    if _status_known:
-        _filled = sum(1 for r in _status_known if r.get("execution_status") == "filled")
-        tradable_ratio: float | None = _filled / len(_status_known)
+    # 可成交比例的口径（2026-10-17 线上实测修正）：
+    #
+    # ⚠️ **分母只能是有执行追踪的行**，即 filled / not_triggered / unverifiable 三态。
+    # 绝不能把 `legacy` 算进去 —— 它是 `expected_price` 为空时走的分支
+    # （v13 迁移之前的历史行），表示**当时没有执行追踪这件事**，不是「没成交」。
+    #
+    # 这个坑是上线后第一次跑真实数据才暴露的：分母含 legacy 时算出「可成交 0.5%」，
+    # 读起来像「97% 的推荐买不进」，实际上只是 48 条里绝大多数是迁移前的旧行、
+    # 压根没有 execution 数据。**把「不知道」当成「买不进」是最坏的一类误导。**
+    #
+    # 三态各自的处置：
+    #   filled / not_triggered / unverifiable → 进分母（真知道自己成交了没有）
+    #   legacy / null                      → 排除（无执行追踪，不可判定）
+    # 一个可判定行都没有 ⇒ 整问 answered=False，而不是 0%。
+    _TRACKED = ("filled", "not_triggered", "unverifiable")
+    _tracked_rows = [r for r in rec_rows if r.get("execution_status") in _TRACKED]
+    _legacy_rows = [r for r in rec_rows if r.get("execution_status") == "legacy"]
+    if _tracked_rows:
+        _filled = sum(1 for r in _tracked_rows if r["execution_status"] == "filled")
+        tradable_ratio: float | None = _filled / len(_tracked_rows)
     else:
         tradable_ratio = None
 
     _excess_values = [float(r["excess_return"]) for r in excess_rows]
-    reco_four = calibers.four_questions(
+    reco_four = calibers.four_questions_with_notes(
+        {
+            "tradable": (
+                f"分母 {_tracked_rows.__len__()} 条可判定行"
+                + (
+                    f"，已排除 {len(_legacy_rows)} 条迁移前历史行"
+                    "（当时没有执行追踪，不可判定，不等于没成交）"
+                    if _legacy_rows
+                    else ""
+                )
+            ),
+        },
         n=rec_total,
         median=calibers.median_of(_excess_values),
         mean=avg_excess_return,
@@ -536,6 +561,12 @@ async def get_winrate_stats() -> dict:
             "avg_excess_return": avg_excess_return,
             "not_triggered": not_triggered,
             "unverifiable": unverifiable,
+            # 执行追踪覆盖率：分母里有 execution_status 的行占比。
+            # 低就说明这一问的样本基础薄 —— 它解释的是「为什么可成交比例看起来那么难看」。
+            "legacy_without_execution_tracking": len(_legacy_rows),
+            "execution_tracked_ratio": (
+                round(len(_tracked_rows) / len(rec_rows) * 100, 1) if rec_rows else None
+            ),
             # 四问守卫：口径对了之后，样本/分布/可成交性是否站得住。
             "four_questions": reco_four,
             "error": rec_error,

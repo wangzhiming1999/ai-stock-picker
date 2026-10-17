@@ -142,17 +142,71 @@ class TestTradableRatio:
         assert reco["four_questions"]["failed_keys"] == []
 
     @pytest.mark.asyncio
-    async def test_zero_fill_rows_answer_zero_not_unknown(self, monkeypatch) -> None:
-        """execution_status 有值但无一 filled ⇒ 这是「回答了且极差」。"""
+    async def test_ratio_ignores_legacy_but_keeps_tracked_ones(self, monkeypatch) -> None:
+        """回归：线上真实形态（大量 legacy + 少量 filled/not_triggered）。
+
+        修正前算出 0.5%（把 legacy 算进分母）；修正后应为 filled / 可判定行。
+        这个用例直接对应 2026-10-17 线上实测的数据形态。
+        """
+        rows = (
+            [{"hit": True, "source": "llm", "excess_return": 1.0, "execution_status": "legacy"}] * 94
+            + [{"hit": True, "source": "llm", "excess_return": 1.0, "execution_status": "filled"}] * 3
+            + [{"hit": None, "source": "llm", "excess_return": None, "execution_status": "not_triggered"}]
+        )
+        reco = (await _stats(monkeypatch, rows))["recommendation"]
+        item = _by_key(reco["four_questions"])["tradable"]
+
+        # 3 filled / 4 可判定行 = 75%（不是 3/98 = 3.1%）
+        assert item["answered"] is True
+        assert "75.0%" in item["value"]
+        assert item["passed"] is True
+        assert reco["legacy_without_execution_tracking"] == 94
+        assert reco["execution_tracked_ratio"] == 4.1  # 4 可判定 / 98 到期
+
+    @pytest.mark.asyncio
+    async def test_legacy_rows_are_excluded_from_the_denominator(self, monkeypatch) -> None:
+        """`legacy` 是「没有执行追踪」，不是「没成交」—— 绝不能算进分母。
+
+        2026-10-17 上线后第一次跑真实线上数据才暴露的 bug：
+        线上 48 条推荐里绝大多数是 v13 迁移前的历史行（execution_status='legacy'）。
+        把它们算进分母算出「可成交 0.5%」，读起来像「97% 的推荐买不进」，
+        实际上只是**压根没有执行数据**。把「不知道」当成「买不进」是最坏的一类误导。
+        """
         stats = await _stats(monkeypatch, [
             {"hit": True, "source": "llm", "excess_return": 1.0, "execution_status": "legacy"},
             {"hit": True, "source": "llm", "excess_return": 1.0, "execution_status": "legacy"},
         ])
-        by_key = _by_key(stats["recommendation"]["four_questions"])
+        reco = stats["recommendation"]
+        by_key = _by_key(reco["four_questions"])
 
-        # legacy 是 v13 前的历史行：无触发概念，不算 filled 也不算不可判定
-        assert by_key["tradable"]["answered"] is True
-        assert by_key["tradable"]["passed"] is False
+        # 无可判定行 ⇒ 整问答不上来（不是 0%，也不是「97% 买不进」）
+        assert by_key["tradable"]["answered"] is False
+        assert by_key["tradable"]["passed"] is None
+        assert reco["legacy_without_execution_tracking"] == 2
+        assert reco["execution_tracked_ratio"] == 0.0
+
+    @pytest.mark.asyncio
+    async def test_legacy_rows_do_not_inflate_the_failure(self, monkeypatch) -> None:
+        """legacy 占比高时，四问的 detail 要说明「样本基础薄」，而不是报假警报。
+
+        注意这 41 条里只有 1 条可判定 —— 可成交比例算出来是 100%（1/1），
+        **看起来完美，实际是 1 个样本**。所以真正该被看见的是覆盖率（2.4%）
+        与 detail 里的说明，而不是那个 100%。这正是「n 与覆盖率要一起看」的例子。
+        """
+        rows = (
+            [{"hit": True, "source": "llm", "excess_return": 1.0, "execution_status": "legacy"}] * 40
+            + [{"hit": True, "source": "llm", "excess_return": 1.0, "execution_status": "filled"}]
+        )
+        reco = (await _stats(monkeypatch, rows))["recommendation"]
+        item = _by_key(reco["four_questions"])["tradable"]
+
+        assert item["answered"] is True
+        assert "100.0%" in item["value"]
+        detail = item["detail"]
+        assert "40 条迁移前历史行" in detail
+        assert "不等于没成交" in detail
+        # 执行追踪覆盖率如实下发：1/41
+        assert reco["execution_tracked_ratio"] == 2.4
 
 
 class TestDistributionGuard:

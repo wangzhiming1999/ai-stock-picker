@@ -1102,6 +1102,17 @@ export interface WinrateStats {
     not_triggered?: number | null;
     /** 到期但无法验证是否成交的推荐数（缺 K 线开高低） */
     unverifiable?: number | null;
+    /**
+     * 迁移前历史行数（`execution_status='legacy'`）—— 这些行**没有执行追踪**，
+     * 已被排除在可成交比例的分母外。它们不是「没成交」，是「不知道」。
+     */
+    legacy_without_execution_tracking?: number | null;
+    /**
+     * 执行追踪覆盖率 %（可判定行 / 全部到期行）。
+     * ⚠️ 这个数比可成交比例更该先看：覆盖率 2.4% 时，可成交比例哪怕显示 100%
+     * 也只是 1 个样本的结论。
+     */
+    execution_tracked_ratio?: number | null;
     /** DB 查询失败时的错误信息 */
     error?: string | null;
   } | null;
