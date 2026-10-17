@@ -326,6 +326,7 @@ def four_questions(
     mean: float | None = None,
     tradable_ratio: float | None = None,
     benchmark_sign_flips: bool | None = None,
+    sign_flip_labels: tuple[str, str] | None = None,
 ) -> dict:
     """判定一个「率」是否具备被解读的资格。返回结构见下方注释。
 
@@ -338,6 +339,15 @@ def four_questions(
     是三态区分 —— 把它混成 False 会让「没数据」看起来像「检查没过」。
 
     参数全部可缺省：调用方只需给出它真的算得出来的那些，其余留空即可。
+
+    ## `sign_flip_labels`
+
+    第四问的通用文案是「换基准后收益符号翻转 / 收益来自贝塔」——
+    这对**有收益**的口径是对的，但对「预测指数方向」这类**没有收益**的口径
+    就是错的（它压根不涉及收益，说「收益来自贝塔」会误导）。
+
+    所以允许调用方覆盖这四个字符串：`(翻转时value, 翻转时detail)`。
+    只改文案、不改判定 —— 与 `four_questions_with_notes` 同一个纪律。
     """
     items: list[dict] = []
 
@@ -461,16 +471,20 @@ def four_questions(
             "detail": "未做基准符号翻转检验，无法区分「选股能力」与「大盘贝塔」",
         })
     else:
+        _bad_value, _bad_detail = sign_flip_labels or (
+            "符号翻转",
+            "换基准后收益符号翻转 —— 收益来自贝塔而非本口径的选股能力",
+        )
         items.append({
             "key": "benchmark_sign",
             "label": QUESTION_LABELS["benchmark_sign"],
             "answered": True,
             "passed": not benchmark_sign_flips,
-            "value": "符号翻转" if benchmark_sign_flips else "符号未翻转",
+            "value": _bad_value if benchmark_sign_flips else "对照未失守",
             "detail": (
-                "换基准后收益符号翻转 —— 收益来自贝塔而非本口径的选股能力"
+                _bad_detail
                 if benchmark_sign_flips
-                else "换基准后符号未翻转，收益不依赖大盘方向"
+                else "与对照基线相比未失守（详见本口径的对照说明）"
             ),
         })
 

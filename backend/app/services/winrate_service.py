@@ -641,7 +641,7 @@ async def get_winrate_stats() -> dict:
         {
             "benchmark_sign": (
                 "本口径预测的就是上证指数本身，无法「换基准」（换了就不是同一标的）；"
-                "对应的对照是**朴素基线**：见下方「对比基线（无脑猜震荡）」"
+                "对应的对照是**朴素基线**：无脑全猜震荡能蒙对多少，详见下方基线三格"
             ),
             "median": "本口径判定的是方向标签对不对，不是收益，没有收益分布可算中位数",
             "tradable": "不涉及成交（预测的是指数方向，不是买卖某只票）",
@@ -651,11 +651,17 @@ async def get_winrate_stats() -> dict:
         mean=None,
         tradable_ratio=None,
         # 「相对基线为负」= 命中率还不如无脑猜震荡 ⇒ 这一问判不过。
-        # 语义上它替代了「符号翻转」：同样在问「收益/命中是不是全靠大盘给的口粮」。
+        # 语义上它替代了「符号翻转」：同样在问「命中是不是全靠大盘给的口粮」。
         benchmark_sign_flips=(
             pred_skill["edge_over_baseline"] <= 0
             if pred_skill["edge_over_baseline"] is not None
             else None
+        ),
+        # 覆盖通用文案：这一问在方向预测里不是「收益符号翻转」，
+        # 说「收益来自贝塔」会误导 —— 这个口径压根不涉及收益。
+        sign_flip_labels=(
+            "未超过基线",
+            "命中率未超过「无脑全猜震荡」的基线 —— 当前读数不含可辨识的方向能力",
         ),
     )
 

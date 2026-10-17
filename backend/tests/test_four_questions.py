@@ -131,6 +131,42 @@ class TestSampleGate:
         assert by_key["sample"]["passed"] is False
 
 
+class TestSignFlipLabels:
+    """第四问的文案必须可覆盖 —— 通用文案假设了「有收益」，对方向预测是错的。"""
+
+    def test_labels_only_change_text_never_verdict(self) -> None:
+        base = calibers.four_questions(n=200, benchmark_sign_flips=True)
+        custom = calibers.four_questions(
+            n=200,
+            benchmark_sign_flips=True,
+            sign_flip_labels=("未超过基线", "命中率未超过无脑猜震荡"),
+        )
+
+        assert custom["verdict"] == base["verdict"] == "inflated"
+        assert custom["failed_keys"] == base["failed_keys"]
+        # 只有文案变了
+        assert custom["items"][3]["value"] == "未超过基线"
+        assert custom["items"][3]["detail"] == "命中率未超过无脑猜震荡"
+
+    def test_default_labels_speak_about_returns(self) -> None:
+        """默认文案是给「有收益」的口径用的 —— 说「收益来自贝塔」。"""
+        item = calibers.four_questions(n=200, benchmark_sign_flips=True)["items"][3]
+
+        assert item["value"] == "符号翻转"
+        assert "贝塔" in item["detail"]
+
+    def test_pass_side_text_is_generic_enough(self) -> None:
+        """通过侧的文案不能提「收益」—— 覆盖后仍是中性表述。"""
+        item = calibers.four_questions(
+            n=200, benchmark_sign_flips=False,
+            sign_flip_labels=("未超过基线", "未超过无脑猜震荡"),
+        )["items"][3]
+
+        assert item["passed"] is True
+        assert "收益" not in item["detail"]
+        assert "对照" in item["detail"]
+
+
 class TestMedianGuard:
     def test_large_gap_fails_and_names_the_culprit(self) -> None:
         """中位数与均值差 >1pct ⇒ 均值被极端样本拉偏，必须点名引用中位数。"""
