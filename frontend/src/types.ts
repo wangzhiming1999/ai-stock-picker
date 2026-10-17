@@ -1047,13 +1047,33 @@ export interface ShadowStrategyCandidate {
   label: string;
   status: "collecting" | "rejected" | "eligible_for_review";
   promotion_eligible: boolean;
-  metrics: { selections?: number; hit_rate?: number | null; avg_excess_return?: number | null };
+  /**
+   * 指标。⚠️ `avg_excess_return` 是**均值**，能被少数暴涨窗口撑起来 ——
+   * 而准入判据 `avg_net_excess_not_positive` 看的正是它。
+   * 所以中位数与尾部分位数必须一起看。
+   */
+  metrics: {
+    selections?: number;
+    hit_rate?: number | null;
+    avg_excess_return?: number | null;
+    /** 分布锚，不受极端值影响 */
+    median_excess_return?: number | null;
+    /** 尾部 5% 分位（线性插值，与 numpy.percentile 同口径） */
+    p05_excess_return?: number | null;
+    /** 尾部 95% 分位；明显高于中位数说明收益靠少数窗口拉高 */
+    p95_excess_return?: number | null;
+  };
   baseline_metrics: { selections?: number; hit_rate?: number | null; avg_excess_return?: number | null };
   hit_rate_lift: number | null;
   window_count: number;
   stable_win_windows: number;
   required_win_windows: number;
   blockers: string[];
+  /**
+   * 四问守卫：补上 blocker 机制缺的「分布」一维。
+   * ⚠️ 它**不改变** `promotion_eligible` —— 那是证据链的事，两者职责不同。
+   */
+  four_questions?: FourQuestions | null;
 }
 
 export interface ShadowStrategyReport {

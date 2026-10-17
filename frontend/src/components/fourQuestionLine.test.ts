@@ -239,6 +239,41 @@ test("prediction 口径不得声称有指数基准（它预测的就是上证本
   assert.doesNotMatch(panel, /预测[\s\S]{0,120}沪深300/, "大盘方向预测不得出现指数基准文案");
 });
 
+/* ── 影子策略：分布读数 + 四问（补 blocker 缺的维度）───────────── */
+
+test("影子策略：均值旁边必须给中位数与尾部分位数", () => {
+  const panel = readFileSync(join(ROOT, "components/ShadowStrategyPanel.tsx"), "utf8");
+  // 「净超额 > 0」这条准入判据看的是均值，而均值能被少数暴涨窗口撑起来
+  assert.match(panel, /median_excess_return/, "未渲染中位数");
+  assert.match(panel, /p05_excess_return/, "未渲染 p05");
+  assert.match(panel, /p95_excess_return/, "未渲染 p95");
+  // 中位数必须与均值同一行（同一 span 内），不能挪到别处
+  const meanAt = panel.indexOf("avg_excess_return");
+  const medianAt = panel.indexOf("median_excess_return");
+  assert.ok(meanAt >= 0 && medianAt > meanAt, "中位数应紧随均值渲染");
+});
+
+test("影子策略接了四问，且不参与准入判定", () => {
+  const panel = readFileSync(join(ROOT, "components/ShadowStrategyPanel.tsx"), "utf8");
+  assert.match(panel, /FourQuestionLine four=\{candidate\.four_questions\}/);
+  // 四问是补充闸：promotion_eligible 是证据链的事，两者不能混
+  assert.doesNotMatch(panel, /promotion_eligible\s*=\s*.*four/, "四问不得影响准入判定");
+});
+
+test("影子策略类型：分布字段齐全并注明均值的风险", () => {
+  const types = readFileSync(join(ROOT, "types.ts"), "utf8");
+  assert.match(types, /median_excess_return\?/);
+  assert.match(types, /p05_excess_return\?/);
+  assert.match(types, /p95_excess_return\?/);
+  assert.match(types, /四问守卫：补上 blocker 机制缺的「分布」一维/);
+  assert.match(types, /不改变\*\* `promotion_eligible`/, "类型注释须写明四问不改准入");
+});
+
+test("尾部分位数渲染必须判 null（缺数据显示「—」而非 0%）", () => {
+  const panel = readFileSync(join(ROOT, "components/ShadowStrategyPanel.tsx"), "utf8");
+  assert.match(panel, /p05_excess_return != null/, "尾部分位数必须判 null 再渲染");
+});
+
 test("四问是可选字段，缺失时组件返回 null 而不是崩", () => {
   // 四问是后端新增字段；老缓存 / 降级响应里可能没有它。
   // 渲染层必须能容 null，否则一次后端降级会让整个胜率面板白屏。

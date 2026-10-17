@@ -3,6 +3,7 @@ import { fetchShadowStrategies } from "../api/client";
 import type { ShadowStrategyCandidate, ShadowStrategyReport } from "../types";
 import Button from "./ui/Button";
 import CollapsiblePanel from "./ui/CollapsiblePanel";
+import { FourQuestionLine } from "./FourQuestionLine";
 
 const BLOCKER_LABELS: Record<string, string> = {
   point_in_time_evidence_not_ready: "点时样本尚未成熟",
@@ -43,13 +44,33 @@ function CandidateRow({ candidate }: { candidate: ShadowStrategyCandidate }) {
         <span>样本外 <b className="text-ink-soft">{candidate.metrics.selections ?? 0}</b></span>
         <span>胜率 <b className="text-ink-soft">{metric(candidate.metrics.hit_rate, "%")}</b></span>
         <span>提升 <b className="text-ink-soft">{metric(candidate.hit_rate_lift, "点")}</b></span>
-        <span>净超额 <b className="text-ink-soft">{metric(candidate.metrics.avg_excess_return, "%")}</b></span>
+        {/* 均值旁边必须给中位数：均值能被少数暴涨窗口撑起来，
+            而「净超额 > 0」这条准入判据看的就是均值。 */}
+        <span>
+          净超额 <b className="text-ink-soft">{metric(candidate.metrics.avg_excess_return, "%")}</b>
+          {candidate.metrics.median_excess_return != null && (
+            <span className="ml-1 text-ink-faint">
+              中位 {metric(candidate.metrics.median_excess_return, "%")}
+            </span>
+          )}
+        </span>
       </div>
+      {/* 尾部读数：p05 决定「最差能差多少」。收益若靠孤例拉高均值，
+          p95 会明显高于中位数 —— 这两格并排就能看出来。 */}
+      {candidate.metrics.p05_excess_return != null && (
+        <div className="mt-1 grid grid-cols-2 gap-2 text-meta text-ink-faint sm:grid-cols-4">
+          <span>尾部 p05 <b className="text-ink-muted">{metric(candidate.metrics.p05_excess_return, "%")}</b></span>
+          <span>尾部 p95 <b className="text-ink-muted">{metric(candidate.metrics.p95_excess_return, "%")}</b></span>
+        </div>
+      )}
       {candidate.blockers.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1.5">
           {candidate.blockers.map((item) => <span key={item} className="rounded-md bg-surface-panel/70 px-2 py-1 text-meta text-ink-muted">{blockerLabel(item)}</span>)}
         </div>
       )}
+      {/* 四问守卫：补上 blocker 机制缺的那一维（分布）。
+          ⚠️ 它是**补充闸**，不改变 promotion_eligible —— 那是证据链的事。 */}
+      <FourQuestionLine four={candidate.four_questions} />
     </div>
   );
 }
