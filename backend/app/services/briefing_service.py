@@ -14,6 +14,7 @@ import datetime as dt
 
 from app.services import (
     akshare_guard,
+    action_list_service,
     data_service,
     decision,
     holding_decision_service,
@@ -258,7 +259,13 @@ async def _build_review(user_id: str | None) -> dict | None:
     """
     if not user_id:
         return None
-    review: dict = {"holdings_pnl": None, "alerts_today": None, "actions": None, "summary": None}
+    review: dict = {
+        "holdings_pnl": None,
+        "alerts_today": None,
+        "actions": None,
+        "summary": None,
+        "decision_review": None,
+    }
     # 取数失败要留在 summary 里：前端在 summary 与 alerts 都为空时会把整块隐藏，
     # 所以「静默 pass」的结果不是「少一行」，而是**失败与「今天没事发生」完全同形**。
     failures: list[str] = []
@@ -305,6 +312,19 @@ async def _build_review(user_id: str | None) -> dict | None:
             parts.append(f"最弱 {hp['worst']['name']} {hp['worst']['pnl_pct']}%")
     if review["alerts_today"]:
         parts.append(f"盘中触发 {len(review['alerts_today'])} 条预警")
+    # 决策复盘（V5.42）：听建议后的实际收益。表未建时返回 available=False + note，
+    # 由前端显示「未配置」而不是把「没有数据」渲染成「没有决策」。
+    try:
+        from app.services import decision_ledger_service
+
+        review["decision_review"] = await decision_ledger_service.get_review(user_id)
+    except Exception as e:
+        review["decision_review"] = {
+            "available": False,
+            "note": f"决策复盘取数失败（{type(e).__name__}）",
+            "groups": [],
+            "caveats": [],
+        }
     # 失败说明并进 summary（而不是另开一个前端不读的字段）——
     # 这样前端在「今天什么都没有」的既有渲染路径里就能把失败显示出来。
     parts.extend(failures)
@@ -514,6 +534,16 @@ async def build_today(user_id: str | None = None) -> dict:
         "review": review,
         "tactics": tactics_block,
         "limitup": limitup_block,
+        # 今日总指令（C）：各链路结论按风险优先排成一张清单。
+        # ⚠️ 不做加权合成分 —— 各链路高度相关，相加等于放大同一轮行情；
+        # 并列展示 + 显式不可比声明，见 action_list_service 模块说明。
+        "action_list": action_list_service.build_action_list(
+            position_plan=position_plan,
+            holding_decisions=tail.get("decisions") or [],
+            sector_follow=sector_follow,
+            morning_stocks=morning_stocks,
+            limitup_advice=(limitup_block or {}).get("play_advice"),
+        ),
     }
 
 
