@@ -3,6 +3,7 @@ import { fetchAgentDecisions } from "../../api/client";
 import type { AgentDecisionsData } from "../../types";
 import StatTile from "../ui/StatTile";
 import { pnlTone } from "../../lib/tone";
+import { FourQuestionLine } from "../FourQuestionLine";
 
 /** Agent 决策闭环区块：track record 列表 + 采纳/未采纳对照读数（口径 agent_plan 随数据下发）。
  *
@@ -89,6 +90,14 @@ export default function AgentDecisionsSection() {
           {stats.caliber.pitfall ? `。注意：${stats.caliber.pitfall}` : ""}
         </p>
       )}
+
+      {/* 四问守卫（只挂采纳组）。
+          这一块最容易被误读：上面两个命中率并排显示，读者会本能地相减，
+          得出「采纳比不采纳高 X 个点」这种因果结论 ——
+          但采纳与否是**用户自己选的**，两组计划本身不同质，不是随机对照。
+          四问的 detail 会把这句写明；两组都渲染会让「对照」字样出现在
+          采纳组旁边，反而加强相减的暗示。 */}
+      {stats && <FourQuestionLine four={stats.adopted.four_questions} />}
 
       <div className="max-h-64 space-y-1.5 overflow-y-auto">
         {decisions.map((d) => {

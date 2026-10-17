@@ -5,6 +5,7 @@ import { safeObj } from "../lib/safe";
 import { pctTone } from "../lib/tone";
 import type { WinrateStats } from "../types";
 import { CaliberIncomparabilityNote, CaliberLine } from "./CaliberNote";
+import { FourQuestionLine } from "./FourQuestionLine";
 import StatTile from "./ui/StatTile";
 import Button from "./ui/Button";
 
@@ -102,6 +103,7 @@ export default function WinratePanel() {
             {data.prediction && (
               <div className="mt-2">
                 <CaliberLine caliber={data.prediction.caliber} />
+                <FourQuestionLine four={data.prediction.four_questions} />
               </div>
             )}
           </div>
@@ -182,6 +184,7 @@ export default function WinratePanel() {
             {data.recommendation && (
               <div className="mt-2">
                 <CaliberLine caliber={data.recommendation.caliber} />
+                <FourQuestionLine four={data.recommendation.four_questions} />
               </div>
             )}
           </div>

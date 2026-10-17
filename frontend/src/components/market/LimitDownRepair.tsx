@@ -2,6 +2,7 @@ import { SUB_QUIET, TEXT } from "../../lib/ui";
 import { pnlTone } from "../../lib/tone";
 import type { LimitDownBucket, LimitDownRepairResult } from "../../types";
 import { extremeBuckets, tailSummary, winRateShortfall } from "../limitDownLogic";
+import { FourQuestionLine } from "../FourQuestionLine";
 
 /**
  * 跌停带「修复回测 / 次日竞价卖出读数」区块。
@@ -92,6 +93,12 @@ function RepairSection({
         <StatTile value={`${o.breakeven_win_rate ?? "—"}%`} label="打平所需胜率" tone="text-amber-300" />
         <StatTile value={o.n} label={`样本 n（${repair.effective_days} 个交易日）`} />
       </div>
+
+      {/* 四问守卫（只挂全体口径，不挂每个切片 —— 切片的样本量本就更小，
+          逐档铺开会变成一屏「样本不足」，反而把真正的结论淹掉）。
+          在这个负期望口径里，四问的价值是回答「这 4.5% 胜率是怎么来的」：
+          中位数与均值同时给出，读者能自己确认这不是少数极端值撑出来的。 */}
+      <FourQuestionLine four={o.four_questions} />
 
       <div className="mt-3 space-y-1 text-meta">
         <div className="flex items-center justify-between gap-2">

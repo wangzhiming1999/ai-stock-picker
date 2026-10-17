@@ -15,6 +15,7 @@ import type {
 import { adviceBadgeText, ladderGaps } from "../limitUpLogic";
 import { hasWave } from "../prediction/waveLogic";
 import WaveBlock from "../prediction/WaveBlock";
+import { FourQuestionLine } from "../FourQuestionLine";
 import { REJECT_CHIP, rejectChipText, tierChip, upPositionChip } from "./constants";
 
 /**
@@ -600,6 +601,12 @@ function RelaySection({ relay, loading, error }: { relay: LimitUpRelayResult | n
         {relay.empty_dates.length > 0 && ` 更早的 ${relay.empty_dates.length} 天接口返回空池，已识别为「无数据」并排除出样本。`}
         {relay.skipped_dates.length > 0 && ` 另有 ${relay.skipped_dates.length} 天拉取失败被跳过。`}
       </p>
+
+      {/* 四问守卫常驻（不可折叠）：晋级率只答得上「有 n 吗」，另三问答不上来 ——
+          而「可成交性答不上来」恰恰就是这个口径的头号陷阱：
+          晋级了也可能一字板根本成交不了，没晋级却可能单日亏 10% 以上。
+          所以这三个「答不上来」不是免责声明，是这一块最该被看见的信息。 */}
+      <FourQuestionLine four={relay.four_questions} />
     </div>
   );
 }

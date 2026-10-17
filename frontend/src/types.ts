@@ -839,6 +839,19 @@ export interface BacktestResult {
   data_note?: string | null;
   /** 口径：这里是「调仓期」胜率，样本单位是期不是票 */
   caliber?: Caliber;
+  /**
+   * 四问守卫。⚠️ 本口径的 n 单位是**调仓期**（`periods`），不是股票池（`pool_size`）——
+   * 两者差 3 倍多，渲染时别拿 `pool_size` 当样本量。
+   * `vs_benchmark` 是超额读数，**不等于**「换基准后符号不翻转」（只有一条基准线）。
+   */
+  four_questions?: FourQuestions & {
+    vs_benchmark?: {
+      strategy_return_pct: number;
+      benchmark_return_pct: number;
+      excess_pct: number;
+      beat: boolean;
+    } | null;
+  } | null;
 }
 
 export interface UserProfile {
@@ -960,6 +973,37 @@ export interface Caliber {
   win_rate?: string;
 }
 
+/**
+ * 四问守卫的单个问项（后端 calibers.four_questions 的输出）。
+ *
+ * `passed` 是**三态**，这是本类型的全部要点：
+ *   · `true`  —— 回答了，且通过
+ *   · `false` —— 回答了，但不通过（存在明确失真）
+ *   · `null`  —— **答不上来**（缺这项数据）
+ * 把 `null` 混成 `false` 会让「没数据」看起来像「检查没过」；
+ * 反过来把 `null` 当 `true` 更糟 —— 守卫会变成「没数据 = 合格」的橡皮章。
+ */
+export interface FourQuestionItem {
+  key: "sample" | "median" | "tradable" | "benchmark_sign";
+  label: string;
+  answered: boolean;
+  passed: boolean | null;
+  /** 该问的具体读数（如 "n=12" / "可成交 60.0%"）；答不上来时为 null */
+  value: string | null;
+  detail: string;
+}
+
+export interface FourQuestions {
+  /** credible 四问都有交代 / inflated 有明确失真项 / unknown 有答不上来的项 */
+  verdict: "credible" | "inflated" | "unknown";
+  verdict_note: string;
+  answered_count: number;
+  total_questions: number;
+  failed_keys: string[];
+  unanswered_keys: string[];
+  items: FourQuestionItem[];
+}
+
 export interface DataHealthIssue {
   code: string;
   severity: "warning" | "critical";
@@ -1032,6 +1076,8 @@ export interface WinrateStats {
     by_direction: Record<string, { total: number; hit: number; hit_rate: number | null }>;
     sample_status?: "insufficient" | "developing" | "established";
     caliber?: Caliber;
+    /** 四问守卫：口径对了之后，样本/分布/可成交性是否站得住 */
+    four_questions?: FourQuestions | null;
     /** DB 查询失败时的错误信息；存在时不应把 total=0 解读为「暂无数据」 */
     error?: string | null;
   } | null;
@@ -1041,6 +1087,7 @@ export interface WinrateStats {
     hit_rate: number | null;
     sample_status?: "insufficient" | "developing" | "established";
     caliber?: Caliber;
+    four_questions?: FourQuestions | null;
     /** 按来源细分的结算数（quad=四维榜 / watch=观察层）；与主口径不可相加 */
     by_source?: Record<string, { total: number; hit: number; hit_rate: number | null; sample_status?: string }>;
     /** 超额口径是否可信：存在带 excess_return 的已结算样本时为 true */
@@ -1051,6 +1098,10 @@ export interface WinrateStats {
     excess_hit_rate?: number | null;
     /** 平均超额收益 %；基准不可信时为 null */
     avg_excess_return?: number | null;
+    /** 到期但计划价未触发（没买进）的推荐数 */
+    not_triggered?: number | null;
+    /** 到期但无法验证是否成交的推荐数（缺 K 线开高低） */
+    unverifiable?: number | null;
     /** DB 查询失败时的错误信息 */
     error?: string | null;
   } | null;
@@ -1384,8 +1435,12 @@ export interface AgentDecision {
 
 /** 闭环统计（口径 agent_plan，随数据下发） */
 export interface AgentPlanStats {
-  adopted: { settled: number; hits: number; hit_rate: number | null; avg_pnl_pct: number | null; sample_note: string | null };
-  ignored_control: { settled: number; hits: number; hit_rate: number | null; avg_pnl_pct: number | null; sample_note: string | null };
+  adopted: { settled: number; hits: number; hit_rate: number | null; avg_pnl_pct: number | null; sample_note: string | null; four_questions?: FourQuestions | null };
+  /**
+   * ⚠️ 对照组**不可与 adopted 直接相减**得出因果结论：采纳与否是用户选择，
+   * 两组计划本身不同质。四问的 detail 里会写明这一点。
+   */
+  ignored_control: { settled: number; hits: number; hit_rate: number | null; avg_pnl_pct: number | null; sample_note: string | null; four_questions?: FourQuestions | null };
   caliber: { key: string; name: string; window: string; rule: string; unit: string; pitfall: string; registered: boolean };
 }
 
@@ -1804,6 +1859,11 @@ export interface TacticBacktestItem {
   /** 一句话结论（含样本量与显著性） */
   verdict?: string | null;
   by_stock?: Array<{ code: string; signals: number; avg_return: number }>;
+  /**
+   * 四问守卫：n / 分布 / 符号翻转都答得上；可成交那一问标「不适用」
+   * （收盘价入场本身不存在挂不上单的问题，刻意不折算成 100%）。
+   */
+  four_questions?: FourQuestions | null;
 }
 
 export interface TacticBacktestResult {
@@ -2252,6 +2312,61 @@ export interface LimitUpRelayResult {
   by_cluster: LimitUpRelayCluster[];
   by_boards_cluster: LimitUpRelayStratum[];
   cached: boolean;
+  /**
+   * 四问守卫：晋级率只答得上「有 n 吗」，其余三问答不上来。
+   * 这个「答不上来」本身就是要传达的核心信息 ——
+   * 晋级率与「能不能赚钱」之间隔着的正是可成交性。
+   */
+  four_questions?: FourQuestions | null;
+}
+
+/**
+ * 涨停次日溢价的可成交档 walk-forward 实测（`GET /api/limitup/premium-backtest`）。
+ * ⚠️ 该端点**不进任何常规轮询**，只能显式触发：`force=true` 会真实打行情源
+ * （每只可成交涨停股一次日 K 请求，是行情源风控主因）。前端类型先备好，
+ * 接线时不要顺手加进轮询。
+ */
+export interface LimitUpPremiumBacktestResult {
+  caliber?: Caliber;
+  /** 样本内可成交比例恒为 100% —— 本函数只取换手 ≥5% 的样本 */
+  n: number;
+  mean_premium_pct: number | null;
+  win_rate_pct: number | null;
+  /** 有主基准数据的样本数 */
+  benchmark_available: number;
+  mean_excess_pct: number | null;
+  excess_win_rate_pct: number | null;
+  /** 有翻转基准（中证1000）数据的样本数 */
+  flip_available: number;
+  /** 两个基准的超额是否同号 —— false 即「符号翻转」 */
+  sign_consistent: boolean;
+  /** n≥30 且各基准超额同号为正 */
+  verified_candidate: boolean;
+  /** 超额收益的中位数（四问的分布锚；后端只对超额算，不对原始溢价算） */
+  median_excess_pct?: number | null;
+  /** 四问守卫：这是四问的主场，四项在双基准齐备时全部答得上 */
+  four_questions?: FourQuestions | null;
+  cached?: boolean;
+}
+
+/**
+ * 封板雷达两个回测（`GET /api/seize/reseal-backtest` 与 `/sealed-backtest`）。
+ *
+ * ⚠️ 两者**期望符号相反**，不可混读、不可相加：
+ *   · `sealed`（刚封板）：正期望（历史约 +2%），且已排除一字板与尾盘板
+ *   · `reseal`（回封候选）：负期望（实测 n=81、−0.72%/次、胜率 32.1%）
+ * 两者都是**手动触发**端点，不进常规轮询（逐只拉日 K，风控主因）。
+ */
+export interface SeizeBacktestAgg {
+  n: number;
+  /** 已结算样本数 —— 四问的 n 用它，不用 n（含未结算行会虚高） */
+  settled: number;
+  win_rate: number | null;
+  avg_return: number | null;
+  median_return: number | null;
+  buckets?: Array<{ label: string; n: number; avg_return: number | null; win_rate?: number | null }>;
+  four_questions?: FourQuestions | null;
+  cached?: boolean;
 }
 
 // ---------- 跌停池（抄底观察层）----------
@@ -2379,6 +2494,12 @@ export interface LimitDownStats {
   next_sealed_down_rate?: number;
   /** 次日反转涨停（地天板）的比例（%） */
   next_limit_up_rate?: number;
+  /**
+   * 四问守卫：负期望口径，四问的作用是把「胜率 4.5%」翻译成「够不够」。
+   * ⚠️ 可成交那一问答不上来，但 detail 里点破了本口径最反直觉的一点 ——
+   * 「能买到」与收益**负相关**（越容易买到说明抛压无人承接）。
+   */
+  four_questions?: FourQuestions | null;
 }
 
 export interface LimitDownBucket extends LimitDownStats {

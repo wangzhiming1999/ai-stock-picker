@@ -6,6 +6,7 @@ import CollapsiblePanel from "./ui/CollapsiblePanel";
 import Table, { Th } from "./ui/Table";
 import { CELL } from "../lib/ui";
 import { CaliberLine } from "./CaliberNote";
+import { FourQuestionLine } from "./FourQuestionLine";
 import type { TacticBacktestItem, TacticBacktestResult } from "../types";
 
 const HORIZONS = [5, 10, 20];
@@ -220,6 +221,9 @@ export default function TacticBacktestPanel() {
                               ))}
                             </div>
                           )}
+                          {/* 四问守卫：每个形态各自判定（样本量/分布/符号翻转都不同），
+                              不能只显示第一行 —— 那会让下面所有形态共用一个结论。 */}
+                          <FourQuestionLine four={it.four_questions} />
                         </div>
                       </td>
                     </tr>

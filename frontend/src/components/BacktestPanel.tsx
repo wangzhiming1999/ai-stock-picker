@@ -3,6 +3,7 @@ import * as echarts from "echarts";
 import { runBacktest, fetchBacktestPool } from "../api/client";
 import CollapsiblePanel from "./ui/CollapsiblePanel";
 import { CaliberLine } from "./CaliberNote";
+import { FourQuestionLine } from "./FourQuestionLine";
 import { safeArray, safeNumber } from "../lib/safe";
 import { pctTone, pnlTone } from "../lib/tone";
 import type { BacktestResult } from "../types";
@@ -273,6 +274,30 @@ export default function BacktestPanel() {
               不可比声明统一在「研究 · 证据台账」子页顶部展示一次。 */}
           <div className="mt-2">
             <CaliberLine caliber={result.caliber} />
+            {/* 四问守卫：额外核对「跑赢/跑输基准」。这与「换基准后符号是否翻转」不同 ——
+                本回测只有沪深300 一条线，做不了翻转检验，四问里如实标为答不上来。 */}
+            {result.four_questions?.vs_benchmark && (
+              <p
+                className={`mt-1.5 rounded-lg px-2.5 py-1.5 text-meta leading-relaxed ${
+                  result.four_questions.vs_benchmark.beat
+                    ? "bg-state-ok-surface text-state-ok-soft"
+                    : "bg-state-danger-surface text-state-danger-soft"
+                }`}
+              >
+                对比基准 沪深300：策略 {result.four_questions.vs_benchmark.strategy_return_pct >= 0 ? "+" : ""}
+                {result.four_questions.vs_benchmark.strategy_return_pct}% · 基准{" "}
+                {result.four_questions.vs_benchmark.benchmark_return_pct >= 0 ? "+" : ""}
+                {result.four_questions.vs_benchmark.benchmark_return_pct}% · 超额{" "}
+                <span className="font-medium">
+                  {result.four_questions.vs_benchmark.excess_pct >= 0 ? "+" : ""}
+                  {result.four_questions.vs_benchmark.excess_pct}%
+                </span>
+                <span className="ml-1 text-ink-soft">
+                  （超额不是符号稳定性 —— 本口径只有一条基准线）
+                </span>
+              </p>
+            )}
+            <FourQuestionLine four={result.four_questions} />
           </div>
         </div>
       )}
