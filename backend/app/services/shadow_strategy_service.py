@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import math
 
-from app.services import recommend_calibration_service, recommend_regression_service, supabase_store
+from app.services import calibers, recommend_calibration_service, recommend_regression_service, supabase_store
 
 
 def assess_shadow_candidate(
@@ -48,6 +48,44 @@ def assess_shadow_candidate(
 
     eligible = not blockers
     status = "eligible_for_review" if eligible else ("collecting" if not evidence_ready or selections < min_oos_selections else "rejected")
+
+    # ── 四问守卫 ──────────────────────────────────────────────────────
+    # 本模块已有 5 条 blocker（样本数 / 提升幅度 / 超额为正 / 超过基线 / 窗口稳定），
+    # 但**缺一个维度：分布**。`avg_excess_return > 0` 只说明均值是正的 ——
+    # 一组 selections 若靠少数暴涨窗口撑起平均，均值为正而典型的那次是亏的，
+    # 界面上完全看不出来。四问的分布一问正是补这个洞。
+    #
+    # 其余三问的处置：
+    #   · n       已有（min_oos_selections=60，比四问的 30 更严，取它）
+    #   · 可成交   本模块是 point-in-time 重放，取的是**已结算的推荐超额**，
+    #           同一套 daily_recommendations（与 recommendation 口径同源），
+    #           但没有逐笔成交追踪 ⇒ 答不上来，如实标注
+    #   · 符号翻转 **已做**：avg_net_excess_not_above_baseline 就是与基线的对照，
+    #           所以这一问能答（候选组的均值是否真的高于同窗口基线）
+    four = calibers.four_questions_with_notes(
+        {
+            "sample": (
+                f"样本外 {selections} 次选择，需 ≥{min_oos_selections} 才进入复核"
+                f"（本模块门槛比四问通用的 {calibers.MIN_SAMPLE} 更严）"
+            ),
+            "tradable": "取自已结算推荐的超额收益（与推荐口径同源），无逐笔成交追踪",
+        },
+        n=selections,
+        median=metrics.get("median_excess_return"),
+        mean=avg_return,
+        tradable_ratio=None,
+        # 均值未超过基线 ⇒ 「符号翻转」成立（收益来自共同因素而非本候选组）
+        benchmark_sign_flips=(
+            float(avg_return) <= float(baseline_return)
+            if avg_return is not None and baseline_return is not None
+            else None
+        ),
+        sign_flip_labels=(
+            "未超过基线",
+            "平均超额未超过同窗口基线 —— 收益来自共同因素，不归因于本候选组",
+        ),
+    )
+
     return {
         "key": key,
         "label": label,
@@ -60,6 +98,7 @@ def assess_shadow_candidate(
         "stable_win_windows": stable_wins,
         "required_win_windows": required_wins,
         "blockers": blockers,
+        "four_questions": four,
     }
 
 

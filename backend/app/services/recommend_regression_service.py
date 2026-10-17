@@ -6,6 +6,8 @@ from statistics import mean
 
 import numpy as np
 
+from app.services import calibers
+
 HISTORICAL_TECHNICAL_FEATURE_NAMES = (
     "momentum",
     "trend",
@@ -82,12 +84,65 @@ def _predict(model: dict, sample: dict, feature_set: str) -> float:
     return float(design @ model["coefficients"])
 
 
+def _percentile(ordered: list[float], q: float) -> float:
+    """线性插值分位数（与 numpy.percentile 默认口径一致）。
+
+    ⚠️ 第一版用 `ordered[int(len*q)]` 手写最近秩，n=31 时 p95 会索引越界
+    回退成最大值之外的值（实测 30 个 −1 + 1 个 100 ⇒ p95 给出 −1 而非 ~86）。
+    越界时 `min(..., len-1)` 把它**静默夹住**，于是 100 这个唯一的正收益被抹掉了 ——
+    恰好把最该被看见的尾部抹掉，比报错更糟。
+
+    线性插值没有越界问题，且与 numpy 口径一致（便于交叉核对）。
+    """
+    if not ordered:
+        raise ValueError("ordered 不能为空")
+    if len(ordered) == 1:
+        return ordered[0]
+    pos = (len(ordered) - 1) * q
+    lo = math.floor(pos)
+    hi = math.ceil(pos)
+    if lo == hi:
+        return ordered[int(pos)]
+    return ordered[lo] + (ordered[hi] - ordered[lo]) * (pos - lo)
+
+
 def _metrics(samples: list[dict]) -> dict:
+    """一组超额收益样本的汇总指标。
+
+    ## 为什么必须同时给中位数和分位数（2026-10-17）
+
+    原来只输出 `avg_excess_return`（均值）。但均值可以被少数极端样本撑起来：
+    一组 selections 里若靠几个暴涨窗口拉高平均，`avg > 0` 就通过了，
+    而典型的那一次其实是亏的 —— 判断「这套回归有没有用」时这是致命的误判
+    （同项目已实测：同参数回测三次得 +28.2% / +14.4% / +30.9%，
+    差异全来自「这次跑成了几只」）。
+
+    所以这里一并输出：
+      · median_excess_return —— 分布锚，不受极端值影响
+      · p05 / p95             —— 尾部，决定「最差能差多少 / 最好能好多少」
+                               （用线性插值，与 numpy.percentile 同口径）
+
+    **不下发原始 values 序列**：那是几十上百个浮点数，
+    界面上没人看、还会让响应体膨胀。分布特征（3 个数）已经够复核了。
+    """
     values = [float(sample["excess_return"]) for sample in samples]
+    if not values:
+        return {
+            "selections": 0,
+            "hit_rate": None,
+            "avg_excess_return": None,
+            "median_excess_return": None,
+            "p05_excess_return": None,
+            "p95_excess_return": None,
+        }
+    ordered = sorted(values)
     return {
         "selections": len(values),
-        "hit_rate": round(sum(value > 0 for value in values) / len(values) * 100, 2) if values else None,
-        "avg_excess_return": round(mean(values), 4) if values else None,
+        "hit_rate": round(sum(value > 0 for value in values) / len(values) * 100, 2),
+        "avg_excess_return": round(mean(values), 4),
+        "median_excess_return": round(calibers.median_of(values) or 0.0, 4),
+        "p05_excess_return": round(_percentile(ordered, 0.05), 4),
+        "p95_excess_return": round(_percentile(ordered, 0.95), 4),
     }
 
 
