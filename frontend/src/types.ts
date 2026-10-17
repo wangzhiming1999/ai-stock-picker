@@ -1080,6 +1080,23 @@ export interface WinrateStats {
     four_questions?: FourQuestions | null;
     /** DB 查询失败时的错误信息；存在时不应把 total=0 解读为「暂无数据」 */
     error?: string | null;
+    /**
+     * 基线对照。⚠️ **整体命中率本身不含能力信息** ——
+     * 「震荡」是方向分中间带的默认标签，天然最好蒙对，所以必须减去朴素基线。
+     */
+    baseline_comparison?: {
+      n: number;
+      /** 朴素基线 = 实际为震荡的天数占比（无脑全猜震荡的命中率） */
+      always_flat_rate: number | null;
+      /** 整体命中率 − 基线；≤0 意味着「还不如无脑猜震荡」 */
+      edge_over_baseline: number | null;
+      /** 剔除震荡后的方向判断次数 —— 真正在判断方向的样本量 */
+      directional_n: number;
+      /** 方向命中率 %；仅基于 directional_n，样本通常很小 */
+      directional_hit_rate: number | null;
+      directional_sample_status?: "insufficient" | "developing" | "established";
+      note?: string | null;
+    } | null;
   } | null;
   recommendation: {
     total: number;

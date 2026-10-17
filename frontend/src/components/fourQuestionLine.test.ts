@@ -197,6 +197,48 @@ test("覆盖率字段的类型注释点明它比可成交比例更该先看", ()
   assert.match(types, /legacy_without_execution_tracking/, "缺 legacy 行数字段");
 });
 
+/* ── 大盘方向预测：基线对照（2026-10-17 加）─────────────────────── */
+
+test("大盘命中率：基线对照必须与命中率同屏渲染", () => {
+  const panel = readFileSync(join(ROOT, "components/WinratePanel.tsx"), "utf8");
+  assert.match(panel, /基线：无脑猜震荡/, "未渲染朴素基线");
+  assert.match(panel, /超出基线/, "未渲染超出基线的差值");
+  assert.match(panel, /方向命中率/, "未渲染剔除震荡后的方向命中率");
+  // 三个基线读数必须在同一个分支里（紧跟命中率），不能散落到别处 ——
+  // 「66%」单独出现会被读成能力，这正是这一层要防的
+  const at = panel.indexOf("基线：无脑猜震荡");
+  const rateAt = panel.indexOf('label="命中率"');
+  assert.ok(rateAt >= 0 && at > rateAt, "基线读数应紧随命中率渲染");
+});
+
+test("基线对照缺失时不得显示成 0%（那是凭空结论）", () => {
+  const panel = readFileSync(join(ROOT, "components/WinratePanel.tsx"), "utf8");
+  // 条件必须是 != null，而不是「有 baseline_comparison 就显示」
+  assert.match(panel, /always_flat_rate != null/, "基线显示条件必须判 null");
+  assert.match(panel, /edge_over_baseline != null/, "超出基线必须判 null");
+});
+
+test("震荡命中率高于整体时必须给读法提醒", () => {
+  const panel = readFileSync(join(ROOT, "components/WinratePanel.tsx"), "utf8");
+  assert.match(panel, /主要由震荡日撑起/, "缺「整体读数由震荡撑起」的提醒");
+});
+
+test("prediction 类型：基线字段齐全且注明不含能力信息", () => {
+  const types = readFileSync(join(ROOT, "types.ts"), "utf8");
+  assert.match(types, /baseline_comparison\?:/);
+  assert.match(types, /always_flat_rate/);
+  assert.match(types, /edge_over_baseline/);
+  assert.match(types, /directional_hit_rate/);
+  // 类型注释要点明整体命中率不含能力信息
+  assert.match(types, /整体命中率本身不含能力信息/);
+});
+
+test("prediction 口径不得声称有指数基准（它预测的就是上证本身）", () => {
+  const panel = readFileSync(join(ROOT, "components/WinratePanel.tsx"), "utf8");
+  // 前端不得自己写「对比沪深300」这类文案 —— 后端口径已声明无法换基准
+  assert.doesNotMatch(panel, /预测[\s\S]{0,120}沪深300/, "大盘方向预测不得出现指数基准文案");
+});
+
 test("四问是可选字段，缺失时组件返回 null 而不是崩", () => {
   // 四问是后端新增字段；老缓存 / 降级响应里可能没有它。
   // 渲染层必须能容 null，否则一次后端降级会让整个胜率面板白屏。

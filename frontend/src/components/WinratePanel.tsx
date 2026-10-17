@@ -74,15 +74,55 @@ export default function WinratePanel() {
               {data.prediction?.caliber?.name ?? "大盘推衍命中率"}
             </div>
             {data.prediction && data.prediction.total > 0 ? (
-              <div className="grid grid-cols-3 gap-2">
-                <StatTile value={data.prediction.total} label="已结算" />
-                <StatTile value={data.prediction.hit} label="命中" />
-                <StatTile
-                  value={data.prediction.hit_rate != null ? `${data.prediction.hit_rate}%` : "-"}
-                  label="命中率"
-                  valueClass={pctTone(data.prediction.hit_rate)}
-                />
-              </div>
+              <>
+                <div className="grid grid-cols-3 gap-2">
+                  <StatTile value={data.prediction.total} label="已结算" />
+                  <StatTile value={data.prediction.hit} label="命中" />
+                  <StatTile
+                    value={data.prediction.hit_rate != null ? `${data.prediction.hit_rate}%` : "-"}
+                    label="命中率"
+                    valueClass={pctTone(data.prediction.hit_rate)}
+                  />
+                </div>
+                {/* 基线对照必须紧跟命中率 —— 单独一个 66% 会被读成能力。
+                    「震荡」是方向分中间带的默认标签，天然最好蒙对，
+                    所以整体命中率必须在基线旁边看。 */}
+                {data.prediction.baseline_comparison?.always_flat_rate != null && (
+                  <div className="mt-2 grid grid-cols-3 gap-2">
+                    <StatTile
+                      value={`${data.prediction.baseline_comparison.always_flat_rate}%`}
+                      label="基线：无脑猜震荡"
+                    />
+                    <StatTile
+                      value={
+                        data.prediction.baseline_comparison.edge_over_baseline != null
+                          ? `${data.prediction.baseline_comparison.edge_over_baseline > 0 ? "+" : ""}${data.prediction.baseline_comparison.edge_over_baseline}pt`
+                          : "-"
+                      }
+                      label="超出基线"
+                      valueClass={
+                        (data.prediction.baseline_comparison.edge_over_baseline ?? 0) > 0
+                          ? "text-ink"
+                          : "text-amber-400"
+                      }
+                    />
+                    <StatTile
+                      value={
+                        data.prediction.baseline_comparison.directional_hit_rate != null
+                          ? `${data.prediction.baseline_comparison.directional_hit_rate}%`
+                          : "-"
+                      }
+                      label={`方向命中率（n=${data.prediction.baseline_comparison.directional_n}）`}
+                      valueClass={pctTone(data.prediction.baseline_comparison.directional_hit_rate)}
+                    />
+                  </div>
+                )}
+                {data.prediction.baseline_comparison?.note && (
+                  <p className="mt-2 text-meta leading-relaxed text-amber-400">
+                    {data.prediction.baseline_comparison.note}
+                  </p>
+                )}
+              </>
             ) : (
               <div className="rounded-lg bg-surface-inset/40 px-3 py-2 text-meta text-ink-soft">
                 暂无数据 · 每日收盘后自动结算（今日收盘后回来看第一批结果）
@@ -96,6 +136,16 @@ export default function WinratePanel() {
                   </span>
                 ))}
               </div>
+            )}
+            {/* 分方向命中率的读法提醒：整体命中率通常被「震荡」撑起来。
+                只看分母大小就能判断 —— 震荡那一档总是样本最多、命中率最高。 */}
+            {(data.prediction?.by_direction?.震荡?.hit_rate ?? 0) >
+              (data.prediction?.hit_rate ?? 0) && (
+              <p className="mt-1 text-meta leading-relaxed text-ink-muted">
+                「震荡」命中率（{data.prediction?.by_direction?.震荡?.hit_rate}%）高于整体
+                （{data.prediction?.hit_rate}%）—— 这说明整体读数主要由震荡日撑起，
+                真正的方向判断看上方「方向命中率」那一格。
+              </p>
             )}
             {data.prediction?.sample_status === "insufficient" && data.prediction.total > 0 && (
               <p className="mt-2 text-meta text-amber-400">样本不足 30 次，当前命中率只用于观察，不代表稳定能力。</p>
