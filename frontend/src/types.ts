@@ -1844,6 +1844,16 @@ export interface EvidenceLedger {
   };
   /** 一句话总结（含「0 条可执行」的诚实表述） */
   headline: string;
+  /**
+   * 四问覆盖率汇总。与 `counts`（tier 统计）是**并列的两份** ——
+   * 前者统计「数字站不站得住」，后者统计「结论有效不有效」，互不替代。
+   */
+  four_questions: {
+    /** 已接入四问的条目数（其余条目未接入，原因见各条的 four_questions_absent_reason） */
+    checked: number;
+    verdict_counts: Record<string, number>;
+    note: string;
+  };
 }
 
 export interface EvidenceLedgerItem {
@@ -1860,6 +1870,25 @@ export interface EvidenceLedgerItem {
   plan_horizon?: string | null;
   /** 该信号历史赢面短标签；赢面 <50% 的条目末尾含「不进操作路径」 */
   win_rate?: string | null;
+  /** 对应的 calibers 口径 key；未登记时为 null */
+  caliber_key?: string | null;
+  /**
+   * 四问守卫（数字可信度）。⚠️ 与 `tier` 是**并列两层，互不影响**：
+   * tier 答「结论有效不有效」（证据链），四问答「这个数字站不站得住」（口径纪律）。
+   *
+   * 台账层只有 tier 与文字描述，所以只答得上 n 一问，其余三问如实标答不上来。
+   * n 是**显式声明的静态快照**（非实时查询），detail 里有说明。
+   */
+  four_questions?: (FourQuestions & {
+    /** evidence_declared = n 来自显式声明；not_declared = 未登记 n */
+    sample_source?: "evidence_declared" | "not_declared";
+    sample_note?: string | null;
+  }) | null;
+  /**
+   * 未接四问的原因。**必须与 `four_questions: null` 同时出现** ——
+   * 只给 null 不给原因，界面会把「没有四问」读成「四问通过」。
+   */
+  four_questions_absent_reason?: string | null;
 }
 
 /** 简报里的形态命中汇总 */

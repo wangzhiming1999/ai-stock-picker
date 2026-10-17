@@ -274,6 +274,41 @@ test("尾部分位数渲染必须判 null（缺数据显示「—」而非 0%）
   assert.match(panel, /p05_excess_return != null/, "尾部分位数必须判 null 再渲染");
 });
 
+/* ── 证据台账：四问与 tier 并列（第五批）──────────────────────── */
+
+test("台账：未接四问的条目必须显示原因，不能只显示「没有」", () => {
+  const panel = readFileSync(join(ROOT, "components/EvidenceLedgerPanel.tsx"), "utf8");
+  assert.match(panel, /four_questions_absent_reason/, "未接四问时未渲染原因");
+  assert.match(panel, /四问未接入/, "缺「四问未接入」说明");
+  // 只给 null 不给原因会被读成「四问通过」
+  assert.match(panel, /item\.four_questions \?/, "必须先判有四问再渲染");
+});
+
+test("台账：四问挂在展开区（与 plan_horizon/win_rate 同层级）", () => {
+  const panel = readFileSync(join(ROOT, "components/EvidenceLedgerPanel.tsx"), "utf8");
+  const openAt = panel.indexOf("{open && (");
+  const fourAt = panel.indexOf("<FourQuestionLine four={item.four_questions}");
+  assert.ok(openAt >= 0 && fourAt > openAt, "四问必须在展开区内渲染");
+});
+
+test("台账：顶部给出四问覆盖率，且与 tier 统计并列", () => {
+  const panel = readFileSync(join(ROOT, "components/EvidenceLedgerPanel.tsx"), "utf8");
+  assert.match(panel, /四问已接入/, "缺四问覆盖率汇总");
+  assert.match(panel, /data\.four_questions\.checked/, "缺已接入条数");
+  assert.match(panel, /verdict_counts/, "缺结论分布");
+  assert.match(panel, /data\.four_questions\.note/, "缺并列说明文案");
+});
+
+test("台账类型：四问字段与 absent_reason 成对出现", () => {
+  const types = readFileSync(join(ROOT, "types.ts"), "utf8");
+  const at = types.indexOf("interface EvidenceLedgerItem");
+  const body = types.slice(at, at + 1800);
+  assert.match(body, /four_questions\?/, "条目类型缺 four_questions");
+  assert.match(body, /four_questions_absent_reason\?/, "条目类型缺 absent_reason");
+  // 注释要写明两者必须同时出现
+  assert.match(body, /必须与 `four_questions: null` 同时出现/);
+});
+
 test("四问是可选字段，缺失时组件返回 null 而不是崩", () => {
   // 四问是后端新增字段；老缓存 / 降级响应里可能没有它。
   // 渲染层必须能容 null，否则一次后端降级会让整个胜率面板白屏。

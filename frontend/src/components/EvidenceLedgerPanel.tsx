@@ -3,6 +3,7 @@ import { ChevronDown } from "lucide-react";
 import { fetchEvidenceLedger } from "../api/client";
 import { DIVIDER, SUB_QUIET, TEXT } from "../lib/ui";
 import type { EvidenceLedger, EvidenceLedgerItem } from "../types";
+import { FourQuestionLine } from "./FourQuestionLine";
 
 /**
  * 证据台账：一处回答「现在到底哪些结论能动手」。
@@ -81,6 +82,21 @@ function LedgerRow({ item, open, onToggle }: { item: EvidenceLedgerItem; open: b
           <p className="text-meta text-ink-faint">
             计划持有期：{item.plan_horizon ?? "—"} · 历史赢面：{item.win_rate ?? "—"}
           </p>
+          {/* 四问（数字可信度）与 tier（证据等级）是**并列两层，互不影响**。
+              未接四问的条目要显式说原因 —— 只显示「没有」会被读成「四问通过」。 */}
+          {item.four_questions ? (
+            <FourQuestionLine four={item.four_questions} />
+          ) : (
+            item.four_questions_absent_reason && (
+              <p className="rounded-lg bg-surface-inset/50 px-2.5 py-1.5 text-meta leading-relaxed text-ink-faint">
+                <span className="text-ink-muted">四问未接入：</span>
+                {item.four_questions_absent_reason}
+                <span className="mt-0.5 block">
+                  —— 该条目的样本单位与判据与四问不通用，硬套会拿别的口径的尺子量它。
+                </span>
+              </p>
+            )
+          )}
         </div>
       )}
     </div>
@@ -139,6 +155,30 @@ export default function EvidenceLedgerPanel() {
             </span>
           ))}
       </div>
+
+      {/* 四问覆盖率：与上面的 tier 统计是并列的两份，不互相替代。
+          明确写出「多少条接了 / 多少条没接及原因」——
+          不写会被读成「全部都过了」。 */}
+      {data.four_questions && (
+        <div className="rounded-lg bg-surface-inset/40 px-3 py-2 text-meta leading-relaxed">
+          <div className="text-ink-soft">
+            <span className="text-ink-muted">四问已接入</span>
+            <span className="text-ink"> {data.four_questions.checked} 条</span>
+            <span className="text-ink-muted">，其余条目未接入（各自原因见展开项）</span>
+          </div>
+          {Object.keys(data.four_questions.verdict_counts ?? {}).length > 0 && (
+            <div className="mt-0.5 text-ink-faint">
+              结论分布：
+              {Object.entries(data.four_questions.verdict_counts).map(([v, c]) => (
+                <span key={v} className="ml-1.5">
+                  {v} <span className="text-ink-muted">{c} 条</span>
+                </span>
+              ))}
+            </div>
+          )}
+          <p className="mt-1 text-ink-faint">{data.four_questions.note}</p>
+        </div>
+      )}
 
       {namespaces.map((ns) => {
         const items = (data.items ?? []).filter((i) => i.namespace === ns);
