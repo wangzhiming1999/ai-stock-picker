@@ -100,6 +100,45 @@ async def daily_cron(request: Request):
         except Exception as ze:
             print(f"[cron] seize settle failed: {ze}")
             result["seize_settle"] = None
+        # 决策留痕与复盘（V5.42）：① 为所有有持仓的用户写当日持仓决策
+        # ② 回填已平仓的未结算决策行（听建议的收益）。
+        # 表未建时内部静默返回 0（需执行 v20 迁移），不影响其他结算步骤。
+        try:
+            from app.services import decision_ledger_service, portfolio_service
+
+            ledger_rows = 0
+            ledger_settled = 0
+            user_ids = await portfolio_service.list_user_ids_with_holdings()
+            for uid in user_ids:
+                ledger_rows += await decision_ledger_service.save_daily_decisions(uid)
+            ledger_settled = await decision_ledger_service.settle_pending()
+            result["decision_ledger_rows"] = ledger_rows
+            result["decision_ledger_settled"] = ledger_settled
+            # 决策 → 告警规则同步（V5.42 B）：把持仓决策的结构位同步成自动规则，
+            # 用户不必自己把同一个价位录第二遍。手动规则永不被覆盖（note 区分）。
+            try:
+                from app.services import alert_service, holding_decision_service, sector_flow_service
+
+                synced = 0
+                sector_follow = None
+                try:
+                    sector_follow = await sector_flow_service.get_sector_follow()
+                except Exception:  # noqa: BLE001
+                    sector_follow = None
+                for uid in user_ids:
+                    advice = await portfolio_service.get_portfolio_advice(uid)
+                    items = advice.get("holdings_advice") or []
+                    for d in holding_decision_service.build_holding_decisions(items, sector_follow):
+                        r = await alert_service.sync_decision_rules(uid, d)
+                        if r.get("action") in ("created", "updated"):
+                            synced += 1
+                result["decision_alert_rules"] = synced
+            except Exception as se:
+                print(f"[cron] decision alert sync failed: {se}")
+                result["decision_alert_rules"] = None
+        except Exception as dle:
+            print(f"[cron] decision ledger failed: {dle}")
+            result["decision_ledger_rows"] = None
         if not result.get("ok", True):
             raise HTTPException(
                 status_code=502,

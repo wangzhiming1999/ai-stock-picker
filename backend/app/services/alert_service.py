@@ -86,6 +86,75 @@ async def delete_rule(user_id: str, rule_id: int) -> bool:
 
 
 _STOP_RULE_NOTE = "auto:holding_stop"  # 自动规则的标记，与手动规则区分
+_DECISION_RULE_NOTE = "auto:holding_decision"  # 持仓决策（V5.41 B 链路）同步的规则标记
+
+
+async def sync_decision_rules(user_id: str, decision: dict) -> dict:
+    """把一条持仓决策的结构位同步成告警规则（V5.42 B）。
+
+    背景：``holding_decision_service`` 算出「现价 ≤ 支撑位即减仓」这类结论，
+    但用户此前要自己去告警中心**手工录一遍**同一个价位 —— 同一个结论录两遍，
+    既冗余又会漂（决策天天算，规则录一次就不动）。
+
+    本函数按决策动作选规则类型，阈值取决策锚定的**结构位**（不是现价系数）：
+
+    * ``sell``    → ``stop_loss``（止损位，现价 ≤ 阈值触发）
+    * ``reduce``  → ``breakdown``（主支撑，现价 ≤ 阈值触发）
+    * ``hold``    → ``buy_point``（主支撑，回踩买点 —— 与盯盘口径同一个锚）
+    * ``skip``    → 不建规则（样本不足，没有可信结构位）
+
+    ⚠️ 用 ``note=_DECISION_RULE_NOTE`` 与手动规则、自动止损规则区分开：
+    用户手动建的规则**永不被本函数覆盖**（自选价与结构位是两件事）。
+
+    幂等：同 code 同类型的 auto 规则更新阈值，不重复建。
+    表未建 / 未配置时返回 ``{"action": "skipped"}``，不抛异常。
+    """
+    if not supabase_store.is_configured():
+        return {"action": "skipped"}
+    action = str((decision or {}).get("decision", {}).get("action") or "")
+    code = str((decision or {}).get("code") or "").strip()
+    if not code or action not in ("sell", "reduce", "hold"):
+        return {"action": "skipped"}
+
+    # 阈值取决策锚定的结构位；缺失时不建（没有结构位就没有触发价）
+    if action == "sell":
+        rtype, threshold = "stop_loss", (decision.get("stop_loss"))
+    elif action == "reduce":
+        rtype, threshold = "breakdown", (decision.get("support"))
+    else:
+        rtype, threshold = "buy_point", (decision.get("support"))
+    if threshold is None or not (0 < float(threshold) < 100000):
+        return {"action": "skipped"}
+
+    try:
+        sb = await supabase_store.get_service_client()
+        existing = (
+            await sb.table("alert_rules")
+            .select("id")
+            .eq("user_id", user_id)
+            .eq("code", code)
+            .eq("type", rtype)
+            .eq("note", _DECISION_RULE_NOTE)
+            .limit(1)
+            .execute()
+        )
+        label = (decision.get("decision") or {}).get("label") or action
+        name = f"{decision.get('name') or code} · {label}"
+        if existing.data:
+            await (
+                sb.table("alert_rules")
+                .update({"threshold": round(float(threshold), 3), "name": name, "enabled": True})
+                .eq("id", existing.data[0]["id"])
+                .execute()
+            )
+            return {"action": "updated", "rule_id": existing.data[0]["id"], "type": rtype}
+        rule = await add_rule(
+            user_id, code, rtype, float(threshold), name=name, note=_DECISION_RULE_NOTE
+        )
+        return {"action": "created", "rule_id": rule["id"], "type": rtype}
+    except Exception as e:  # noqa: BLE001 — 表未建是预期内降级
+        print(f"[alert] 决策规则同步失败({code}): {e}")
+        return {"action": "skipped"}
 
 
 async def sync_holding_stop_rules(user_id: str, code: str, name: str, stop_price: float) -> dict:

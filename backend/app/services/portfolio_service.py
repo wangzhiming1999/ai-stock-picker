@@ -213,6 +213,23 @@ async def add_holdings_batch(user_id: str, items: list[dict]) -> dict:
     return {"added": added, "skipped": skipped}
 
 
+async def list_user_ids_with_holdings() -> list[str]:
+    """所有持有持仓的 user_id（供 cron 批量留痕用）。
+
+    刻意**不**用 sim_trades 推导：有交易的人未必还持仓，而决策留痕只对
+    当前持仓有意义。Supabase 未配置 / 表未建时返回空列表（静默降级）。
+    """
+    if supabase_store is None or not supabase_store.is_configured():
+        return []
+    try:
+        sb = await supabase_store.get_service_client()
+        res = await sb.table("user_holdings").select("user_id").execute()
+        return sorted({str(r.get("user_id")) for r in (res.data or []) if r.get("user_id")})
+    except Exception as e:  # noqa: BLE001
+        print(f"[portfolio] 取持仓用户列表失败: {e}")
+        return []
+
+
 async def list_holdings(user_id: str) -> list[dict]:
     """列出用户全部持仓（含最新行情、技术信号、盈亏）。"""
     _require_configured()
