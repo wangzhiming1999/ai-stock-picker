@@ -220,3 +220,298 @@ def all_keys() -> list[str]:
 
 def note() -> str:
     return INCOMPARABLE_NOTE
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# 四问守卫（2026-10-17）
+# ─────────────────────────────────────────────────────────────────────────
+# ## 为什么在 calibers 之上再加这一层
+#
+# `calibers` 登记的是**口径定义**（标的/持有期/分类数/基准/规则），
+# 解决的是「这个数字是什么意思」。但它挡不住另一类错误：
+# **同一个口径下，样本不同、分布不同、可成交性不同，数字照样不可比。**
+#
+# 真实踩过的三个例子：
+#   ① 同参数回测三次得 +28.20% / +14.37% / +30.94% —— 差异全来自「这次跑成了几只」。
+#      池子不完整时，任何收益数字都不能当结论。
+#   ② 涨停次日溢价里收益大头在**买不进**的档（换手<5% 期望 +3.31%），
+#      真正可成交档收窄到 +1%。只报期望会诱导去追买不到的一字板。
+#   ③ 「月均 5%」历史达成率仅 17.6%、亏损窗口 39.2%、中位数只有 +4.1%。
+#      均值被少数窗口撑起来，中位数才是真实分布。
+#
+# 这三件事的共同点：**不是口径错，是口径对了但样本/分布/可执行性没交代。**
+# 所以四问是独立的第二道闸 —— 口径决定「能不能比」，四问决定「这个数字本身站不站得住」。
+#
+# ## 四问的判据（硬编码，阈值集中在这里）
+#
+# 问的是四件任何「率」都必须交代的事，顺序即从易到难：
+#   1. 有 n 吗          —— 样本量决定这是统计还是噪声（沿用既有 30/100 两档）
+#   2. 中位数还是均值    —— 均值可被少数极端样本撑起来，中位数是分布锚
+#   3. 卖点能成交吗      —— 买不进的胜率不是胜率，是事后诸葛亮
+#   4. 换基准符号翻转吗  —— 符号翻转说明收益来自贝塔而非选股能力
+#
+# ## 纪律
+#   · 缺数据一律 `None` + `answered=False`，**永不折算成「通过」**（与前端「缺结构位显示 —」同源纪律）。
+#   · 四问全过才 `verdict="credible"`；有任一项明确不过 → `"inflated"`；
+#     只是答不上来 → `"unknown"`。三者互斥，前端据此上不同强度的提示色。
+#   · 这个模块**不判定策略好坏**，只判定数字是否具备被解读的资格。
+
+# 样本量两档（与 `_sample_status` 同源，30 判显著、100 判稳定）。
+MIN_SAMPLE = 30
+STRONG_SAMPLE = 100
+
+# 中位数与均值之差超过这个百分点（绝对值），说明分布被极端样本拉偏。
+# 1 个百分点是「一个正常持仓周期的波动量级」—— 超过它，均值就不可单独引用。
+MEDIAN_MEAN_GAP_PCT = 1.0
+
+# 相对倍数判据（2026-10-17 加，起因见下）。
+#
+# ## 为什么绝对差不够用
+# 上线首日就撞了两次：
+#   · `+38.5%` 单个极端样本把均值从 1.44 拉到 2.25 —— 相对抬升 56%，
+#     但绝对差只有 0.8 < 1.0，判成「未明显偏斜」。
+#   · 39 次 +1% + 1 次 +40% ⇒ 中位 1.0、均值 1.95 —— 绝对差 0.95 < 1.0，同样漏过。
+# 两次都是「低均值场景」：绝对差被小的基线压住，恰恰是分布最该被质疑的那种情况。
+#
+# ## 为什么改成复合判据而不是调小阈值
+# 单纯把 1.0 调到 0.9 只会把这两个案例变成「刚好通过」，下一个案例照样漏 ——
+# 阈值问题的本质是**单一绝对刻度覆盖不了不同量级**。
+# 复合判据（绝对差 OR 相对倍数）覆盖两类真实失真：
+#   · 高收益口径被一个涨停板拉偏（绝对差大）
+#   · 低收益口径被一个小样本极端值拉偏（相对倍数大）
+# 取 OR 而非 AND：任一指标显示偏斜就该提示，守卫偏向多报（保守）而非漏报。
+MEDIAN_MEAN_RELATIVE = 1.3
+
+# 可成交比例下限：低于它，胜率里就有相当一部分是「当时买不进」的。
+TRADABLE_MIN_RATIO = 0.5
+
+# 四问的固定问法（前端按这个顺序渲染，不要改文案顺序而不同步前端）
+QUESTION_LABELS = {
+    "sample": "有 n 吗",
+    "median": "中位数还是均值",
+    "tradable": "卖点能成交吗",
+    "benchmark_sign": "换基准符号翻转吗",
+}
+
+VERDICT_NOTE = {
+    "credible": "四问全部有交代，这个数字具备被解读的资格（仍不代表策略有效，只代表数字本身可信）。",
+    "inflated": "四问里有明确的失真项 —— 这个数字在被修正之前不能当作能力证据。",
+    "unknown": "四问里有答不上来的项 —— 这个数字只能当观察，不足以支撑结论。",
+}
+
+
+def _median(values: list[float]) -> float | None:
+    """中位数；空样本返回 None（不返回 0）。"""
+    if not values:
+        return None
+    ordered = sorted(values)
+    mid = len(ordered) // 2
+    if len(ordered) % 2:
+        return round(ordered[mid], 2)
+    return round((ordered[mid - 1] + ordered[mid]) / 2, 2)
+
+
+def four_questions(
+    *,
+    n: int,
+    median: float | None = None,
+    mean: float | None = None,
+    tradable_ratio: float | None = None,
+    benchmark_sign_flips: bool | None = None,
+) -> dict:
+    """判定一个「率」是否具备被解读的资格。返回结构见下方注释。
+
+    每个问项的返回值形如::
+
+        {"key": "sample", "label": "有 n 吗", "answered": True,
+         "passed": False, "value": "n=12", "detail": "样本不足 30，只能当噪声看"}
+
+    `passed=None` 表示这一问**无法回答**（缺数据），与 `passed=False`（回答了但不通过）
+    是三态区分 —— 把它混成 False 会让「没数据」看起来像「检查没过」。
+
+    参数全部可缺省：调用方只需给出它真的算得出来的那些，其余留空即可。
+    """
+    items: list[dict] = []
+
+    # 问一：有 n 吗
+    items.append({
+        "key": "sample",
+        "label": QUESTION_LABELS["sample"],
+        "answered": True,
+        "passed": n >= MIN_SAMPLE,
+        "value": f"n={n}",
+        "detail": (
+            f"样本 {n} 只，低于 {MIN_SAMPLE} 的显著门槛，只能当噪声观察"
+            if n < MIN_SAMPLE
+            else f"样本 {n} 只，达到 {MIN_SAMPLE} 的显著门槛"
+            + ("（≥100 可视为稳定）" if n >= STRONG_SAMPLE else "")
+        ),
+    })
+
+    # 问二：中位数还是均值（两值都没有 → 答不上来）
+    if median is None and mean is None:
+        items.append({
+            "key": "median",
+            "label": QUESTION_LABELS["median"],
+            "answered": False,
+            "passed": None,
+            "value": None,
+            "detail": "未提供中位数与均值，无法判断分布是否被极端样本拉偏",
+        })
+    else:
+        if median is None or mean is None:
+            items.append({
+                "key": "median",
+                "label": QUESTION_LABELS["median"],
+                "answered": False,
+                "passed": None,
+                "value": f"中位 {median if median is not None else '—'} / 均值 {mean if mean is not None else '—'}",
+                "detail": "中位数与均值只给出一边，无法判断分布形态",
+            })
+        else:
+            gap = round(abs(median - mean), 2)
+            # 相对倍数 = 均值 / 中位数（中位数是分布锚）。
+            # ⚠️ 分母必须是**中位数**，不能用 max(|median|,|mean|) ——
+            #    那样算出来的比值恒 ≤ 1，判据形同虚设（这是实现时踩过的坑）。
+            # 中位数为 0（或贴着 0）时倍数没有意义，改判绝对差。
+            if abs(median) > 0:
+                ratio = round(abs(mean) / abs(median), 2)
+                ratio_meaningful = True
+            else:
+                ratio = None
+                ratio_meaningful = False
+            skewed = gap > MEDIAN_MEAN_GAP_PCT or (
+                ratio_meaningful and ratio > MEDIAN_MEAN_RELATIVE
+            )
+            if skewed:
+                why = []
+                if gap > MEDIAN_MEAN_GAP_PCT:
+                    why.append(f"相差 {gap} 个百分点")
+                if ratio_meaningful and ratio > MEDIAN_MEAN_RELATIVE:
+                    why.append(f"均值是中位数的 {ratio} 倍")
+                items.append({
+                    "key": "median",
+                    "label": QUESTION_LABELS["median"],
+                    "answered": True,
+                    "passed": False,
+                    "value": f"中位 {median}% / 均值 {mean}%",
+                    "detail": (
+                        f"{'、'.join(why)}，均值被少数极端样本拉偏"
+                        f"（{'中位数为正、均值为负' if median * mean < 0 else '分布右偏或左偏'}）"
+                        "，请引用中位数"
+                    ),
+                })
+            else:
+                items.append({
+                    "key": "median",
+                    "label": QUESTION_LABELS["median"],
+                    "answered": True,
+                    "passed": True,
+                    "value": f"中位 {median}% / 均值 {mean}%",
+                    "detail": (
+                        f"相差 {gap} 个百分点、均值/中位 {ratio} 倍，分布未明显偏斜"
+                        if ratio_meaningful
+                        else f"相差 {gap} 个百分点，中位数为 0 只看绝对差，分布未明显偏斜"
+                    ),
+                })
+
+    # 问三：卖点能成交吗（None → 答不上来；<1 说明还有买不进的档）
+    if tradable_ratio is None:
+        items.append({
+            "key": "tradable",
+            "label": QUESTION_LABELS["tradable"],
+            "answered": False,
+            "passed": None,
+            "value": None,
+            "detail": "未提供可成交比例 —— 买不进的样本也会被算进胜率",
+        })
+    else:
+        ratio_pct = round(tradable_ratio * 100, 1)
+        enough = tradable_ratio >= TRADABLE_MIN_RATIO
+        items.append({
+            "key": "tradable",
+            "label": QUESTION_LABELS["tradable"],
+            "answered": True,
+            "passed": enough,
+            "value": f"可成交 {ratio_pct}%",
+            "detail": (
+                f"可成交比例 {ratio_pct}%，低于 {int(TRADABLE_MIN_RATIO * 100)}% —— "
+                "胜率里含相当一部分「当时买不进」的样本"
+                if not enough
+                else f"可成交比例 {ratio_pct}%，多数样本买得进"
+            ),
+        })
+
+    # 问四：换基准符号翻转吗（None → 答不上来）
+    if benchmark_sign_flips is None:
+        items.append({
+            "key": "benchmark_sign",
+            "label": QUESTION_LABELS["benchmark_sign"],
+            "answered": False,
+            "passed": None,
+            "value": None,
+            "detail": "未做基准符号翻转检验，无法区分「选股能力」与「大盘贝塔」",
+        })
+    else:
+        items.append({
+            "key": "benchmark_sign",
+            "label": QUESTION_LABELS["benchmark_sign"],
+            "answered": True,
+            "passed": not benchmark_sign_flips,
+            "value": "符号翻转" if benchmark_sign_flips else "符号未翻转",
+            "detail": (
+                "换基准后收益符号翻转 —— 收益来自贝塔而非本口径的选股能力"
+                if benchmark_sign_flips
+                else "换基准后符号未翻转，收益不依赖大盘方向"
+            ),
+        })
+
+    answered = [i for i in items if i["answered"]]
+    failed = [i for i in answered if i["passed"] is False]
+    if failed:
+        verdict = "inflated"
+    elif len(answered) < len(items):
+        verdict = "unknown"
+    else:
+        verdict = "credible"
+
+    return {
+        "verdict": verdict,
+        "verdict_note": VERDICT_NOTE[verdict],
+        "answered_count": len(answered),
+        "total_questions": len(items),
+        "failed_keys": [i["key"] for i in failed],
+        "unanswered_keys": [i["key"] for i in items if not i["answered"]],
+        "items": items,
+    }
+
+
+def four_questions_with_notes(
+    notes: dict[str, str] | None = None, **kwargs
+) -> dict:
+    """在四问结果上追加口径专属的补充说明（不改变任何判定）。
+
+    ## 为什么需要这一层
+
+    通用文案讲的是「这一问为什么答不上来」（缺什么数据），但有些口径
+    答不上来的**原因本身**就是要传达的核心信息。典型是 `limitup_relay`：
+    它的可成交性答不上来，不是因为忘了测，而是因为**测不了且这正是它的头号陷阱**
+    —— 连板股次日常以一字板开盘，晋级了也成交不了；没晋级却可能单日亏 10% 以上。
+    也就是说：「晋级率高」与「能赚钱」之间隔着的那个东西，恰好就是这一问。
+
+    判据纪律：`notes` 只允许**追加**文字，不得改变 `verdict` / `passed` ——
+    否则「补充说明」就成了绕过守卫的后门（说几句好话就把 inflated 变成 credible）。
+    """
+    result = four_questions(**kwargs)
+    if not notes:
+        return result
+    for item in result["items"]:
+        extra = notes.get(item["key"])
+        if extra:
+            item["detail"] = f"{item['detail']}｜{extra}"
+    return result
+
+
+def median_of(values: list[float]) -> float | None:
+    """对外暴露的中位数（空样本 → None），供各服务在组装四问时复用。"""
+    return _median(values)

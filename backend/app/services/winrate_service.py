@@ -429,6 +429,7 @@ async def get_winrate_stats() -> dict:
     quad_rows = [r for r in scored_rows if r.get("source") == "quad"]
     watch_rows = [r for r in scored_rows if r.get("source") == "watch"]
     not_triggered = sum(1 for r in rec_rows if r.get("execution_status") == "not_triggered")
+    unverifiable = sum(1 for r in rec_rows if r.get("execution_status") == "unverifiable")
     rec_total = len(reco_rows)
     rec_hit = sum(1 for r in reco_rows if r.get("hit"))
 
@@ -445,6 +446,29 @@ async def get_winrate_stats() -> dict:
     )
     excess_hit_rate = (
         round(excess_hit / len(excess_rows) * 100, 1) if excess_rows else None
+    )
+
+    # ── 四问守卫（calibers.four_questions）────────────────────────────────
+    # 推荐口径能真算出来的三问：n、超额收益的均值/中位数、可成交比例。
+    # 第四问（换基准符号翻转）本口径答不上来 —— 它需要第二个基准的对照数据，
+    # 而这里只有沪深300 一条；**如实标 unknown，不折算成「通过」**。
+    #
+    # 可成交比例的分母口径：`execution_status` 是 v16 新列，旧行为 null。
+    # null 视为「无法判定」→ 整问 answered=False，而不是当成 0%（那会假装全买不进）。
+    _status_known = [r for r in rec_rows if r.get("execution_status")]
+    if _status_known:
+        _filled = sum(1 for r in _status_known if r.get("execution_status") == "filled")
+        tradable_ratio: float | None = _filled / len(_status_known)
+    else:
+        tradable_ratio = None
+
+    _excess_values = [float(r["excess_return"]) for r in excess_rows]
+    reco_four = calibers.four_questions(
+        n=rec_total,
+        median=calibers.median_of(_excess_values),
+        mean=avg_excess_return,
+        tradable_ratio=tradable_ratio,
+        benchmark_sign_flips=None,
     )
 
     def _block(rows: list[dict]) -> dict:
@@ -474,6 +498,16 @@ async def get_winrate_stats() -> dict:
 
     top_error = " / ".join(filter(None, [pred_error, rec_error, snap_error])) or None
 
+    # 大盘命中率的口径本身就声明「无基准」（只看方向对不对），所以四问里
+    # 符号翻转检验与可成交比例都不适用 —— 如实标 unknown，不折算成通过。
+    pred_four = calibers.four_questions(
+        n=pred_total,
+        median=None,
+        mean=None,
+        tradable_ratio=None,
+        benchmark_sign_flips=None,
+    )
+
     return {
         "prediction": {
             "total": pred_total,
@@ -482,6 +516,7 @@ async def get_winrate_stats() -> dict:
             "by_direction": by_dir,
             "sample_status": _sample_status(pred_total),
             "caliber": calibers.describe("prediction"),
+            "four_questions": pred_four,
             "error": pred_error,
         },
         "recommendation": {
@@ -500,6 +535,9 @@ async def get_winrate_stats() -> dict:
             "excess_hit_rate": excess_hit_rate,
             "avg_excess_return": avg_excess_return,
             "not_triggered": not_triggered,
+            "unverifiable": unverifiable,
+            # 四问守卫：口径对了之后，样本/分布/可成交性是否站得住。
+            "four_questions": reco_four,
             "error": rec_error,
         },
         "snapshot": snapshot,

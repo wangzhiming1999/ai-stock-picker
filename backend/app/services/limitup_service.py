@@ -1408,6 +1408,30 @@ def _relay_stats(days: list[dt.date], per_day: dict[str, list[dict]]) -> dict:
         "by_boards": boards_rows,
         "by_cluster": cluster_rows,
         "by_boards_cluster": cross_rows,
+        # ── 四问守卫：本口径只能答两问，另两问如实标「答不上来」───────
+        # 这个「答不上来」本身就是重要信息 —— 它精确说明了 calibers 里那句
+        # 「晋级率高 ≠ 策略能赚钱，两者之间隔着一次能不能买到」：
+        #   · 中位数/均值：晋级率是**二分类封板状态延续率**，压根没有收益分布可言。
+        #     强行拿「晋级=1、未晋级=0」当收益算，等于把连续收益压成 0/1 ——
+        #     未晋级时高开低走单日亏 10% 以上很常见，这个 0 是彻底错的。
+        #   · 基准符号：连板股次日一字板开盘多，涨跌幅由市场情绪主导，
+        #     且本回测没有对照基准可换。答不上来就是答不上来。
+        # 可成交那一问也答不上来（无逐笔成交数据），但它的缺失正是本口径的
+        # 头号陷阱，所以 detail 里要把它点明。
+        "four_questions": calibers.four_questions_with_notes(
+            {
+                "tradable": "本口径的头号陷阱就在这一问：晋级了也可能一字板根本成交不了，"
+                "未晋级却可能单日亏 10% 以上 —— 所以晋级率不能换算成胜率或期望收益",
+                "median": "晋级率是二分类的封板状态延续率，没有收益分布；"
+                "把「晋级=1、未晋级=0」当收益算会把连续收益压成 0/1，是彻底错的",
+                "benchmark_sign": "连板股次日一字板多、涨跌幅由市场情绪主导，且本回测无可换基准",
+            },
+            n=total,
+            median=None,
+            mean=None,
+            tradable_ratio=None,
+            benchmark_sign_flips=None,
+        ),
     }
 
 
@@ -1565,6 +1589,9 @@ def _aggregate_premium(rows: list[dict]) -> dict:
         "flip_available": 0,
         "sign_consistent": False,
         "verified_candidate": False,
+        # 空样本也要下发四问（n=0 本身就是答案），前端拿到 None 会分不清
+        # 「没接线」与「零样本」—— 这正是回测结论最需要说清的一种状态。
+        "four_questions": calibers.four_questions(n=0),
     }
     if n == 0:
         return empty
@@ -1595,6 +1622,25 @@ def _aggregate_premium(rows: list[dict]) -> dict:
         and excess_win_rate > 50.0
         and sign_consistent
     )
+
+    # ── 四问守卫 ──────────────────────────────────────────────────────
+    # 本口径是四问的**主场**：四项全部答得上，且每一项都有真实数据支撑。
+    #   · median/mean：这里必须用**超额**样本（excess）而非原始溢价 ——
+    #     原始溢价里混着大盘贝塔，均值天然被普涨行情抬高；而扣掉基准后
+    #     才对应「这个涨停条件本身值多少」。
+    #   · tradable：**恒为 100%**，因为本函数只取换手 ≥5% 的样本（见调用处
+    #     的过滤）。如实告知「样本已按可成交筛过」比编一个比例更有用 ——
+    #     不可成交档的那部分收益根本没进来，这正是口径想要的效果。
+    #   · 符号翻转：用中证1000 与沪深300 的超额同号性（sign_consistent）。
+    _excess_pct = [e * 100 for e in excess]
+    _median_excess = calibers.median_of(_excess_pct)
+    four = calibers.four_questions(
+        n=n,
+        median=_median_excess,
+        mean=mean_excess,
+        tradable_ratio=1.0 if rows else None,
+        benchmark_sign_flips=(not sign_consistent) if (mean_excess is not None and mean_excess2 is not None) else None,
+    )
     return {
         "n": n,
         "mean_premium_pct": mean_premium,
@@ -1605,6 +1651,8 @@ def _aggregate_premium(rows: list[dict]) -> dict:
         "flip_available": len(flip_rows),
         "sign_consistent": sign_consistent,
         "verified_candidate": verified_candidate,
+        "median_excess_pct": _median_excess,
+        "four_questions": four,
     }
 
 

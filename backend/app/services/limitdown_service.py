@@ -598,7 +598,7 @@ def stats_of(rows: list[dict]) -> dict:
     只作对照，用来说明「反抽是否存在、换时点能不能改善」。
     """
     if not rows:
-        return {"n": 0}
+        return {"n": 0, "four_questions": calibers.four_questions(n=0)}
     opens = [r["ret_open"] for r in rows]
     wins = [x for x in opens if x > 0]
     loses = [x for x in opens if x <= 0]
@@ -630,6 +630,28 @@ def stats_of(rows: list[dict]) -> dict:
             sum(1 for r in rows if r["next_sealed_down"]) / len(rows) * 100, 1
         ),
         "next_limit_up_rate": round(sum(1 for r in rows if r["next_limit_up"]) / len(rows) * 100, 1),
+        # ── 四问守卫 ──────────────────────────────────────────────────
+        # 这是个**负期望**口径（实测期望 −4.47%/次、胜率 4.5%），四问在这里
+        # 的作用不是筛信号，而是把「胜率 4.5%」翻译成「够不够」：
+        #   · 分布：中位数与均值同时给出，读者能自己看这 4.5% 不是被少数
+        #     极端值撑出来的 —— 负期望口径最容易被误读成「大部分小亏、偶尔大赚」。
+        #   · 可成交：本口径最反直觉的一点是「能轻松买到恰恰说明抛压无人承接」。
+        #     能不能买到与收益负相关，所以这里答不上来（无逐笔成交数据），
+        #     但必须在 detail 里点破这个反直觉关系。
+        #   · 符号翻转：无对照基准（calibers 已声明「无」），答不上来。
+        "four_questions": calibers.four_questions_with_notes(
+            {
+                "tradable": "本口径的可成交性与收益**负相关**：越容易买到（全天封死）"
+                "次日越差（实测 −6.23% vs 盘中开过板的 −4.25%）—— "
+                "「能买到」不等于有优势，恰恰说明抛压无人承接",
+                "benchmark_sign": "本口径无对照基准（calibers 已声明），做不了符号翻转检验",
+            },
+            n=len(rows),
+            median=round(statistics.median(opens) * 100, 2),
+            mean=round(avg * 100, 2),
+            tradable_ratio=None,
+            benchmark_sign_flips=None,
+        ),
     }
 
 

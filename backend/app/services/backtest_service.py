@@ -405,4 +405,77 @@ def run_backtest(params: BacktestParams) -> dict:
         "data_note": data_note,
         # 口径随数据一起下发：这里的「胜率」是**调仓期**口径，样本单位是期不是票
         "caliber": calibers.describe("strategy_backtest"),
+        "four_questions": _four_questions(
+            returns=returns,
+            periods=len(returns),
+            pool_size=len(histories),
+            fetch_failed=len(fetch_failed),
+            benchmark_return=benchmark_return,
+            total_return=float(total_return),
+        ),
     }
+
+
+def _four_questions(
+    *,
+    returns: list[float],
+    periods: int,
+    pool_size: int,
+    fetch_failed: int,
+    benchmark_return: float | None,
+    total_return: float,
+) -> dict:
+    """策略回测的四问 —— 有三处口径特有的坑，写在这里比散落在 run 里好。
+
+    ## 坑一：n 的单位是**调仓期**，不是票
+    `calibers.strategy_backtest` 明确写了「每个调仓期 = 1 个样本（不是每只票）」。
+    一个 3 年回测、调仓 5 日也只有约 150 个期。所以这里的 n 必须用 `periods`，
+    绝不能用 `pool_size`（那是票数，通常 18~42）。用错会让「30 才算显著」
+    这个门槛对组合回测形同虚设。
+
+    ## 坑二：池子不完整时先看 fetch_failed
+    同参数复跑三次得 +28.20% / +14.37% / +30.94%，差异**全部**来自这次跑成了几只
+    （见 MEMORY-DATA.md 的取数失败事故）。因此「有 n 吗」这一问不能只看期数 ——
+    池子缺票时即使期数够，那三期数字也不构成结论，必须在 detail 里点名。
+
+    ## 坑三：可成交这一问答「不适用」，符号翻转答不上来
+    · 可成交：选股与建仓都按 `_close_on_or_before`（当日或之前最近一个收盘价）成交
+      （见回测四铁律「只用开/收盘价」），不存在涨停挂不上单那种问题 ——
+      与 tactic_backtest 同理，标「不适用」而非折算成 100%。
+    · 符号翻转：本回测只有沪深300 一条基准线，没有第二条可换的基准。
+      能回答的是「跑赢/跑输沪深300」，那属于超额读数，不等于「换基准后符号是否翻转」。
+      如实标答不上来。
+    """
+    result = calibers.four_questions_with_notes(
+        {
+            "sample": (
+                f"本口径的样本单位是**调仓期**不是票（当前期数 {periods}、股票池 {pool_size} 只）；"
+                + (
+                    f"⚠️ 另有 {fetch_failed} 只取数失败被剔除，池子不完整时这几期数字不能当结论"
+                    if fetch_failed
+                    else "取数无失败"
+                )
+            ),
+            "tradable": "本回测按收盘价成交（只用开/收盘价），不存在涨停挂不上单的问题",
+            "benchmark_sign": "只有沪深300 一条基准线，做不了符号翻转检验；"
+            "下方的「对比基准」是超额读数，不等于符号稳定性",
+        },
+        n=periods,
+        median=calibers.median_of([r * 100 for r in returns]) if returns else None,
+        mean=round(sum(returns) / len(returns) * 100, 2) if returns else None,
+        tradable_ratio=None,
+        benchmark_sign_flips=None,
+    )
+    # 跑赢/跑输基准是本口径的核心读数，四问里没有这一问 ——
+    # 单独挂出来给前端，并说明它为什么不能替代「符号翻转」。
+    result["vs_benchmark"] = (
+        {
+            "strategy_return_pct": round(total_return, 2),
+            "benchmark_return_pct": round(benchmark_return, 2),
+            "excess_pct": round(total_return - benchmark_return, 2),
+            "beat": total_return > benchmark_return,
+        }
+        if benchmark_return is not None
+        else None
+    )
+    return result

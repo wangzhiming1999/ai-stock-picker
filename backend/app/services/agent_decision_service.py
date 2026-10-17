@@ -261,6 +261,35 @@ def _now_iso() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat()
 
 
+def _four_questions(*, n: int, pnls: list[float], is_control: bool) -> dict:
+    """Agent 计划命中率的四问。
+
+    本口径有三处特殊，全都在「样本极少」这一侧：
+    · 每条计划要等 N 个交易日才结算，样本积累极慢（`calibers.agent_plan.pitfall`），
+      所以「有 n 吗」几乎总是不过 —— 这不是 bug，是这个口径的真实状态，
+      四问要如实说出来而不是让一个漂亮的命中率孤零零地挂着。
+    · 采纳与否是**用户选择**，两组计划本身不同质。所以对照组（ignored）的数字
+      不能与采纳组直接相减得出因果结论 —— 四问不做这个减法，只标各自站不站得住。
+    · 计划入场价是锚点，但真实能否成交没有验证 ⇒ 可成交答不上来。
+    """
+    return calibers.four_questions_with_notes(
+        {
+            "sample": (
+                "本口径每条计划要等 N 个交易日才结算，样本积累极慢"
+                + ("（本页这组是对照组，采纳与否由用户选择，两组不同质、不可相减）" if is_control else "")
+            ),
+            "tradable": "计划入场价是锚点，但未验证真实能否成交",
+            "benchmark_sign": "对照组是「未采纳的同样结算」而非指数基准，"
+            "采纳与否由用户选择，不构成因果对照",
+        },
+        n=n,
+        median=calibers.median_of(pnls) if pnls else None,
+        mean=round(sum(pnls) / len(pnls), 2) if pnls else None,
+        tradable_ratio=None,
+        benchmark_sign_flips=None,
+    )
+
+
 async def pending_settlements(before_date: str) -> list[dict]:
     """取 data_date <= before_date 且未结算的 adopted/ignored 行（cron 结算扫描）。"""
     sb = await _get_sb()
@@ -311,6 +340,7 @@ async def stats(user_id: str | None = None) -> dict | None:
                 "hit_rate": round(len(hits) / n * 100, 1) if n >= 5 else None,
                 "avg_pnl_pct": round(sum(pnls) / len(pnls), 2) if pnls else None,
                 "sample_note": None if n >= 5 else f"已结算样本仅 {n} 条，不足 5 条不给命中率（避免噪声读数）",
+                "four_questions": _four_questions(n=n, pnls=pnls, is_control=rs is ignored),
             }
 
         return {

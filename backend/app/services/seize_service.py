@@ -738,6 +738,25 @@ def _aggregate_reseal(rows: list[dict]) -> dict:
             }
             for label, (n, total) in buckets.items()
         ],
+        # 四问：本口径是**负期望**的（实测 n=81、期望 −0.72%、胜率 32.1%）。
+        # 四问在这里的作用不是筛信号，而是把「胜率 32%」这个数字钉死：
+        #   · n 用 settled 而不是 n —— rows 里含未结算行，用 len(rows) 会虚高
+        #   · 可成交：本口径用**收盘价**代理盘中可成交价，代理误差与结论同量级
+        #     （结论为负，与代理误差同向），所以这问答不上来但要在 detail 里说明
+        #   · 符号翻转：无对照基准（calibers 已声明），答不上来
+        "four_questions": calibers.four_questions_with_notes(
+            {
+                "sample": f"样本按**已结算**计 {len(settled)} 条（共取样 {len(rows)} 条）",
+                "tradable": "本口径用 D 日收盘价代理盘中可成交价（雷达的 sighting 价格不可回溯），"
+                "属代理口径：真实成交率未知",
+                "benchmark_sign": "本口径无对照基准（calibers 已声明），做不了符号翻转检验",
+            },
+            n=len(settled),
+            median=round(statistics.median(settled), 2) if settled else None,
+            mean=round(sum(settled) / len(settled), 2) if settled else None,
+            tradable_ratio=None,
+            benchmark_sign_flips=None,
+        ),
     }
 
 
@@ -879,6 +898,23 @@ def _aggregate_sealed(rows: list[dict]) -> dict:
             }
             for h, v in buckets.items()
         ],
+        # 四问：刚封板档是**正期望**口径（与回封档相反，两者必须分开报）。
+        # 它答得上三问，答不上的是符号翻转（无对照基准）。
+        # 可成交这里答「不适用」：本口径已显式排除一字板与尾盘板，只取雷达
+        # 实际能捕捉的盘中首封子集 —— 与 limitup_premium（全池含买不进的一字板）
+        # 不同构，详见 docstring 的差别说明。
+        "four_questions": calibers.four_questions_with_notes(
+            {
+                "tradable": "本口径已排除集合竞价一字板（买不进）与尾盘板（唯一负期望档），"
+                "只取雷达盘中能捕捉的首封子集",
+                "benchmark_sign": "本口径无对照基准（calibers 已声明），做不了符号翻转检验",
+            },
+            n=len(settled),
+            median=round(statistics.median(rets), 2) if settled else None,
+            mean=round(sum(rets) / len(rets), 2) if settled else None,
+            tradable_ratio=None,
+            benchmark_sign_flips=None,
+        ),
     }
 
 

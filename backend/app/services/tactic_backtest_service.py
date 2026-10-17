@@ -210,6 +210,9 @@ def _blank(tactic: dict, horizon: int, status: str, note: str | None) -> dict:
         "confidence": status,
         "verdict": note or "无结论",
         "by_stock": [],
+        # 空态也要下发四问（而不是留 None）：n=0 会让「有 n 吗」明确答「没有」，
+        # 其余三问答不上来。前端拿到 null 会分不清「没接线」与「样本为零」。
+        "four_questions": calibers.four_questions(n=0),
     }
 
 
@@ -290,6 +293,23 @@ def _pack(
             {"code": code, "signals": len(vals), "avg_return": round(statistics.fmean(vals), 2)}
             for code, vals in sorted(per_stock.items(), key=lambda kv: -len(kv[1]))[:8]
         ],
+    )
+    # ── 四问守卫 ──────────────────────────────────────────────────────
+    # 形态回测是四个已知口径里**唯一能答齐四问**的，所以这里不做任何降级：
+    #   · median/mean 用 returns 本体（不是 avg_return 的四舍五入值）
+    #   · tradable 明确不适用：口径是「命中当日收盘入场」，本身就是可成交成交价 ——
+    #     与涨停池那类「挂不上单」的问题不同构，如实标 N/A 而非编一个比例
+    #   · 符号翻转用 edge_return 的符号：卖出形态已在上面取反，
+    #     所以「edge 为负」＝ 换基准后超额翻向＝ 收益其实来自方向本身而非形态
+    #
+    # 样本门槛：四问用 calibers.MIN_SAMPLE(30)，与本模块的 _RELIABLE_SAMPLES 一致 ——
+    # 10 次命中在本模块只给 preliminary 数字，四问同样不认为它够格。
+    base["four_questions"] = calibers.four_questions(
+        n=n,
+        median=round(statistics.median(returns), 2),
+        mean=round(avg_return, 2),
+        tradable_ratio=None,
+        benchmark_sign_flips=edge_return < 0,
     )
     return base
 

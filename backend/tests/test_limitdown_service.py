@@ -217,7 +217,24 @@ class StatsTests(unittest.TestCase):
         }
 
     def test_empty_rows(self) -> None:
-        self.assertEqual(L.stats_of([]), {"n": 0})
+        """空样本仍必须带四问 —— 前端拿到 None 会分不清「没接线」与「零样本」。
+
+        ⚠️ 2026-10-17：原断言是 `assertEqual(stats_of([]), {"n": 0})`（精确等于）。
+        加四问字段后它失败了，但**该改的是测试不是实现** ——
+        「空态也要下发四问」是本轮的核心纪律（与其它口径一致），
+        而空态形状固定这个守卫本身仍然有效，所以改成逐字段断言而不是放弃守卫。
+        """
+        st = L.stats_of([])
+        self.assertEqual(st["n"], 0)
+        self.assertEqual(len(st), 2, "空态只应有 n 与 four_questions 两个字段")
+        four = st["four_questions"]
+        self.assertEqual(four["total_questions"], 4)
+        by_key = {i["key"]: i for i in four["items"]}
+        # n=0 是「回答了且极差」，不是「答不上来」
+        self.assertIs(by_key["sample"]["answered"], True)
+        self.assertIs(by_key["sample"]["passed"], False)
+        # 其余三问在空样本时确实答不上来
+        self.assertEqual(set(four["unanswered_keys"]), {"median", "tradable", "benchmark_sign"})
 
     def test_breakeven_win_rate(self) -> None:
         """均盈 +2% / 均亏 −5% 时，打平需要 71.4% 胜率。
