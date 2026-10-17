@@ -661,6 +661,32 @@ _BREAK_FREE = 1           # 炸板次数 < 此值（即 0 次）→ +1 分
 _SCORE_RATE = [11.8, 26.2, 34.2, 54.0]
 _SCORE_RATE_N = [34, 42, 38, 50]  # 各得分档样本量，前端展示用
 
+# ⚠️ 上面这组数字的**出处元数据**（2026-10-17 补）。
+#
+# 原先出处只写在代码注释里（2026-09-17 用 08-28~09-16 涨停池回测算出），
+# 而**代码注释不会随数据下发** —— 于是界面上只出现「明日晋级读数 54.0%（n=50）」，
+# 读者无从知道这是哪一天、哪个窗口、什么口径测出来的，很容易把 54% 读成
+# 「明日真有 54% 概率晋级」这个**绝对概率承诺**。
+#
+# 而它实际上满足 calibers.limitup_relay 里那条最要紧的约束：
+# 这是「封板延续率」不是收益率，且窗口只有约 13 个交易日（涨停池回溯上限），
+# 数字随行情阶段波动，必须当**相对强弱读数**用。
+# 四问守卫对这个口径只答得上 1/4（没有收益分布、可成交答不上来）——
+# 所以界面必须把「它是历史快照、是延续率不是概率」说清楚。
+RELAY_RATE_PROVENANCE = {
+    "measured_at": "2026-09-17",
+    "window": "2026-08-28 ~ 2026-09-16（约 13 个交易日，受涨停池回溯上限约束）",
+    "total_samples": 164,
+    "promoted": 55,
+    "caliber_key": "limitup_relay",
+    # 为什么这个数字不是「明日概率」—— 口径原文的浓缩
+    "caveat": (
+        "这是**封板状态延续率**的历史快照，不是明日概率承诺，也不是收益率："
+        "「晋级」与「能赚到」之间隔着一次能不能买到（连板股次日常以一字板开盘）。"
+        "样本窗口仅约 13 个交易日，数字随行情阶段波动，只作相对强弱分组。"
+    ),
+}
+
 # 得分 → 相对强弱分层。解决的是「3/3 分 · 54%」这种数字用户读不懂的问题：
 # 把三档合成一个直观的分层标签。措辞纪律：分层是**相对强弱描述**，
 # 不含动作词（买/进/关注），"强/中/弱"只是统计分组命名。
@@ -704,6 +730,8 @@ def relay_score(stock: dict) -> dict:
         "max_score": len(factors),
         "rate": _SCORE_RATE[score],
         "rate_n": _SCORE_RATE_N[score],
+        # 出处随数据下发 —— 否则界面上只有裸数字，读者会把它当明日概率承诺
+        "rate_provenance": RELAY_RATE_PROVENANCE,
         "factors": factors,
         **_TIER_BY_SCORE[score],
     }
@@ -780,6 +808,8 @@ def relay_tier_summary(relay_stocks: list[dict]) -> dict:
                 "desc": desc,
                 "rate": members[0]["rate"],
                 "rate_n": members[0]["rate_n"],
+                # 分组聚合的晋级读数同样要带出处，否则「tier1 · 54%」会被读成概率承诺
+                "rate_provenance": RELAY_RATE_PROVENANCE,
                 "codes": [m["code"] for m in members],
                 "names": [m["name"] for m in members],
                 "tradable_codes": [m["code"] for m in tradable],
@@ -1149,6 +1179,9 @@ def _focus_row(stock: dict, relay: dict | None) -> dict:
         "tier_label": (relay or {}).get("tier_label"),
         "rate": (relay or {}).get("rate"),
         "rate_n": (relay or {}).get("rate_n"),
+        # 打板清单上的晋级读数必须带出处 —— 这是「明日预期」最容易被
+        # 误读成概率承诺的位置（清单自带价位，读者会按它决策）
+        "rate_provenance": (relay or {}).get("rate_provenance") or RELAY_RATE_PROVENANCE,
         "basis": basis,
     }
 

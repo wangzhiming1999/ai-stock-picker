@@ -881,5 +881,73 @@ class FocusTests(unittest.TestCase):
             self.assertNotIn(banned, blob)
 
 
+class RelayRateProvenanceTests(unittest.TestCase):
+    """晋级读数必须带出处，且措辞不许暗示「明日概率」。
+
+    ## 为什么有这一组测试
+
+    `_SCORE_RATE` 是硬编码的历史回测数字（2026-09-17，约 13 个交易日窗口）。
+    它的出处原先只写在代码注释里 —— 而**代码注释不会随数据下发**，
+    于是界面上只剩「明日晋级读数 54.0%（n=50）」。
+
+    读者无从知道这是哪一天、哪个窗口、什么口径测出来的，
+    很容易把 54% 读成「明日真有 54% 概率晋级」这个**绝对承诺**。
+    而 `calibers.limitup_relay` 明确写着：这是「封板延续率」不是收益率，
+    「晋级」与「能赚到」之间隔着一次能不能买到。
+    """
+
+    # 复用 RelayScoreTests 的样本构造（同一个 _stock，避免两处各写一份）
+    _stock = staticmethod(RelayScoreTests._stock)
+
+    def test_score_row_carries_provenance(self) -> None:
+        row = L.relay_score(self._stock())
+        prov = row["rate_provenance"]
+
+        self.assertEqual(prov["measured_at"], "2026-09-17")
+        self.assertEqual(prov["total_samples"], 164)
+        self.assertEqual(prov["caliber_key"], "limitup_relay")
+        self.assertTrue(prov["window"])
+        self.assertTrue(prov["caveat"])
+
+    def test_provenance_caliber_key_is_registered(self) -> None:
+        """口径 key 必须真实存在 —— 写错会静默变成「未登记口径」。"""
+        from app.services import calibers
+
+        prov = L.relay_score(self._stock())["rate_provenance"]
+        self.assertIn(prov["caliber_key"], calibers.all_keys())
+
+    def test_caveat_states_it_is_not_a_tomorrow_probability(self) -> None:
+        prov = L.relay_score(self._stock())["rate_provenance"]
+
+        self.assertIn("不是明日概率承诺", prov["caveat"])
+        self.assertIn("封板状态延续率", prov["caveat"])
+        self.assertIn("能不能买到", prov["caveat"])
+
+    def test_tier_summary_carries_provenance(self) -> None:
+        # relay_tier_summary 接收的是 build_relay_stocks 的输出（已挂 rate），不是裸 score
+        rows = L.build_relay_stocks([self._stock(boards=2, seal_ratio=3.0, turnover=2.0, break_count=0)])
+        summary = L.relay_tier_summary(rows)
+
+        for group in summary["groups"]:
+            self.assertIn("rate_provenance", group)
+            self.assertEqual(group["rate_provenance"]["measured_at"], "2026-09-17")
+
+    def test_focus_rows_carry_provenance(self) -> None:
+        focus = L.build_focus([self._stock(code="600001", boards=2), self._stock(code="600002", boards=1)])
+
+        for row in focus["relay"]:
+            self.assertIn("rate_provenance", row)
+            self.assertIn("不是明日概率承诺", row["rate_provenance"]["caveat"])
+
+    def test_focus_rows_without_relay_still_get_provenance(self) -> None:
+        """首板候选没有 relay_score，但 fallback 到同一份出处（不丢上下文）。"""
+        focus = L.build_focus([self._stock(code="600002", boards=1, seal_ratio=0.2)])
+
+        first_rows = focus["first"]
+        self.assertTrue(first_rows)
+        for row in first_rows:
+            self.assertIn("rate_provenance", row)
+
+
 if __name__ == "__main__":
     unittest.main()
