@@ -1648,6 +1648,12 @@ export interface BriefingLimitUp {
     tradable_codes?: string[];
     rate: number;
     rate_n: number;
+    /**
+     * 晋级读数的出处。⚠️ **没有它，`rate` 会被读成「明日 54% 概率晋级」这个绝对承诺**，
+     * 而它实际是「封板状态延续率」的历史快照（约 13 个交易日窗口，随行情阶段波动）。
+     * 前端必须展示 measured_at / window 与 caveat。
+     */
+    rate_provenance?: RelayRateProvenance;
   } | null;
   sentiment?: LimitUpSentiment;
   evidence?: TacticEvidence;
@@ -2160,6 +2166,11 @@ export interface LimitUpFocusRow {
   tier_label: string | null;
   rate: number | null;
   rate_n: number | null;
+  /**
+   * 晋级读数出处。⚠️ 打板清单**自带价位**，读者会按它决策 ——
+   * 没有出处时 54% 会被读成「明日真实概率」，而它是历史延续率快照。
+   */
+  rate_provenance?: RelayRateProvenance;
   /** 入选依据，每条都带口径与样本量 */
   basis: string[];
 }
@@ -2278,6 +2289,28 @@ export interface LimitUpScoreFactor {
 }
 
 /** 连板股抽离条目：资金面持续性评分 + 明日晋级概率读数 + 相对强弱分层。 */
+/**
+ * 晋级读数（relay_score 的 `rate`）的出处元数据。
+ *
+ * 为什么必须有：界面上原本只显示「明日晋级读数 54.0%（n=50）」，
+ * 读者无从知道这是哪一天、哪个窗口、什么口径测出来的 ——
+ * 很容易把 54% 读成明日真实概率。而 `calibers.limitup_relay` 明确写着
+ * 「晋级率高 ≠ 策略能赚钱，中间隔着能不能买到」。
+ */
+export interface RelayRateProvenance {
+  /** 测出这组数字的日期 */
+  measured_at: string;
+  /** 样本窗口（含回溯上限说明） */
+  window: string;
+  /** 该次跑批的总样本量 */
+  total_samples: number;
+  /** 其中晋级数 */
+  promoted: number;
+  caliber_key: string;
+  /** 为什么它不是明日概率承诺 */
+  caveat: string;
+}
+
 export interface LimitUpRelayStock {
   code: string;
   name: string;
@@ -2325,6 +2358,8 @@ export interface LimitUpTierGroup {
   /** 该档的历史晋级率读数（%） */
   rate: number;
   rate_n: number;
+  /** 出处：没有它，tier1 · 54% 会被读成概率承诺 */
+  rate_provenance?: RelayRateProvenance;
   codes: string[];
   names: string[];
   /** 该档中通过可成交门槛（换手 ≥5%）的代码；旧后端缺省 */

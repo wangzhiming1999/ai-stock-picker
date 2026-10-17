@@ -309,6 +309,48 @@ test("台账类型：四问字段与 absent_reason 成对出现", () => {
   assert.match(body, /必须与 `four_questions: null` 同时出现/);
 });
 
+/* ── 晋级读数：不许写成「明日概率」（第六批）────────────────────── */
+
+test("晋级读数不得写成「明日」—— 那是误读的源头", () => {
+  // 「明日晋级读数 54%」会被读成明日真实概率，而它是历史延续率快照。
+  // 三处渲染点全部锁死。
+  const team = readFileSync(join(ROOT, "components/market/LimitUpTeam.tsx"), "utf8");
+  const offenders = team.split("\n")
+    .map((l, i) => ({ l, i }))
+    .filter(({ l }) => /明日晋级读数/.test(l));
+  assert.deepEqual(offenders, [], `晋级读数不得写成「明日」：${offenders.map(o => o.i + 1).join(",")}`);
+});
+
+test("晋级读数必须标注「非明日概率」", () => {
+  const team = readFileSync(join(ROOT, "components/market/LimitUpTeam.tsx"), "utf8");
+  // 至少两处要带这个限定（个股行 + tier 分组）
+  const count = (team.match(/非明日概率/g) || []).length;
+  assert.ok(count >= 2, `「非明日概率」限定应出现在多处，实际 ${count} 处`);
+});
+
+test("连板区必须解释「怎么读这个数」（延续率不是收益率）", () => {
+  const team = readFileSync(join(ROOT, "components/market/LimitUpTeam.tsx"), "utf8");
+  assert.match(team, /怎么读这个数/, "缺「怎么读这个数」说明");
+  assert.match(team, /封板状态的延续率/, "未说明这是延续率");
+  assert.match(team, /一字板开盘/, "未点出「晋级了也可能成交不了」");
+});
+
+test("rate_provenance 类型齐全且注释写明它是防误读的", () => {
+  const types = readFileSync(join(ROOT, "types.ts"), "utf8");
+  assert.match(types, /interface RelayRateProvenance/);
+  assert.match(types, /明日概率承诺/, "出处类型注释须点明防的是「明日概率承诺」");
+  assert.match(types, /measured_at/);
+  assert.match(types, /window/);
+  assert.match(types, /caveat/);
+});
+
+test("三处 rate 渲染点都接上 rate_provenance 类型", () => {
+  const types = readFileSync(join(ROOT, "types.ts"), "utf8");
+  // top_tier / LimitUpFocusRow / LimitUpTierGroup
+  assert.ok((types.match(/rate_provenance\?: RelayRateProvenance/g) || []).length >= 3,
+    "三处 rate 字段都应接 rate_provenance 类型");
+});
+
 test("四问是可选字段，缺失时组件返回 null 而不是崩", () => {
   // 四问是后端新增字段；老缓存 / 降级响应里可能没有它。
   // 渲染层必须能容 null，否则一次后端降级会让整个胜率面板白屏。

@@ -93,8 +93,8 @@ function FocusRow({ r }: { r: LimitUpFocusRow }) {
         )}
         {r.rate != null && (
           <span>
-            明日晋级读数 <span className="text-ink-soft">{r.rate}%</span>
-            <span className="text-ink-faint">（n={r.rate_n}）</span>
+            历史晋级读数 <span className="text-ink-soft">{r.rate}%</span>
+            <span className="text-ink-faint">（n={r.rate_n} · 非明日概率）</span>
           </span>
         )}
       </div>
@@ -138,7 +138,7 @@ function FocusGroup({ title, rows, desc }: { title: string; rows: LimitUpFocusRo
  *   1. 清单**恒定下发**（当日有涨停股时），但只有 `focus_actionable`（level=hunt）时才是
  *      「今日推荐」。非 hunt 时标题必须写成「可成交候选（非今日推荐）」—— 这层的价值是
  *      把「哪些挂得上单、按什么价挂」讲清楚，而不是把「空仓等待」偷偷换成一张买入名单。
- *   2. 连板与首板**分开列**：连板有明日晋级读数（n=164 连板样本），首板没有 ——
+ *   2. 连板与首板**分开列**：连板有历史晋级读数（n=164 连板样本），首板没有 ——
  *      两套读数口径不可比，合成一个名次等于造一个没有样本量的排名。
  *   3. 价位不是预测：「打板价」就是今日涨停价，「次日涨停价」是交易所规则算出来的。
  */
@@ -173,7 +173,7 @@ function FocusSection({ advice }: { advice: LimitUpPlayAdvice }) {
       ) : (
         <div className="mt-2 space-y-3">
           <FocusGroup
-            title="连板候选（有明日晋级读数）"
+            title="连板候选（有历史晋级读数）"
             rows={focus.relay}
             desc="晋级读数来自 n=164 连板样本，13 个交易日窗口，只作相对强弱"
           />
@@ -286,8 +286,8 @@ function RelayStockRow({ r }: { r: LimitUpRelayStock }) {
           )}
         </span>
         <span className="text-meta text-ink-muted">
-          明日晋级读数 <span className="font-semibold text-ink">{r.rate}%</span>
-          <span className="text-ink-faint">（回测 n={r.rate_n}）</span>
+          历史晋级读数 <span className="font-semibold text-ink">{r.rate}%</span>
+          <span className="text-ink-faint">（回测 n={r.rate_n} · 非明日概率）</span>
         </span>
       </div>
       <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-meta">
@@ -307,7 +307,7 @@ function RelayStockRow({ r }: { r: LimitUpRelayStock }) {
 }
 
 /**
- * 连板资金面区块：连板股抽离列表，每只按三因子打分并给明日晋级概率读数。
+ * 连板资金面区块：连板股抽离列表，每只按三因子打分并给历史晋级概率读数。
  *
  * 可读性分层（回答「哪个可以买」而不越证据闸门）：
  *   - 顶部一句 headline（后端 relay_tier_summary）：直接说今日哪些股资金面最强，
@@ -355,7 +355,7 @@ function RelayStocksSection({ stocks, summary }: { stocks: LimitUpRelayStock[]; 
                         {g?.label ?? members[0].tier_label ?? `第 ${tier} 梯队`}
                       </span>
                       <span className="text-meta text-ink-muted">
-                        {members.length} 只 · 明日晋级读数 {g?.rate ?? members[0].rate}%（n={g?.rate_n ?? members[0].rate_n}）
+                        {members.length} 只 · 历史晋级读数 {g?.rate ?? members[0].rate}%（n={g?.rate_n ?? members[0].rate_n} · 非明日概率）
                       </span>
                       {g?.tradable_codes && (
                         // 每档必须同时报「买得进几只」：三因子的「换手低」与可成交门槛方向相反，
@@ -600,6 +600,17 @@ function RelaySection({ relay, loading, error }: { relay: LimitUpRelayResult | n
         数据窗口 {window}（{relay.effective_days} 个交易日）。
         {relay.empty_dates.length > 0 && ` 更早的 ${relay.empty_dates.length} 天接口返回空池，已识别为「无数据」并排除出样本。`}
         {relay.skipped_dates.length > 0 && ` 另有 ${relay.skipped_dates.length} 天拉取失败被跳过。`}
+      </p>
+
+      {/* 晋级率的定性必须紧跟数字：它是「封板延续率」不是收益率 ——
+          「晋级」与「能赚到」之间隔着一次能不能买到。原先这条只写在代码注释里，
+          界面上读者只看到 54%，容易把它当明日概率承诺。 */}
+      <p className="mt-1 rounded-lg bg-surface-inset/50 px-2.5 py-1.5 text-meta leading-relaxed text-ink-soft">
+        <span className="text-ink-muted">怎么读这个数：</span>
+        这是<strong className="text-ink">封板状态的延续率</strong>，不是收益率、也不是明日概率承诺。
+        连板股次日常以一字板开盘，<strong className="text-ink">晋级了也可能根本成交不了</strong>；
+        而未晋级时高开低走、单日亏 10% 以上很常见。样本窗口仅约 13 个交易日（涨停池回溯上限），
+        数字随行情阶段波动，只作相对强弱分组。
       </p>
 
       {/* 四问守卫常驻（不可折叠）：晋级率只答得上「有 n 吗」，另三问答不上来 ——
