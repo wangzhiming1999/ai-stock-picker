@@ -949,5 +949,45 @@ class RelayRateProvenanceTests(unittest.TestCase):
             self.assertIn("rate_provenance", row)
 
 
+class RelayWordingTests(unittest.TestCase):
+    """晋级读数的措辞纪律：不许写成「明日」。
+
+    ## 为什么这个测试要存在
+
+    「明日晋级读数 54%」里的「明日」让一个历史延续率快照看起来像明日概率承诺。
+    前端三处渲染点已改，但**headline 与 docstring 里的文案同样会出现在界面上**
+    （headline 随响应下发，前端直接渲染）—— 只测前端源码会漏掉它。
+
+    所以这里扫**服务模块的源码**，排除两类合法出现：
+      · 代码注释里**引述历史 bug 成因**的那句（带「只出现」字样）
+      · docstring 里说明「原本只显示」的那句
+    """
+
+    # 复用 RelayScoreTests 的样本构造（同一个 _stock，避免两处各写一份）
+    _stock = staticmethod(RelayScoreTests._stock)
+
+    def test_no_tomorrow_wording_in_service_source(self) -> None:
+        import inspect
+
+        src = inspect.getsource(L)
+        offenders = []
+        for lineno, line in enumerate(src.split("\n"), start=1):
+            if "明日晋级" not in line:
+                continue
+            # 允许引述历史 bug 成因（这类句子是在解释「原本哪里错了」）
+            if "只出现" in line or "原本只显示" in line:
+                continue
+            offenders.append(f"limitup_service.py:{lineno}  {line.strip()[:90]}")
+
+        self.assertEqual(offenders, [], "晋级读数不得写成「明日」：\n" + "\n".join(offenders))
+
+    def test_headline_says_it_is_not_a_tomorrow_probability(self) -> None:
+        rows = L.build_relay_stocks([self._stock(boards=2, seal_ratio=3.0, turnover=2.0, break_count=0)])
+        headline = L.relay_tier_summary(rows)["headline"]
+
+        self.assertIn("非明日概率", headline)
+        self.assertNotIn("明日晋级", headline)
+
+
 if __name__ == "__main__":
     unittest.main()
