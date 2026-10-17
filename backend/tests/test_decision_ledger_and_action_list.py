@@ -203,6 +203,22 @@ def test_action_list_every_item_has_caliber():
         assert it["headline"], f"{it['source']} 缺标题"
 
 
+def test_action_list_limitup_uses_title_not_label():
+    """连板环境的标题字段是 `title`（limitup_service.play_advice），不是 `label`。
+
+    用错字段会让 headline 退化成英文 key（「连板环境：avoid」）——
+    线上实测踩到过，这里锁死。
+    """
+    advice = {"level": "avoid", "title": "空仓等待", "reasons": ["炸板率 44.5% ≥ 35.0%"]}
+    out = als.build_action_list(None, None, None, None, advice)
+    lu = [i for i in out["items"] if i["source"] == "limitup"]
+    assert lu, "连板环境项缺失"
+    assert "空仓等待" in lu[0]["headline"], lu[0]["headline"]
+    assert "avoid" not in lu[0]["headline"], "标题退化成了英文 key"
+    # reasons 要进 detail（那是「为什么」）
+    assert "炸板率" in lu[0]["detail"], lu[0]["detail"]
+
+
 def test_action_list_actions_are_contract_decisions():
     """动作必须落在 decision 6 态内。"""
     out = als.build_action_list(_PLAN, _DECS, _SF, [{"name": "A", "code": "1", "buy_point": 1.0}],

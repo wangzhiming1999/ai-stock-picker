@@ -142,12 +142,16 @@ def build_action_list(
             # hunt/watch/avoid 是**环境质量**档位，不是买卖动作 ——
             # 映射到 skip/hold，不用 add/buy（那会把「环境允许」读成「该买了」）
             mapped = "hold" if level == "hunt" else "skip"
+            # 标题字段是 `title`（limitup_service.play_advice），不是 label
+            title = str(limitup_advice.get("title") or limitup_advice.get("label") or level)
+            reasons = limitup_advice.get("reasons") or []
+            detail = "；".join(str(r) for r in reasons[:3]) or str(limitup_advice.get("note") or "")
             items.append(
                 _item(
                     "limitup",
                     mapped,
-                    f"连板环境：{limitup_advice.get('label') or level}",
-                    str(limitup_advice.get("note") or ""),
+                    f"连板环境：{title}",
+                    detail,
                     "口径：涨停池情绪温度（炸板率/梯队断层），证据档未获支持，"
                     "只说明环境能不能碰，不是买点。",
                 )
