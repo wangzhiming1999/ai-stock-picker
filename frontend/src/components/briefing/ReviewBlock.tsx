@@ -2,6 +2,7 @@ import { Bell } from "lucide-react";
 import type { Briefing } from "../../types";
 import { SUB_QUIET, TEXT } from "../../lib/ui";
 import { downTone, pnlTone, upTone } from "../../lib/tone";
+import { DecisionReviewPanel } from "./ActionListPanel";
 
 /** 当日复盘内容（标题由 ③ 分区提供）：持仓盈亏快照 + 今日触发预警 */
 export function ReviewBlock({ review }: { review: NonNullable<Briefing["review"]> }) {
@@ -48,6 +49,13 @@ export function ReviewBlock({ review }: { review: NonNullable<Briefing["review"]
               </span>
             </div>
           ))}
+        </div>
+      )}
+      {/* 决策复盘（A）：听建议后的实际收益。⚠️ 自选择偏差，是描述性读数。 */}
+      {review.decision_review && (
+        <div className="mt-3">
+          <p className={`${TEXT.label} mb-1.5`}>决策复盘 · 听建议之后</p>
+          <DecisionReviewPanel data={review.decision_review} />
         </div>
       )}
     </>

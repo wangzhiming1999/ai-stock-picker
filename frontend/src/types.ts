@@ -1506,6 +1506,8 @@ export interface Briefing {
   };
   /** 当日复盘（登录用户）：持仓盈亏快照 + 今日预警 + 一句话总结 */
   review?: {
+    /** 决策复盘（A）：听建议后的实际收益，描述性读数 */
+    decision_review?: DecisionReview | null;
     holdings_pnl?: {
       total_pnl?: number | null;
       total_pnl_pct?: number | null;
@@ -1519,6 +1521,8 @@ export interface Briefing {
   } | null;
   /** 形态命中汇总：关注池（买点向）+ 持仓（卖点/风险向） */
   tactics?: BriefingTactics;
+  /** 今日总指令（C）：各链路结论按风险优先排成的行动清单 */
+  action_list?: ActionList;
   /** 连板结论块：环境三档 + 资金面最强分组 + 持仓连板盯盘提示；后端获取失败为 null/缺省 */
   limitup?: BriefingLimitUp | null;
 }
@@ -2760,4 +2764,54 @@ export interface HoldingDecisionsSummary {
   counts: Record<string, number>;
   summary: string;
   disclaimer: string;
+}
+
+/* ── V5.42：决策留痕复盘（A）与今日总指令（C） ── */
+
+/** A：复盘分组读数。avg/median 在样本不足时为 null —— 不给噪声读数。 */
+export interface DecisionReviewGroup {
+  action: string;
+  label: string;
+  /** 窗口内该动作的决策条数 */
+  decided: number;
+  /** 已回填成交价的条数 */
+  settled: number;
+  /** 平均收益（%）。样本不足时为 null。 */
+  avg_gain_pct: number | null;
+  median_gain_pct: number | null;
+  sample_sufficient: boolean;
+}
+
+/** A：决策复盘。⚠️ 听/没听是用户自选择，收益差只是描述性读数。 */
+export interface DecisionReview {
+  available: boolean;
+  note: string | null;
+  window_days: number;
+  total_decided: number;
+  total_settled: number;
+  groups: DecisionReviewGroup[];
+  /** 口径免责（自选择偏差 + 未过闸门），必须渲染 */
+  caveats: string[];
+}
+
+/** C：今日总指令的一条。各项来自不同链路、口径不可比，不得相加。 */
+export interface ActionListItem {
+  source: "holding" | "position" | "board" | "morning" | "limitup";
+  action: Decision;
+  label: string;
+  headline: string;
+  detail: string;
+  /** 该项的口径说明 —— 没有口径的并列展示会诱导跨项比较 */
+  caliber: string;
+  trigger: string | null;
+  /** DECISION_ORDER，风险处置先于开仓 */
+  order: number;
+}
+
+/** C：今日总指令。⚠️ 刻意不做加权合成分。 */
+export interface ActionList {
+  items: ActionListItem[];
+  /** 不可比声明：各项口径不同，不可比、不可相加 */
+  incomparable_note: string;
+  caveats: string[];
 }

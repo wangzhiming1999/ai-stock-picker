@@ -4,6 +4,7 @@ import {
   Bell,
   ClipboardCheck,
   Flame,
+  ListChecks,
   RefreshCw,
   Sunrise,
   Target,
@@ -12,6 +13,7 @@ import { CARD, DIVIDER, SUB, TEXT } from "../lib/ui";
 import DecisionBadge from "./ui/DecisionBadge";
 import { dirTone, upTone } from "../lib/tone";
 import {
+  ActionListPanel,
   LimitUpBlock,
   MorningStocksBlock,
   PreMarketBlock,
@@ -167,6 +169,12 @@ export default function DailyBriefing({ onPick, onSettled }: Props) {
               今日非交易日，下方为下一交易日关注池，开盘前可据此准备。
             </div>
           )}
+
+          {/* ④ 今日总指令（C）：各链路结论按风险优先排成一张清单。
+              ⚠️ 刻意不做加权合成分 —— 各链路高度相关，相加等于放大同一轮行情。 */}
+          <Section icon={<ListChecks className="h-4 w-4 text-brand-light" aria-hidden />} title="今日总指令">
+            <ActionListPanel data={data.action_list} />
+          </Section>
 
           {/* ③ 分区：尾盘操作（有持仓才出现，避免空段占位） */}
           {phase === "tail" && (holdingCount > 0 || needLogin) && (
