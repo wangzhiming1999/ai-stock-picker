@@ -336,6 +336,99 @@ def _err_note(e: Exception) -> str:
     return f"{type(e).__name__}: {e}"
 
 
+def _median(values: list[float]) -> float | None:
+    return calibers.median_of(values)
+
+
+def _prediction_skill(pred_rows: list[dict]) -> dict:
+    """大盘方向预测的**基线对照** —— 判断这个命中率是不是「蒙」出来的。
+
+    ## 为什么必须有这一层
+
+    这个口径是三分类（上涨/震荡/下跌），而「震荡」是分数落在中间带
+    （regime_service.SCORE_DOWN=3.8 ~ SCORE_UP=6.2）的默认标签。
+    也就是说 **72% 的日子它都会输出「震荡」**，而震荡天然是三分类里
+    最好蒙对一个 —— 实测线上就是：震荡 75%、整体 66%、上涨 0%（n=2）。
+
+    所以「66% 命中率」这个数字**本身不含任何能力信息**：
+    它主要在反映「震荡日有多少天」，而不是「预测准不准」。
+    要看能力必须做两件事：
+
+    1. **朴素基线**：全部猜「震荡」的命中率（= 震荡日占比）。
+       整体命中率减去它才是超出「无脑猜震荡」的部分。
+    2. **剔除震荡的方向命中率**：只在预测了上涨/下跌的日子上算。
+       这才是真正在判断方向的样本量 —— 通常小得可怜（实测 n=14），
+       小就如实标小，不许拿整体命中率顶替。
+
+    ## 为什么不做「换基准符号翻转」
+    这个口径预测的就是**上证指数本身**，拿另一个基准去对照没有意义
+    （基准换了就不是同一个标的了）。所以那一问仍如实标答不上来，
+    但「是否超过朴素基线」是一个**更有意义**的对照，先把它做出来。
+    """
+    n = len(pred_rows)
+    if n == 0:
+        return {
+            "n": 0,
+            "always_flat_rate": None,
+            "edge_over_baseline": None,
+            "directional_n": 0,
+            "directional_hit_rate": None,
+            "directional_sample_status": _sample_status(0),
+            "note": None,
+        }
+
+    actuals = [str(r.get("actual_direction") or "").strip() for r in pred_rows]
+    known = [a for a in actuals if a]
+    # 朴素基线 = 「无脑全猜震荡」的命中率 = 实际为震荡的天数占比。
+    # 只能用有 actual_direction 的行当分母，否则老行会被算成「不是震荡」，
+    # 把基线压低、让 edge 虚高。
+    always_flat_rate = round(known.count("震荡") / len(known) * 100, 1) if known else None
+
+    hit_rate = sum(1 for r in pred_rows if r.get("hit")) / n * 100
+    edge_over_baseline = (
+        round(hit_rate - always_flat_rate, 1)
+        if always_flat_rate is not None
+        else None
+    )
+
+    # 方向命中率：只在预测了「上涨/下跌」的日子上算（排除震荡标签）。
+    dir_rows = [r for r in pred_rows if r.get("direction") in ("上涨", "下跌")]
+    dir_n = len(dir_rows)
+    dir_hit = sum(1 for r in dir_rows if r.get("hit"))
+    dir_rate = round(dir_hit / dir_n * 100, 1) if dir_n else None
+
+    notes: list[str] = []
+    if always_flat_rate is not None and edge_over_baseline is not None:
+        if edge_over_baseline <= 0:
+            notes.append(
+                f"整体命中率 {hit_rate:.1f}% 未超过「全部猜震荡」的基线 {always_flat_rate:.1f}%"
+                "（超出 {d} 个百分点），当前读数不含可辨识的方向能力".format(
+                    d=f"{edge_over_baseline:.1f}"
+                )
+            )
+        else:
+            notes.append(
+                f"整体命中率 {hit_rate:.1f}%，比「全部猜震荡」高 {edge_over_baseline:.1f} 个百分点"
+            )
+    if dir_n == 0:
+        notes.append("从未给出过上涨/下跌的方向判断，只有震荡标签 —— 无方向能力可评")
+    elif dir_n < 30:
+        notes.append(
+            f"方向判断只有 {dir_n} 次（需 ≥30 才判显著），"
+            f"该子集命中率 {dir_rate}%，样本过小不足以下结论"
+        )
+
+    return {
+        "n": n,
+        "always_flat_rate": always_flat_rate,
+        "edge_over_baseline": edge_over_baseline,
+        "directional_n": dir_n,
+        "directional_hit_rate": dir_rate,
+        "directional_sample_status": _sample_status(dir_n),
+        "note": "；".join(notes) if notes else None,
+    }
+
+
 async def get_winrate_stats() -> dict:
     """胜率统计：预测命中率 + 推荐胜率。表未创建时返回空。
 
@@ -362,13 +455,25 @@ async def get_winrate_stats() -> dict:
     try:
         pred_res = (
             await sb.table("prediction_records")
-            .select("direction", "hit")
+            .select("direction", "hit", "actual_direction")
             .not_.is_("settled_at", None)
             .execute()
         )
         pred_rows = pred_res.data or []
     except Exception as e:
         pred_error = _err_note(e)
+        # actual_direction 可能缺失（老行）。缺它只是拿不到基线，
+        # 不该把整个命中率一起打空 —— 主口径仍然可算。
+        try:
+            fallback = await (
+                sb.table("prediction_records")
+                .select("direction", "hit")
+                .not_.is_("settled_at", None)
+                .execute()
+            )
+            pred_rows = fallback.data or []
+        except Exception as e2:
+            pred_error = f"{pred_error} / {_err_note(e2)}"
     pred_total = len(pred_rows)
     pred_hit = sum(1 for r in pred_rows if r.get("hit"))
     by_dir: dict = {}
@@ -480,7 +585,7 @@ async def get_winrate_stats() -> dict:
     reco_four = calibers.four_questions_with_notes(
         {
             "tradable": (
-                f"分母 {_tracked_rows.__len__()} 条可判定行"
+                f"分母 {len(_tracked_rows)} 条可判定行"
                 + (
                     f"，已排除 {len(_legacy_rows)} 条迁移前历史行"
                     "（当时没有执行追踪，不可判定，不等于没成交）"
@@ -523,14 +628,35 @@ async def get_winrate_stats() -> dict:
 
     top_error = " / ".join(filter(None, [pred_error, rec_error, snap_error])) or None
 
-    # 大盘命中率的口径本身就声明「无基准」（只看方向对不对），所以四问里
-    # 符号翻转检验与可成交比例都不适用 —— 如实标 unknown，不折算成通过。
-    pred_four = calibers.four_questions(
+    # ── 大盘方向预测：基线对照 ──────────────────────────────────────
+    # 这个口径预测的就是上证指数本身，「换基准」没有意义（基准换了就不是同一标的）。
+    # 但**「是否超过朴素基线」是更有意义的对照**，而且真能算：
+    # 「震荡」是分数中间带的默认标签（三分类里最好蒙对一个），
+    # 所以整体命中率必须减去「无脑全猜震荡」的基线，剩下的才是能力。
+    #
+    # 四问的分布与可成交两问仍答不上来（无收益分布、无成交数据），
+    # 第四问在这里映射为「相对基线」—— 见 benchmark_sign_flips 的注释。
+    pred_skill = _prediction_skill(pred_rows)
+    pred_four = calibers.four_questions_with_notes(
+        {
+            "benchmark_sign": (
+                "本口径预测的就是上证指数本身，无法「换基准」（换了就不是同一标的）；"
+                "对应的对照是**朴素基线**：见下方「对比基线（无脑猜震荡）」"
+            ),
+            "median": "本口径判定的是方向标签对不对，不是收益，没有收益分布可算中位数",
+            "tradable": "不涉及成交（预测的是指数方向，不是买卖某只票）",
+        },
         n=pred_total,
         median=None,
         mean=None,
         tradable_ratio=None,
-        benchmark_sign_flips=None,
+        # 「相对基线为负」= 命中率还不如无脑猜震荡 ⇒ 这一问判不过。
+        # 语义上它替代了「符号翻转」：同样在问「收益/命中是不是全靠大盘给的口粮」。
+        benchmark_sign_flips=(
+            pred_skill["edge_over_baseline"] <= 0
+            if pred_skill["edge_over_baseline"] is not None
+            else None
+        ),
     )
 
     return {
@@ -542,6 +668,8 @@ async def get_winrate_stats() -> dict:
             "sample_status": _sample_status(pred_total),
             "caliber": calibers.describe("prediction"),
             "four_questions": pred_four,
+            # 基线对照：整体命中率不含能力信息，必须与「无脑猜震荡」比。
+            "baseline_comparison": pred_skill,
             "error": pred_error,
         },
         "recommendation": {
