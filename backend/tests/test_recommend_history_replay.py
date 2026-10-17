@@ -46,6 +46,7 @@ from app.services.recommend_history_replay_service import (
     _fetch_etf_history,
     evaluate_cross_sectional_factor,
     evaluate_rolling_cross_sectional_factors,
+    _spearman_rank_corr,
 )
 
 
@@ -199,6 +200,37 @@ def test_etf_history_retries_transient_provider_failure(monkeypatch) -> None:
 
     assert attempts == 3
     assert result["close"].tolist() == [1.0, 1.1, 1.2]
+
+
+def test_rank_ic_path_works_without_scipy(monkeypatch: pytest.MonkeyPatch) -> None:
+    """秩 IC 必须不依赖 scipy —— 这是 2026-10-17 CI 连续 5 次红的唯一根因。
+
+    scipy 被有意排除在 requirements 之外（见 requirements.txt：会拖 scikit-learn
+    撑爆 Vercel bundle，2026-10-06 事故）。`corr(method="spearman")` 走 scipy.stats，
+    于是本机装了 scipy 全绿、CI 与生产 ModuleNotFoundError。
+    这里把 scipy 从 import 系统里彻底屏蔽，锁死「干净环境也能算」这条性质。
+    """
+    import builtins
+
+    real_import = builtins.__import__
+
+    def _blocked_import(name: str, *args, **kwargs):
+        if name == "scipy" or name.startswith("scipy."):
+            raise ModuleNotFoundError("No module named 'scipy'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", _blocked_import)
+
+    left = pd.Series([1.0, 2.0, 3.0, 4.0])
+    right = pd.Series([10.0, 20.0, 30.0, 40.0])
+    assert _spearman_rank_corr(left, right) == pytest.approx(1.0)
+
+    # 完全单调反向 → -1；与 scipy.spearmanr 的取值范围一致
+    assert _spearman_rank_corr(left, pd.Series([40.0, 30.0, 20.0, 10.0])) == pytest.approx(-1.0)
+
+    # 带并列值（average rank）时也不能崩，且仍在 [-1, 1]
+    tied = pd.Series([1.0, 1.0, 2.0, 3.0])
+    assert -1.0 <= _spearman_rank_corr(tied, right) <= 1.0
 
 
 def test_cross_sectional_factor_reports_rank_ic_and_monotonic_quantiles() -> None:

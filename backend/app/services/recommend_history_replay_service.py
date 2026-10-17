@@ -238,6 +238,19 @@ def _cross_sectional_factor_value(row: dict, factor_key: str, factor_source: str
     return numeric if math.isfinite(numeric) else None
 
 
+def _spearman_rank_corr(left: pd.Series, right: pd.Series) -> float:
+    """斯皮尔曼秩相关 = 秩序列的皮尔逊相关。
+
+    刻意**不**用 `Series.corr(method="spearman")`：那条路是 pandas → scipy.stats，
+    而 scipy 被有意排除在 requirements 之外（拖 scikit-learn 进 bundle 会超 Vercel
+    函数阈值，见 requirements.txt 注释与 2026-10-06 全站 500 事故）。
+    结果是本机装了 scipy 时测试全绿，干净环境（CI / 生产）直接 ModuleNotFoundError ——
+    一条只在部分环境成立的代码路径，等于生产 500。
+    秩变换 + 皮尔逊与 scipy 的 spearmanr 完全等价，且不引入任何新依赖。
+    """
+    return float(left.rank(method="average").corr(right.rank(method="average")))
+
+
 def evaluate_cross_sectional_factor(
     samples: list[dict],
     *,
@@ -321,7 +334,7 @@ def evaluate_cross_sectional_factor(
         for _date, group in usable.groupby("date"):
             if len(group) < 2 or group["factor"].nunique() < 2 or group[return_key].nunique() < 2:
                 continue
-            correlation = group["factor"].corr(group[return_key], method="spearman")
+            correlation = _spearman_rank_corr(group["factor"], group[return_key])
             if pd.notna(correlation):
                 daily_ics.append(float(correlation))
         quantile_returns = {
