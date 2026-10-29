@@ -9,7 +9,7 @@ import time
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from app.services import akshare_guard, concurrency, data_health_service, data_service, evidence_ledger, market_prediction, opportunity_service, pattern_service, recommend_service, sector_flow_service, spot_service, supabase_store, tactic_evidence, winrate_service
+from app.services import akshare_guard, concurrency, dark_flow_service, data_health_service, data_service, evidence_ledger, market_prediction, opportunity_service, pattern_service, recommend_service, sector_flow_service, spot_service, supabase_store, tactic_evidence, winrate_service
 
 router = APIRouter(prefix="/api/market", tags=["market"])
 
@@ -359,6 +359,24 @@ async def get_sector_follow(force: bool = False):
     因此这个端点不抛 502 —— 前端据``available`` 渲染降级提示即可。
     """
     return await sector_flow_service.get_sector_follow(force=force)
+
+
+@router.get("/dark-flow")
+async def get_dark_flow(force: bool = False):
+    """暗盘资金 G/S 信号（中小单代理 · 明暗背离形态）。
+
+    判定：明盘（超大单+大单净额）与中单净额方向相反 → ``G``（明出暗进，拆单吸筹嫌疑）
+    / ``S``（明进暗出，拉高派发嫌疑）。数据走东财 clist 批量资金流两端榜（非逐股）。
+
+    ⚠️ 口径（前端必须渲染 ``caveats``，不得隐藏）：
+      * 「暗盘」是**中单代理**（散户+拆单主力混合），不是真实暗盘成交、不是拆单估算；
+      * G/S 是启发式形态（阈值未回测校准），**恒为 ``signal_status=unsupported``** ——
+        未定义收益口径前不给买卖动作（全站红线），不得渲染成买卖建议；
+      * 单日横截面读数，无持续性判据、不可跨日比较。
+
+    取数失败在服务内降级成结构完整的载荷（``available=false`` + ``note``），不抛 502。
+    """
+    return await dark_flow_service.get_signals(force=force)
 
 
 @router.get("/industries")
