@@ -22,7 +22,6 @@ import MonitorRow from "./monitor/MonitorRow";
 import MonitorSummary from "./monitor/MonitorSummary";
 import MonitorToolbar from "./monitor/MonitorToolbar";
 import MonitorHeaderActions from "./monitor/MonitorHeaderActions";
-import AlertLog from "./monitor/AlertLog";
 import RelayHits from "./monitor/RelayHits";
 
 export default function MonitorPanel() {
@@ -41,7 +40,7 @@ export default function MonitorPanel() {
   const costsRef = useRef<Record<string, number>>({});
   const intervalRef = useRef<MonitorInterval>(interval);
 
-  const { alerts, checkAlerts, primeAudio, clearAlerts } = useMonitorAlerts(notifyOn);
+  const { checkAlerts, primeAudio } = useMonitorAlerts(notifyOn);
 
   costsRef.current = costs;
   intervalRef.current = interval;
@@ -354,9 +353,6 @@ export default function MonitorPanel() {
       {/* 持仓连板提示：封板质量差的排最前，走弱时减仓优先级最高。
           措辞只讲资金面强弱与观察点，不下卖单指令（与后端证据闸门口径一致）。 */}
       {relayHits.length > 0 && <RelayHits hits={relayHits} />}
-
-      {/* 盯盘提醒留痕：顶部的浮层提示会限时消失，这里不会 */}
-      <AlertLog alerts={alerts} onClear={clearAlerts} />
 
       <MonitorToolbar
         input={input}

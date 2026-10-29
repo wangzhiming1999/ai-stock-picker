@@ -76,7 +76,7 @@ export default function DataHealthPanel() {
             <div className="rounded-lg bg-surface-inset/50 px-3 py-2">最近行情缓存：<span className="text-ink-soft">{timeLabel(data.market_cache?.updated_at)}</span></div>
             <div className="rounded-lg bg-surface-inset/50 px-3 py-2">推荐结算：<span className="text-ink-soft">{settlementLine(data.settlement)}</span></div>
             <div className="rounded-lg bg-surface-inset/50 px-3 py-2">预测结算：<span className="text-ink-soft">{data.prediction_settlement ? settlementLine(data.prediction_settlement) : "— 未采集"}</span></div>
-            <div className="rounded-lg bg-surface-inset/50 px-3 py-2 sm:col-span-2">点时样本：<span className="text-ink-soft">{data.snapshot_readiness?.settled_rows ?? 0}/{data.snapshot_readiness?.requirements.min_settled_rows ?? 300}</span></div>
+            <div className="rounded-lg bg-surface-inset/50 px-3 py-2 sm:col-span-2">点时样本（v18 后主口径，旧行不计）：<span className="text-ink-soft">{data.snapshot_readiness?.settled_rows ?? 0}/{data.snapshot_readiness?.requirements.min_settled_rows ?? 300}</span></div>
           </div>
 
           {data.issues.length > 0 && (

@@ -64,7 +64,18 @@ function SignalRow({ item }: { item: DarkFlowItem }) {
   return (
     <tr>
       <td className={CELL}>
-        <SignalChip signal={item.signal} />
+        <div className="flex items-center gap-1">
+          <SignalChip signal={item.signal} />
+          {/* 持续性：连续同形态交易日数（自积累快照）。×1 是默认值不标，避免噪声 */}
+          {item.streak != null && item.streak > 1 && (
+            <span
+              className="text-micro text-ink-muted"
+              title="连续同形态交易日数（自积累快照）—— 只是形态重复天数，不是胜率"
+            >
+              ×{item.streak}日
+            </span>
+          )}
+        </div>
       </td>
       <td className={CELL}>
         <div className="flex items-baseline gap-1.5">
@@ -172,6 +183,18 @@ export default function DarkFlowPanel() {
         {data && (
           <p className={`${TEXT.meta} text-ink-muted`}>
             {data.caliber} · 扫描 {data.counts.scanned} 只 · G {data.counts.g} / S {data.counts.s} · {data.note}
+          </p>
+        )}
+
+        {/* 持续性口径随数据渲染：无历史时是「降级单日」标注，有历史时给连续段分布 */}
+        {data?.persistence && (
+          <p className={`${TEXT.meta} text-ink-muted`}>
+            持续性：{data.persistence.note}
+            {data.persistence.streak_stats &&
+              `（连续段 n=${data.persistence.streak_stats.n}，中位 ${data.persistence.streak_stats.median} 日 / 均值 ${data.persistence.streak_stats.mean} 日）`}
+            {data.persistence.four_questions_absent_reason
+              ? `｜${data.persistence.four_questions_absent_reason}`
+              : ""}
           </p>
         )}
 

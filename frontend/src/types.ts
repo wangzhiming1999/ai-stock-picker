@@ -1032,13 +1032,31 @@ export interface DataHealth {
   market_cache: { updated_at: string | null; age_hours: number | null } | null;
   snapshot_readiness: {
     ready_for_full_factor_replay: boolean;
+    /** v18（2026-10-03）后主口径起点；旧行不进分母（不回填、不伪造） */
+    snapshot_since: string | null;
     eligible_rows: number;
     settled_rows: number;
+    legacy_settled_rows: number;
     trading_dates: number;
     field_coverage_pct: Record<string, number>;
-    requirements: { min_settled_rows: number; min_trading_dates: number; required_field_coverage_pct: number };
+    field_coverage_pct_all?: Record<string, number>;
+    requirements: {
+      min_settled_rows: number;
+      min_trading_dates: number;
+      required_field_coverage_pct: number;
+      snapshot_since?: string | null;
+    };
     blockers: string[];
   } | null;
+  /** 前瞻指标：近 N 日新写行的快照缺失率（抓正在发生的漏写） */
+  recent_snapshot_gap: {
+    window_days: number;
+    snapshot_since: string | null;
+    recent_rows: number;
+    recent_rows_without_snapshot: number;
+    missing_rate_pct: number;
+  } | null;
+  write_degradations: Record<string, { count: number; last_error: string; last_at: string }>;
   issues: DataHealthIssue[];
 }
 
@@ -3079,6 +3097,18 @@ export interface DarkFlowItem {
   mid_pct: number | null;
   signal: DarkFlowSignal;
   reason: string;
+  /** 持续性：截至今日连续同形态的交易日数（自积累快照 v21 起；无历史时恒为 1） */
+  streak?: number;
+}
+
+export interface DarkFlowPersistence {
+  available: boolean;
+  note: string;
+  sample_days: number;
+  streak_stats: { n: number; median: number; mean: number } | null;
+  four_questions: unknown | null;
+  /** 没有四问 ≠ 四问过了：缺分布样本时显式下发缺席原因 */
+  four_questions_absent_reason: string | null;
 }
 
 export interface DarkFlow {
@@ -3094,5 +3124,6 @@ export interface DarkFlow {
   g_items: DarkFlowItem[];
   s_items: DarkFlowItem[];
   counts: { g: number; s: number; scanned: number };
+  persistence?: DarkFlowPersistence;
   fetched_at: number | null;
 }
