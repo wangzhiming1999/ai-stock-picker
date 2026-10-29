@@ -13,6 +13,7 @@ import BoardTable from "./vanguard/BoardTable";
 import WidePoolTable from "./vanguard/WidePoolTable";
 import DiagnoseCard from "./vanguard/DiagnoseCard";
 import { HerdingCard, LeadersList, SectorTable } from "./vanguard/MarketLayer";
+import DarkFlowPanel from "./market/DarkFlowPanel";
 import { EvidenceBadge, EvidenceNote, ExpectedPriceChip, FundFlowNotice, LevelChips, LiveQuoteTag } from "./vanguard/shared";
 
 interface Props {
@@ -40,6 +41,9 @@ const DIAGNOSE_ANCHOR = "vanguard-diagnose";
  *   ③ 主力抱团   —— 涨停板块集中度 + 板块资金集中度（两个代理口径）
  *   ④ 潜力龙头   —— 资金已进场、趋势成立且尚未买不进的候选
  *   ⑤ 三维诊股   —— 单票体检；与全局「深度分析」（LLM 辩论）分工不同
+ *
+ * 另有「暗盘资金 G/S」独立块（明暗背离形态，unsupported 未验证信号），
+ * 不等三维榜冷启动、在加载态即渲染。
  *
  * ## 两条不能破的约束
  * 1. **刷新穿透底层行情源（选项 C）**。本页 refresh=true 现在会一路 force 到底层：
@@ -212,6 +216,10 @@ export default function VanguardPanel({ onPick }: Props) {
           之后当日整日命中缓存秒回。
         </p>
       )}
+
+      {/* 暗盘 G/S：独立数据源（批量资金流两端榜），不等三维榜冷启动 —— 开盘时段先看它。
+          G/S 恒为未验证形态（unsupported），不是买卖建议。 */}
+      <DarkFlowPanel />
 
       {data && (
         <>

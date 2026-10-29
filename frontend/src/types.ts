@@ -3048,3 +3048,51 @@ export interface ActionList {
   incomparable_note: string;
   caveats: string[];
 }
+
+/* ── 暗盘资金 G/S 信号（dark-flow） ─────────────────────────────
+ * 明暗背离形态读数：明盘（超大单+大单）与中单方向相反时标 G（明出暗进，拆单吸筹嫌疑）
+ * / S（明进暗出，拉高派发嫌疑）。
+ *
+ * ⚠️ 两条硬约束，渲染时不得放宽：
+ *   1. `signal_status` 恒为 `unsupported`、`actionable` 恒为 false —— 未定义收益口径
+ *      前不给买卖动作，G/S **不是买卖建议**，必须渲染成「未验证形态」；
+ *   2. 「暗盘」是**中单代理**（散户 + 拆单主力混合体），不是真实暗盘成交、
+ *      不是拆单金额估算。免责口径由响应 `caveats` 下发，前端必须原样渲染。
+ */
+
+export type DarkFlowSignal = "G" | "S";
+
+export interface DarkFlowItem {
+  code: string;
+  name: string;
+  price: number | null;
+  change_pct: number | null;
+  sector: string | null;
+  /** 明盘净额（元）：东财「主力」= 超大单 + 大单 */
+  main_net: number | null;
+  /** 中单净额（元）—— 暗盘代理口径的判定依据 */
+  mid_net: number | null;
+  /** 小单净额（元）—— 仅展示，不参与判定（散户噪声大） */
+  small_net: number | null;
+  amount: number | null;
+  /** 中单净额占成交额比例（%） */
+  mid_pct: number | null;
+  signal: DarkFlowSignal;
+  reason: string;
+}
+
+export interface DarkFlow {
+  status: "ok" | "cached" | "cooldown" | "unavailable";
+  available: boolean;
+  /** 恒为 "unsupported"（未定义收益口径） */
+  signal_status: "unsupported";
+  /** 恒为 false：不是买卖动作 */
+  actionable: boolean;
+  note: string;
+  caliber: string;
+  caveats: string[];
+  g_items: DarkFlowItem[];
+  s_items: DarkFlowItem[];
+  counts: { g: number; s: number; scanned: number };
+  fetched_at: number | null;
+}

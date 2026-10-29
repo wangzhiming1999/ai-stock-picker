@@ -8,6 +8,7 @@ import type {
   Briefing,
   BacktestResult,
   DailyRecommendResult,
+  DarkFlow,
   DataHealth,
   EvidenceLedger,
   Holding,
@@ -450,6 +451,23 @@ export async function fetchMainlineWave(sector?: string): Promise<MainlineWave> 
 export async function fetchSectorFollow(force = false): Promise<SectorFollow> {
   const res = await fetch(`${API}/market/sector-follow${force ? "?force=true" : ""}`);
   if (!res.ok) throw await errorFrom(res, "获取板块资金流跟随失败");
+  return res.json();
+}
+
+/**
+ * 暗盘资金 G/S 信号（明暗背离形态）。
+ *
+ * ⚠️ **未验证形态**：`signal_status` 恒为 `unsupported`、`actionable` 恒为 false ——
+ * 未定义收益口径前不给买卖动作，G/S **不是买卖建议**，渲染必须带「未验证」标注。
+ * 「暗盘」是中单代理（散户 + 拆单主力混合体），不是真实暗盘成交。免责口径由
+ * 响应里的 `caveats` 下发，前端必须原样渲染。
+ *
+ * 数据走东财批量资金流两端榜（非逐股），后端 10 分钟内存缓存，
+ * `force=true` 穿透且受最小间隔保护。
+ */
+export async function fetchDarkFlow(force = false): Promise<DarkFlow> {
+  const res = await fetch(`${API}/market/dark-flow${force ? "?force=true" : ""}`);
+  if (!res.ok) throw await errorFrom(res, "获取暗盘资金信号失败");
   return res.json();
 }
 
