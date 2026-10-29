@@ -25,6 +25,7 @@ class _Table:
         self._name = name
         self._filters: list[tuple] = []
         self._pending_insert = None
+        self._pending_update = None
 
     def select(self, *_cols):
         return self
@@ -33,8 +34,26 @@ class _Table:
         self._filters.append(("eq", _col, _val))
         return self
 
+    def update(self, payload):
+        self._pending_update = payload
+        return self
+
+    def _matched(self, rows: list) -> list:
+        return [
+            row
+            for row in rows
+            if all(row.get(col) == val for op, col, val in self._filters if op == "eq")
+        ]
+
     async def execute(self):
         rows = self._store.get(self._name, [])
+        if self._pending_update is not None:
+            payload = self._pending_update
+            self._pending_update = None
+            matched = self._matched(rows)
+            for row in matched:
+                row.update(payload)
+            return SimpleNamespace(data=matched)
         data = rows
         if self._pending_insert is not None:
             for index, row in enumerate(self._pending_insert, 1):
@@ -258,3 +277,121 @@ class TestWatchlistSave:
         saved = await recommend_service.save_watchlist("2026-09-18", self._watchlist())
 
         assert saved == 0
+
+
+class TestSnapshotBackfill:
+    """快照补写守卫：整批跳过是覆盖率 6.06% 的根因之一（2026-10-29 修复）。"""
+
+    def _rec(self, code: str, pe: float = 18.0) -> dict:
+        return {
+            "code": code,
+            "name": "样本",
+            "price": 10,
+            "confidence": 7.2,
+            "confidence_source": "rule_score",
+            "strategy_scores": {"momentum": 7, "trend": 6},
+            "scoring_profile": "baseline",
+            "feature_snapshot": {"pe": pe, "pb": 2.0, "turnover": 1.5, "market_cap_yi": 800.0, "market_board": "main"},
+        }
+
+    @pytest.mark.asyncio
+    async def test_rule_rows_land_even_when_quad_rows_already_exist(self, monkeypatch) -> None:
+        """当日已有行（如 quad 先落）时，规则行不再被整批跳过 —— 新码照插。"""
+        store: dict = {"daily_recommendations": [{"id": "q1", "code": "600009", "source": "quad", "feature_snapshot": {}}]}
+        monkeypatch.setattr(recommend_service.supabase_store, "is_configured", lambda: True)
+        monkeypatch.setattr(recommend_service.supabase_store, "get_service_client", _make_client(store))
+
+        id_map = await recommend_service.save_recommendations("2026-09-18", [self._rec("600001")])
+
+        codes = [r["code"] for r in store["daily_recommendations"]]
+        assert "600001" in codes
+        row = next(r for r in store["daily_recommendations"] if r["code"] == "600001")
+        assert row["feature_snapshot"]["pe"] == 18.0
+        assert "600001" in id_map and "600009" in id_map
+
+    @pytest.mark.asyncio
+    async def test_existing_rows_get_empty_snapshots_backfilled(self, monkeypatch) -> None:
+        """已有行但快照为空 → 用本次信号时快照补写（真实信号时数据，非伪造）。"""
+        store: dict = {"daily_recommendations": [{"id": "q1", "code": "600001", "source": "quad", "feature_snapshot": {}}]}
+        monkeypatch.setattr(recommend_service.supabase_store, "is_configured", lambda: True)
+        monkeypatch.setattr(recommend_service.supabase_store, "get_service_client", _make_client(store))
+
+        await recommend_service.save_recommendations("2026-09-18", [self._rec("600001")])
+
+        row = store["daily_recommendations"][0]
+        assert row["feature_snapshot"]["pe"] == 18.0
+
+    @pytest.mark.asyncio
+    async def test_backfill_never_overwrites_non_empty_snapshots(self, monkeypatch) -> None:
+        store: dict = {"daily_recommendations": [
+            {"id": "q1", "code": "600001", "source": "quad", "feature_snapshot": {"pe": 99.0, "market_board": "main"}},
+        ]}
+        monkeypatch.setattr(recommend_service.supabase_store, "is_configured", lambda: True)
+        monkeypatch.setattr(recommend_service.supabase_store, "get_service_client", _make_client(store))
+
+        await recommend_service.save_recommendations("2026-09-18", [self._rec("600001", pe=18.0)])
+
+        assert store["daily_recommendations"][0]["feature_snapshot"]["pe"] == 99.0
+
+    @pytest.mark.asyncio
+    async def test_quad_and_watch_rows_carry_feature_snapshot(self, monkeypatch) -> None:
+        """quad/watch 行也带快照 —— 未来放宽合格口径时不掉坑。"""
+        store: dict = {"daily_recommendations": []}
+        monkeypatch.setattr(quad_service.supabase_store, "is_configured", lambda: True)
+        monkeypatch.setattr(quad_service.supabase_store, "get_service_client", _make_client(store))
+
+        await quad_service._save_quad_to_recommendations("2026-09-18", _quad_result())
+        quad_row = next(r for r in store["daily_recommendations"] if r["source"] == "quad")
+        assert quad_row["feature_snapshot"]["market_board"] == "main"
+
+        store2: dict = {"daily_recommendations": []}
+        monkeypatch.setattr(recommend_service.supabase_store, "is_configured", lambda: True)
+        monkeypatch.setattr(recommend_service.supabase_store, "get_service_client", _make_client(store2))
+        await recommend_service.save_watchlist("2026-09-18", [
+            {"code": "000001", "name": "观察", "price": 8.0, "strategy_score": 4.2, "status": "动量不足"},
+        ])
+        watch_row = store2["daily_recommendations"][0]
+        assert watch_row["feature_snapshot"]["market_board"] == "main"
+
+    @pytest.mark.asyncio
+    async def test_column_degradation_is_recorded_not_silent(self, monkeypatch) -> None:
+        """可选列缺失降级要留痕（data-health 亮灯的事件源），不许只 print。"""
+        recommend_service._REC_COLUMN_DEGRADATIONS.clear()
+        state = {"calls": 0}
+
+        class _Flaky:
+            def insert(self, rows):
+                state["calls"] += 1
+                if state["calls"] == 1:
+                    raise RuntimeError('column "feature_snapshot" does not exist')
+                return _Table({}, "daily_recommendations").insert(rows)
+
+            def select(self, *_cols):
+                return self
+
+            def eq(self, *_a):
+                return self
+
+            async def execute(self):
+                return SimpleNamespace(data=[])
+
+        class _Client:
+            def table(self, _name):
+                return _Flaky()
+
+        async def _get():
+            return _Client()
+
+        monkeypatch.setattr(recommend_service.supabase_store, "is_configured", lambda: True)
+        monkeypatch.setattr(recommend_service.supabase_store, "get_service_client", _get)
+
+        await recommend_service.save_recommendations("2026-09-18", [
+            {"code": "600001", "name": "样本", "price": 10, "confidence": 7,
+             "confidence_source": "rule_score", "feature_snapshot": {"pe": 1.0}},
+        ])
+
+        events = recommend_service.rec_column_degradations()
+        assert "feature_snapshot" in events
+        assert events["feature_snapshot"]["count"] >= 1
+        assert "feature_snapshot" in events["feature_snapshot"]["last_error"]
+        recommend_service._REC_COLUMN_DEGRADATIONS.clear()

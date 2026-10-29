@@ -19,8 +19,19 @@ from app.services import akshare_guard, data_service, signal_service
 from app.services.backtest_service import BENCHMARK, STRATEGY_BACKTEST_POOL
 from app.services.recommend_calibration_service import calibrate_walk_forward
 from app.services.recommend_regression_service import evaluate_walk_forward_regression
+from app.services import trade_cost_model
 
-BASE_TRANSACTION_COST_PCT = 0.15
+# 双边总成本（%）：**唯一来源是 trade_cost_model**（分项费用 + 基准名义额折算 + 滑点）。
+# 旧值是拍的打包 0.15%（无分项、无最低佣金）——回测口径审计阻断项①。
+# 保留此别名让既有扣减点/敏感性对账零改动；禁止再写任何字面量费率。
+_SLIPPAGE_PCT = 0.05
+BASE_TRANSACTION_COST_PCT = trade_cost_model.estimate_roundtrip_cost_pct(
+    "stock", slippage_pct=_SLIPPAGE_PCT
+)
+_ROUNDTRIP_COST_BY_TYPE = {
+    "stock": BASE_TRANSACTION_COST_PCT,
+    "etf": trade_cost_model.estimate_roundtrip_cost_pct("etf", slippage_pct=_SLIPPAGE_PCT),
+}
 ETF_20_PCT_FROM_2020_08_24 = {"159915", "159949", "159967"}
 ETF_20_PCT_FROM_LISTING = {"588000"}
 ETF_10_PCT_CODES = {
@@ -58,15 +69,39 @@ def etf_price_limit_pct(code: str, trade_date: str) -> float | None:
     return None
 
 
+def stock_price_limit_pct(code: str, trade_date: str) -> float | None:
+    """按板块规则推算股票历史涨跌停幅度（%）。规则外返回 None（不猜）。
+
+    规则：主板（60/00）10%；创业板（30）20%（2020-08-24 注册制起，之前 10%）；
+    科创板（68）20%；北交所（8/4/92 开头）30%。
+
+    ⚠️ 两类**已知不覆盖**（用板块值会偏宽，gap 随 capability 元数据披露）：
+      * ST 股实为 5% —— 历史戴帽状态无数据源，不猜（推荐信号日已滤当日 ST）；
+      * 上市初期无涨跌幅限制 —— 研究池以存续票为主，次新影响面小。
+    """
+    normalized = str(code).strip()
+    if normalized.startswith(("60", "00")):
+        return 10.0
+    if normalized.startswith("30"):
+        return 20.0 if str(trade_date) >= "2020-08-24" else 10.0
+    if normalized.startswith("68"):
+        return 20.0
+    if normalized.startswith(("8", "4", "92")):
+        return 30.0
+    return None
+
+
 def etf_fee_assumptions() -> dict:
-    """Separate verified exchange charges from account-specific broker costs."""
+    """费用假设元数据（委托 trade_cost_model，含分项/最低佣金/来源披露）。"""
+    meta = trade_cost_model.fee_assumptions("etf", slippage_pct=_SLIPPAGE_PCT)
     return {
-        "exchange_handling_fee_each_side_pct": 0.004,
-        "stamp_tax_pct": 0.0,
-        "broker_commission_verified": False,
-        "minimum_commission_verified": False,
-        "backtest_total_cost_pct": BASE_TRANSACTION_COST_PCT,
-        "backtest_cost_mode": "conservative_all_in_pct",
+        "exchange_handling_fee_each_side_pct": meta["etf_handling_fee_each_side_pct"],
+        "stamp_tax_pct": meta["stamp_tax_pct"],
+        "broker_commission_verified": meta["broker_commission_verified"],
+        "minimum_commission_verified": meta["minimum_commission_verified"],
+        "broker_commission_basis": meta["broker_commission_basis"],
+        "backtest_total_cost_pct": meta["roundtrip_cost_pct"],
+        "backtest_cost_mode": "itemized_with_min_commission",
     }
 
 
@@ -772,6 +807,7 @@ def build_historical_samples(
             holding_returns: dict[str, float] = {}
             holding_dates: dict[str, str] = {}
             future_bars: list[dict] = []
+            roundtrip_cost = _ROUNDTRIP_COST_BY_TYPE.get(instrument_type, BASE_TRANSACTION_COST_PCT)
             for horizon in (1, 3, 5):
                 future_position = position + horizon
                 if future_position >= len(frame):
@@ -781,7 +817,7 @@ def build_historical_samples(
                     continue
                 stock_h = (float(frame.iloc[future_position]["close"]) / float(frame.loc[day, "close"]) - 1) * 100
                 bench_h = (float(benchmark_indexed.loc[future_day, "close"]) / float(benchmark_indexed.loc[day, "close"]) - 1) * 100
-                holding_returns[str(horizon)] = round(stock_h - bench_h - BASE_TRANSACTION_COST_PCT, 6)
+                holding_returns[str(horizon)] = round(stock_h - bench_h - roundtrip_cost, 6)
                 holding_dates[str(horizon)] = future_day.date().isoformat()
             for offset in range(1, 5):
                 future_position = position + offset
@@ -806,7 +842,7 @@ def build_historical_samples(
                         "price_limit_pct": (
                             etf_price_limit_pct(code, future_day.date().isoformat())
                             if instrument_type == "etf"
-                            else None
+                            else stock_price_limit_pct(code, future_day.date().isoformat())
                         ),
                         "amount": (
                             float(frame.iloc[future_position]["amount"])
@@ -824,7 +860,7 @@ def build_historical_samples(
                     "code": code,
                     "instrument_type": instrument_type,
                     "strategy_scores": scores,
-                    "excess_return": round(stock_return - benchmark_return - BASE_TRANSACTION_COST_PCT, 6),
+                    "excess_return": round(stock_return - benchmark_return - roundtrip_cost, 6),
                     "benchmark_return": round(benchmark_return, 6),
                     "recommend_close": float(frame.loc[day, "close"]),
                     "next_open": float(frame.loc[outcome_day, "open"]),
@@ -856,8 +892,35 @@ def resolve_historical_execution(sample: dict, setup: str) -> dict:
     close = float(sample["recommend_close"])
     exit_price = float(sample["next_close"])
     instrument_type = str(sample.get("instrument_type") or "stock")
+    # T+1 退出日可成交校验（历史可交易状态执行保护）：
+    # 停牌（零成交额）或一字跌停 = 卖不出，收益不可验证 → unverifiable，不进收益统计。
+    exit_bars = [dict(b) for b in (sample.get("future_bars") or [])]
+    if exit_bars:
+        exit_bar = exit_bars[0]
+        if instrument_type == "etf" and exit_bar.get("price_limit_pct") is None:
+            exit_bar["price_limit_pct"] = etf_price_limit_pct(
+                str(sample.get("code") or ""), str(exit_bar.get("date") or "")
+            )
+        if not _bar_is_tradable(exit_bar):
+            return {
+                "execution_status": "unverifiable",
+                "reason": "t1_exit_not_tradable",
+                "entry_price": None,
+                "net_excess_return": None,
+            }
+        if _is_one_price_limit(exit_bar, instrument_type, side="down"):
+            return {
+                "execution_status": "unverifiable",
+                "reason": "t1_exit_one_price_limit_down",
+                "entry_price": None,
+                "net_excess_return": None,
+            }
     entry = _round_to_price_tick(close, instrument_type)
-    net = (exit_price / entry - 1) * 100 - 0.15 - float(sample.get("benchmark_return") or 0)
+    net = (
+        (exit_price / entry - 1) * 100
+        - _ROUNDTRIP_COST_BY_TYPE.get(instrument_type, BASE_TRANSACTION_COST_PCT)
+        - float(sample.get("benchmark_return") or 0)
+    )
     return {
         "execution_status": "filled",
         "entry_price": entry,
@@ -945,7 +1008,7 @@ def resolve_historical_execution_window(
         exit_price = float(exit_bar["close"])
         net = (
             (exit_price / entry - 1) * 100
-            - BASE_TRANSACTION_COST_PCT
+            - _ROUNDTRIP_COST_BY_TYPE.get(instrument_type, BASE_TRANSACTION_COST_PCT)
             - float(exit_bar.get("benchmark_return") or 0)
         )
         return {
@@ -2794,17 +2857,30 @@ def run_historical_calibration(
         min_train_selections=max(20, min_train_days),
         min_oos_selections=max(30, validation_days * 6),
     )
+    # ── 能力推导（回测口径审计阻断项①②）────────────────────────────
+    # fee_model_verified：费用模型完备性（trade_cost_model 分项+最低佣金+来源披露），
+    #   不是「费率经交割单核实」—— 假设值随 fee_assumptions 下发。
+    # price_limit_handling：涨跌停元数据可用即边界保护生效 —— ETF 只认已验证名单；
+    #   股票按板块规则推算（stock_price_limit_pct），规则外代码返回 None 不猜。
+    # historical_tradability：执行级判定覆盖 = 涨跌停边界 + 一字板禁买 + 零成交停牌代理
+    #   （三条链路已在成交器生效）。已知不覆盖项见 tradability_scope，不得据此夸大。
+    price_limit_ok = (
+        instrument_type == "etf"
+        and all(code in KNOWN_ETF_PRICE_LIMIT_CODES for code in universe)
+    ) or (
+        instrument_type == "stock"
+        and all(stock_price_limit_pct(code, "2020-01-01") is not None for code in universe)
+    )
+    fee_meta = trade_cost_model.fee_assumptions(instrument_type, slippage_pct=_SLIPPAGE_PCT)
     backtest_caliber_audit = assess_backtest_caliber(
         instrument_type=instrument_type,
         capabilities={
             "settlement_rule": "t_plus_1",
-            "price_limit_handling": (
-                instrument_type == "etf"
-                and all(code in KNOWN_ETF_PRICE_LIMIT_CODES for code in universe)
-            ),
+            "price_limit_handling": price_limit_ok,
             "tick_size_rounding": True,
-            "fee_model_verified": False,
-            "historical_tradability": False,
+            "fee_model_verified": fee_meta["broker_commission_verified"]
+            and fee_meta["minimum_commission_verified"],
+            "historical_tradability": price_limit_ok,
             "point_in_time_features": True,
             "benchmark_alignment": True,
         },
@@ -2820,7 +2896,17 @@ def run_historical_calibration(
             "validation_scope": "research_only_technical_factors",
             "result_claim_scope": backtest_caliber_audit["claim_scope"],
             "backtest_caliber_audit": backtest_caliber_audit,
-            "fee_assumptions": etf_fee_assumptions() if instrument_type == "etf" else None,
+            "fee_assumptions": fee_meta,
+            "tradability_scope": {
+                "covered": (
+                    "每日涨跌停边界（板块规则推算）、一字板禁买/一字跌停不可出、"
+                    "零成交额停牌代理（不可成交记 unverifiable）"
+                ),
+                "not_covered": (
+                    "历史 ST 戴帽状态（涨跌停实为 5%，板块值会偏宽；推荐信号日已滤当日 ST）、"
+                    "上市初期无涨跌幅窗口"
+                ),
+            },
             "instrument_type": instrument_type,
             "data_source": (
                 "Tencent ETF daily + AKShare CSI300 daily"

@@ -11,13 +11,15 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 
-from app.services import data_service, supabase_store, winrate_service
+from app.services import data_service, supabase_store, trade_cost_model, winrate_service
 
-# ---------- A 股费用参数（可做配置，这里取通用默认值） ----------
-COMMISSION_RATE = 0.00025   # 佣金费率
-MIN_COMMISSION = 5.0        # 最低佣金（元）
-STAMP_RATE = 0.0005         # 印花税（仅卖出）
-TRANSFER_RATE = 0.00001     # 过户费
+# ---------- A 股费用参数 ----------
+# 唯一费率来源是 trade_cost_model（回测口径审计阻断项①：全项目费率必须单点定义）。
+# 这里保留同名常量作只读别名，_compute_fee 直接委托模型 —— 禁止再在本文件调费率。
+COMMISSION_RATE = trade_cost_model.COMMISSION_RATE   # 佣金费率
+MIN_COMMISSION = trade_cost_model.MIN_COMMISSION     # 最低佣金（元）
+STAMP_RATE = trade_cost_model.STAMP_TAX_RATE         # 印花税（仅卖出）
+TRANSFER_RATE = trade_cost_model.TRANSFER_FEE_RATE   # 过户费
 LOT_SIZE = 100              # 每手股数
 
 DEFAULT_CAPITAL = 100000.0
@@ -46,13 +48,8 @@ async def _fetch_quote(code: str):
 
 
 def _compute_fee(side: str, price: float, shares: int) -> float:
-    notional = price * shares
-    commission = max(notional * COMMISSION_RATE, MIN_COMMISSION)
-    transfer = notional * TRANSFER_RATE
-    fee = commission + transfer
-    if side == "sell":
-        fee += notional * STAMP_RATE
-    return round(fee, 2)
+    """委托 trade_cost_model（含最低佣金/印花税仅卖出/过户费），本文件不再自算费率。"""
+    return trade_cost_model.compute_trade_fee(side, price, shares, instrument_type="stock")
 
 
 async def _get_or_create_profile(user_id: str) -> dict:

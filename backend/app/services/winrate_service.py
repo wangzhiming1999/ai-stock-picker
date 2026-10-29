@@ -5,7 +5,7 @@ import asyncio
 import datetime as dt
 import traceback
 
-from app.services import backtest_service, calibers, concurrency, data_service, market_prediction, supabase_store, trade_calendar_service
+from app.services import backtest_service, calibers, concurrency, data_service, market_prediction, supabase_store, trade_calendar_service, trade_cost_model
 
 def _next_close_after(history, rec_date: str) -> tuple[str, float] | None:
     """返回推荐日后的首个真实交易日收盘，禁止用 Cron 执行时现价替代。"""
@@ -93,11 +93,23 @@ def _sample_status(total: int) -> str:
 
 
 # 推荐结算口径：扣费后对比沪深300 同区间收益，超额为正才算「赢」。
-# RECO_FEE_PCT 是保守的 A 股双边成本估算（买入佣金 + 卖出佣金 + 印花税 + 滑点），
-# 作为四舍五入前的净收益扣减项；未来若拿到更精确的费率可在此单点调整。
+# 费用主路径走 trade_cost_model（万2.5 佣金 + 最低 5 元 + 印花税仅卖出 + 过户费，
+# 按基准名义额折百分比）+ 显式滑点；RECO_FEE_PCT 仅作模型不可用时的降级值。
+# 与历史口径（打包 0.15%）连续：分项 ~0.10% + 滑点 0.05% ≈ 0.15%。
 RECO_FEE_PCT = 0.15
+RECO_SLIPPAGE_PCT = 0.05
 # 结算用的基准指数（与 backtest_service.BENCHMARK 同源，避免两处各写一份）。
 RECO_BENCHMARK = backtest_service.BENCHMARK
+
+
+def _reco_fee_pct() -> float:
+    """结算用双边成本率（%，含滑点）。模型异常时降级 RECO_FEE_PCT。"""
+    try:
+        return trade_cost_model.estimate_roundtrip_cost_pct(
+            "stock", slippage_pct=RECO_SLIPPAGE_PCT
+        )
+    except Exception:  # noqa: BLE001 - 费用模型不可用不得阻断结算
+        return RECO_FEE_PCT
 
 
 def _index_window_return(bench_hist, rec_date: str, next_date: str) -> float | None:
@@ -293,7 +305,7 @@ async def settle_daily_recommendations() -> int:
             benchmark_return = (
                 _index_window_return(bench_hist, rec_date, _next_date) if bench_ok else None
             )
-            net_return, excess_return, hit = _reco_outcome(next_return, benchmark_return, RECO_FEE_PCT)
+            net_return, excess_return, hit = _reco_outcome(next_return, benchmark_return, _reco_fee_pct())
             fields = {
                 "next_close": round(next_close, 2),
                 "next_return": round(next_return, 2),

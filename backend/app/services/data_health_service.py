@@ -69,8 +69,13 @@ def assess_data_health(
     prediction_rows: list[dict] | None = None,
     checked_at: dt.datetime | None = None,
     query_errors: dict[str, str] | None = None,
+    write_degradations: dict[str, dict] | None = None,
 ) -> dict:
-    """Build a deterministic health result from already-fetched observations."""
+    """Build a deterministic health result from already-fetched observations.
+
+    ``write_degradations`` 是推荐落库可选列降级事件（recommend_service.rec_column_degradations），
+    由调用方注入以保持本函数纯度。
+    """
     now = (checked_at or dt.datetime.now(UTC)).astimezone(UTC)
     errors = query_errors or {}
     issues = [
@@ -111,6 +116,33 @@ def assess_data_health(
     market_at = _parse_time((latest_market_cache or {}).get("updated_at"))
     market_age = round((now - market_at).total_seconds() / 3600, 1) if market_at else None
     readiness = recommend_calibration_service.assess_feature_snapshot_readiness(recommendation_rows)
+    # 前瞻指标：覆盖率是历史包袱的函数，这里抓「正在发生的漏写」（新行缺快照）
+    recent_gap = recommend_calibration_service.assess_recent_snapshot_gap(
+        recommendation_rows, checked_at=now
+    )
+    if recent_gap["recent_rows_without_snapshot"] > 0:
+        issues.append(
+            _issue(
+                "recent_snapshot_missing",
+                "warning",
+                f"近{recent_gap['window_days']}日新写 {recent_gap['recent_rows']} 行中 "
+                f"{recent_gap['recent_rows_without_snapshot']} 行缺 feature_snapshot"
+                f"（{recent_gap['missing_rate_pct']}%）—— 快照正在漏写",
+                "snapshot_writer",
+            )
+        )
+    degradations = write_degradations or {}
+    for column, event in sorted(degradations.items()):
+        severity = "critical" if column in ("feature_snapshot", "strategy_scores") else "warning"
+        issues.append(
+            _issue(
+                f"optional_column_degraded_{column}",
+                severity,
+                f"daily_recommendations.{column} 列缺失降级写入 {event.get('count', 0)} 次"
+                f"（最近错误: {str(event.get('last_error', ''))[:80]}）",
+                "snapshot_writer",
+            )
+        )
 
     if errors:
         status = "unavailable"
@@ -136,6 +168,8 @@ def assess_data_health(
             "age_hours": market_age,
         },
         "snapshot_readiness": readiness,
+        "recent_snapshot_gap": recent_gap,
+        "write_degradations": degradations,
         "issues": issues,
     }
 
@@ -185,6 +219,8 @@ async def get_data_health() -> dict:
             "prediction_settlement": None,
             "market_cache": None,
             "snapshot_readiness": None,
+            "recent_snapshot_gap": None,
+            "write_degradations": {},
             "issues": [_issue("storage_not_configured", "critical", "Supabase未配置", "storage")],
         }
 
@@ -212,10 +248,14 @@ async def get_data_health() -> dict:
         market_cache = (response.data or [None])[0]
     except Exception as exc:
         errors["market_cache"] = f"{type(exc).__name__}: {exc}"
+    # 延迟导入：recommend_service 依赖 app.routes.market，模块级互引会成环
+    from app.services import recommend_service
+
     return assess_data_health(
         recommendation_rows=rows,
         prediction_rows=prediction_rows if "predictions" not in errors else None,
         latest_heartbeat=heartbeat,
         latest_market_cache=market_cache,
         query_errors=errors,
+        write_degradations=recommend_service.rec_column_degradations(),
     )

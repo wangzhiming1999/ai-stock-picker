@@ -184,6 +184,29 @@ class TestMedianGuard:
         assert by_key["median"]["passed"] is False
         assert "中位数为正、均值为负" in by_key["median"]["detail"]
 
+    def test_sign_flip_with_tiny_gap_still_fails(self) -> None:
+        """符号相反时，绝对差与相对倍数都盖不住 —— 必须靠第三条判据拦下。
+
+        这是 2026-10-20 线上真实数字（`/api/market/winrate` 主口径 n=48）：
+        中位 −0.43%、均值 +0.41%。两条旧判据算出来分别是
+        0.84 < 1.0 与 0.95 < 1.3，于是判成「分布未明显偏斜」——
+        而它的真实含义是**过半交易跑输指数、正期望全靠少数尾部样本**。
+        """
+        result = calibers.four_questions(n=48, median=-0.43, mean=0.41)
+
+        by_key = {i["key"]: i for i in result["items"]}
+        assert by_key["median"]["passed"] is False
+        assert "符号相反" in by_key["median"]["detail"]
+        # 方向文案不能写反：这次是中位数为负
+        assert "中位数为负、均值为正" in by_key["median"]["detail"]
+
+    def test_opposite_signs_but_zero_median_stays_quiet(self) -> None:
+        """中位数为 0 时乘积为 0，不触发符号判据（贴 0 的正常分布不该狼来了）。"""
+        result = calibers.four_questions(n=200, median=0.0, mean=0.3)
+
+        by_key = {i["key"]: i for i in result["items"]}
+        assert by_key["median"]["passed"] is True
+
     def test_small_gap_passes(self) -> None:
         result = calibers.four_questions(n=200, median=1.10, mean=1.20)
 

@@ -33,7 +33,13 @@ import math
 import statistics
 
 from app.models import StockHistory
-from app.services import calibers, concurrency, data_service, pattern_service
+from app.services import calibers, concurrency, data_service, pattern_service, trade_cost_model
+
+# 持有收益扣双边成本（分项费用 + 滑点 0.05%，与推荐结算口径同源，基准名义额折算）。
+# ⚠️ 只净「持有收益」；最大浮盈/浮亏是路径风险读数，保持毛值（扣费会平移极值刻度）。
+_ROUNDTRIP_COST_PCT = trade_cost_model.estimate_roundtrip_cost_pct(
+    "stock", slippage_pct=0.05
+)
 
 # 形态回测默认股票池（42 只）：覆盖大/中盘与主要行业，避免结论只来自少数几只票。
 # 注意这是「今天的存活者」，天然有幸存者偏差，且大票波动小、形态信号偏弱，
@@ -167,7 +173,8 @@ class _PeriodCursor:
 def _forward(closes: list[float], i: int, horizon: int) -> tuple[float, float, float] | None:
     """从 closes[i] 入场、持有 horizon 个交易日的表现。
 
-    返回 (持有收益 %, 期间最大浮盈 %, 期间最大浮亏 %)，均为相对入场价。
+    返回 (持有净收益 %, 期间最大浮盈 %, 期间最大浮亏 %)。
+    持有收益已扣双边成本（``_ROUNDTRIP_COST_PCT``）；浮盈/浮亏是路径读数，保持毛值。
     """
     entry = closes[i]
     if entry <= 0 or i + horizon >= len(closes):
@@ -176,7 +183,7 @@ def _forward(closes: list[float], i: int, horizon: int) -> tuple[float, float, f
     if not path:
         return None
     return (
-        (closes[i + horizon] / entry - 1) * 100,
+        (closes[i + horizon] / entry - 1) * 100 - _ROUNDTRIP_COST_PCT,
         (max(path) / entry - 1) * 100,
         (min(path) / entry - 1) * 100,
     )

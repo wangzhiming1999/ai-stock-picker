@@ -6,6 +6,7 @@ validation and the live ranker on exactly the same feature contract.
 """
 from __future__ import annotations
 
+import datetime as dt
 from dataclasses import asdict, dataclass
 from statistics import mean
 
@@ -34,26 +35,52 @@ SCORING_PROFILES = (
 
 _SNAPSHOT_FIELDS = ("pe", "pb", "turnover", "market_cap_yi", "market_board")
 
+#: v18（feature_snapshot 列）上线日。此前的行没有快照是**既定事实**，不是漏写 ——
+#: 旧行不回填基本面（不伪造），也就**不进覆盖率分母**，否则历史包袱会把
+#: 「正在发生的漏写」永远掩盖成 6% 之类的低数字（线上实测 6.06% 就是这么来的）。
+SNAPSHOT_SINCE_V18 = "2026-10-03"
+
 
 def assess_feature_snapshot_readiness(
-    rows: list[dict], *, min_rows: int = 300, min_dates: int = 30, required_coverage: float = 0.9
+    rows: list[dict],
+    *,
+    min_rows: int = 300,
+    min_dates: int = 30,
+    required_coverage: float = 0.9,
+    snapshot_since: str | None = SNAPSHOT_SINCE_V18,
 ) -> dict:
-    """Measure whether production point-in-time data can support full-factor replay."""
+    """Measure whether production point-in-time data can support full-factor replay.
+
+    ``snapshot_since`` 之后的已结算行是**主口径**（达标判断只看它）；全部已结算行的
+    覆盖率另附在 ``field_coverage_pct_all`` 供对照。``snapshot_since=None`` 关闭过滤
+    （全量口径，仅测试/对照用）。
+    """
     eligible = [row for row in rows if row.get("source") in ("rule", "calibration")]
     settled = [row for row in eligible if row.get("settled_at")]
-    dates = sorted({str(row["rec_date"]) for row in settled if row.get("rec_date")})
-    coverage = {
-        field: round(
-            sum((row.get("feature_snapshot") or {}).get(field) is not None for row in settled)
-            / len(settled)
-            * 100,
-            2,
-        ) if settled else 0.0
-        for field in _SNAPSHOT_FIELDS
-    }
+    if snapshot_since:
+        settled_main = [
+            row for row in settled if str(row.get("rec_date") or "")[:10] >= snapshot_since
+        ]
+    else:
+        settled_main = settled
+
+    def _coverage(population: list[dict]) -> dict[str, float]:
+        return {
+            field: round(
+                sum((row.get("feature_snapshot") or {}).get(field) is not None for row in population)
+                / len(population)
+                * 100,
+                2,
+            ) if population else 0.0
+            for field in _SNAPSHOT_FIELDS
+        }
+
+    coverage = _coverage(settled_main)
+    coverage_all = _coverage(settled)
+    dates = sorted({str(row["rec_date"])[:10] for row in settled_main if row.get("rec_date")})
     threshold_pct = required_coverage * 100
     blockers = []
-    if len(settled) < min_rows:
+    if len(settled_main) < min_rows:
         blockers.append(f"settled_rows_below_{min_rows}")
     if len(dates) < min_dates:
         blockers.append(f"trading_dates_below_{min_dates}")
@@ -64,17 +91,52 @@ def assess_feature_snapshot_readiness(
     )
     return {
         "ready_for_full_factor_replay": not blockers,
+        "snapshot_since": snapshot_since,
         "eligible_rows": len(eligible),
-        "settled_rows": len(settled),
+        "settled_rows": len(settled_main),
+        "legacy_settled_rows": len(settled) - len(settled_main),
         "trading_dates": len(dates),
         "date_range": {"start": dates[0] if dates else None, "end": dates[-1] if dates else None},
         "field_coverage_pct": coverage,
+        "field_coverage_pct_all": coverage_all,
         "requirements": {
             "min_settled_rows": min_rows,
             "min_trading_dates": min_dates,
             "required_field_coverage_pct": threshold_pct,
+            "snapshot_since": snapshot_since,
         },
         "blockers": blockers,
+    }
+
+
+def assess_recent_snapshot_gap(
+    rows: list[dict],
+    *,
+    checked_at,
+    window_days: int = 7,
+    snapshot_since: str | None = SNAPSHOT_SINCE_V18,
+) -> dict:
+    """近 ``window_days`` 个自然日**新写行**的快照缺失率（前瞻性指标）。
+
+    覆盖率是历史包袱的函数，这个指标抓的是**正在发生的漏写**（写路径降级、
+    当日整批跳过这类问题）：只看 snapshot_since 之后的新行 —— 旧行没有快照
+    是既定事实，混进来就又变成「永远修不完」的假警报。
+    """
+    today = checked_at.date() if isinstance(checked_at, dt.datetime) else checked_at
+    recent = [
+        row
+        for row in rows
+        if row.get("rec_date")
+        and (today - dt.date.fromisoformat(str(row["rec_date"])[:10])).days < window_days
+        and (snapshot_since is None or str(row["rec_date"])[:10] >= snapshot_since)
+    ]
+    missing = [row for row in recent if not (row.get("feature_snapshot") or {})]
+    return {
+        "window_days": window_days,
+        "snapshot_since": snapshot_since,
+        "recent_rows": len(recent),
+        "recent_rows_without_snapshot": len(missing),
+        "missing_rate_pct": round(len(missing) / len(recent) * 100, 2) if recent else 0.0,
     }
 
 

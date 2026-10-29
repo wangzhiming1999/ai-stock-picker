@@ -20,6 +20,9 @@ REQUIRED_FIELDS = ("key", "name", "target", "window", "bucket", "benchmark", "ru
 # 但结论为负（n=133、期望 −4.47%/次、胜率 4.5%）—— 登记它正是为了让这个负数
 # 在界面上有出处可查，而不是被藏起来或换个说法。它与上面几条同样不可比：
 # 标的（全量跌停股）、持有期（D+1 集合竞价）与判定方向都不同。
+# dark_flow 是 2026-10-29 新增的明暗背离形态（G/S 计数与持续性 streak）：
+# **不是收益率口径**（形态计数 + 连续天数），恒定 unsupported ——
+# 登记它是为了让「streak 不等于胜率」这句话有出处可查。
 EXPECTED_KEYS = {
     "prediction",
     "recommendation",
@@ -30,6 +33,7 @@ EXPECTED_KEYS = {
     "limitdown_repair",
     "seize_reseal",
     "agent_plan",
+    "dark_flow",
 }
 
 

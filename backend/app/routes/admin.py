@@ -55,6 +55,7 @@ EXPECTED_TABLES = [
     "trade_calendar",
     "limitup_daily_snapshot",
     "limitdown_daily_snapshot",
+    "dark_flow_daily_snapshot",
     "seize_radar_log",
     # 回测
     "backtest_results",

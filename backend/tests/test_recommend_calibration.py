@@ -8,6 +8,7 @@ from app.services.recommend_calibration_service import (
     SCORING_PROFILES,
     calibrate_walk_forward,
     assess_feature_snapshot_readiness,
+    assess_recent_snapshot_gap,
     prepare_calibration_samples,
     score_strategy_components,
 )
@@ -46,7 +47,7 @@ class RecommendCalibrationTests(unittest.TestCase):
                 })
 
         result = assess_feature_snapshot_readiness(
-            rows, min_rows=10, min_dates=4, required_coverage=0.8
+            rows, min_rows=10, min_dates=4, required_coverage=0.8, snapshot_since=None
         )
 
         self.assertFalse(result["ready_for_full_factor_replay"])
@@ -78,13 +79,81 @@ class RecommendCalibrationTests(unittest.TestCase):
         ]
 
         result = assess_feature_snapshot_readiness(
-            rows, min_rows=1, min_dates=1, required_coverage=0.9
+            rows, min_rows=1, min_dates=1, required_coverage=0.9, snapshot_since=None
         )
 
         self.assertEqual(result["trading_dates"], 1)
         self.assertEqual(result["date_range"], {"start": "2026-01-01", "end": "2026-01-01"})
         self.assertEqual(result["field_coverage_pct"]["pe"], 0.0)
         self.assertFalse(result["ready_for_full_factor_replay"])
+
+    def test_snapshot_readiness_main_caliber_excludes_legacy_rows(self) -> None:
+        """旧行无快照是既定事实，不许进主口径分母 —— 6.06% 就是它们把覆盖率压扁的。
+
+        主口径只看 snapshot_since 之后的已结算行；全量口径另附对照。
+        """
+        rows = [
+            # 5 条旧行：无快照（v18 前）
+            {"rec_date": f"2026-09-{day:02d}", "source": "rule", "settled_at": "2026-10-01", "feature_snapshot": {}}
+            for day in range(20, 25)
+        ] + [
+            # 3 条新行：快照齐全
+            {
+                "rec_date": f"2026-10-{day:02d}",
+                "source": "rule",
+                "settled_at": "2026-10-11",
+                "feature_snapshot": {"pe": 10.0, "pb": 1.5, "turnover": 2.0, "market_cap_yi": 300.0, "market_board": "main"},
+            }
+            for day in range(5, 8)
+        ]
+
+        result = assess_feature_snapshot_readiness(
+            rows, min_rows=1, min_dates=1, required_coverage=0.9
+        )
+
+        assert result["snapshot_since"] == "2026-10-03"
+        assert result["settled_rows"] == 3
+        assert result["legacy_settled_rows"] == 5
+        assert result["field_coverage_pct"]["pe"] == 100.0
+        assert result["field_coverage_pct_all"]["pe"] == 37.5
+        assert result["trading_dates"] == 3
+        assert result["ready_for_full_factor_replay"] is True
+
+    def test_snapshot_readiness_defaults_to_v18_window(self) -> None:
+        """默认主口径 = v18（2026-10-03）之后：之前的行即使已结算也不算数。"""
+        rows = [
+            {"rec_date": "2026-10-02", "source": "rule", "settled_at": "2026-10-03",
+             "feature_snapshot": {"pe": 1, "pb": 1, "turnover": 1, "market_cap_yi": 1, "market_board": "main"}},
+        ]
+
+        result = assess_feature_snapshot_readiness(rows, min_rows=1, min_dates=1)
+
+        assert result["settled_rows"] == 0
+        assert result["legacy_settled_rows"] == 1
+        assert "settled_rows_below_1" in result["blockers"]
+
+    def test_recent_snapshot_gap_counts_only_new_rows(self) -> None:
+        """前瞻指标：只看 v18 后的新写行，旧行缺快照不算「正在漏写」。"""
+        import datetime as dt
+
+        rows = [
+            # 旧日期：缺快照也不算漏写（既定事实）
+            {"rec_date": "2026-10-01", "source": "rule", "feature_snapshot": {}},
+            # 新日期缺快照：算漏写
+            {"rec_date": "2026-10-05", "source": "rule", "feature_snapshot": {}},
+            # 新日期有快照：不算
+            {"rec_date": "2026-10-05", "source": "rule", "feature_snapshot": {"pe": 10.0}},
+            # 窗口外：不算
+            {"rec_date": "2026-01-01", "source": "rule", "feature_snapshot": {}},
+        ]
+
+        gap = assess_recent_snapshot_gap(
+            rows, checked_at=dt.datetime(2026, 10, 6)
+        )
+
+        assert gap["recent_rows"] == 2
+        assert gap["recent_rows_without_snapshot"] == 1
+        assert gap["missing_rate_pct"] == 50.0
 
     def test_preparation_excludes_unfilled_and_unscored_rows(self) -> None:
         rows = [
@@ -225,7 +294,7 @@ class TestRecommendCalibrationEndpoint:
     async def test_snapshot_readiness_endpoint_reports_live_storage_coverage(self, monkeypatch) -> None:
         class _Response:
             data = [{
-                "rec_date": "2026-10-01", "source": "rule", "settled_at": "2026-10-02",
+                "rec_date": "2026-10-05", "source": "rule", "settled_at": "2026-10-06",
                 "feature_snapshot": {"pe": 12, "pb": 2, "turnover": 1, "market_cap_yi": 500, "market_board": "main"},
             }]
 

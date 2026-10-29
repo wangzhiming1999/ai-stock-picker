@@ -724,6 +724,12 @@ async def _save_quad_to_recommendations(data_day: str, result: dict) -> int:
     if not items:
         return 0
     try:
+        # 与推荐/观察层共用落库器：可选列缺失时按列降级重试（v18 之前的表不至于整批写死）
+        from app.services.recommend_service import (
+            _insert_recommendation_rows,
+            build_feature_snapshot,
+        )
+
         sb = await supabase_store.get_service_client()
         existing = (
             await sb.table("daily_recommendations")
@@ -745,13 +751,15 @@ async def _save_quad_to_recommendations(data_day: str, result: dict) -> int:
                 # 一律靠同行的 source 界定 —— 见 recommend_service._CONFIDENCE_SOURCE_TO_DB。
                 "confidence": item.get("overall_score"),
                 "source": "quad",
+                # 快照照写（即便 source='quad' 不进合格集）—— 未来放宽口径时不掉坑
+                "feature_snapshot": build_feature_snapshot(item),
             }
             for item in items
             if item.get("code") and item.get("price") and item["code"] not in have
         ]
         if not rows:
             return 0
-        res = await sb.table("daily_recommendations").insert(rows).execute()
+        res = await _insert_recommendation_rows(sb, rows, select_ids=False)
         return len(res.data or [])
     except Exception as e:
         print(f"[quad] 四维榜落 daily_recommendations 失败（结算闭环不可用）: {e}")

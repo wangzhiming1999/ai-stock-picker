@@ -50,11 +50,44 @@ class BacktestAccountingTests(unittest.TestCase):
         with (
             patch("app.services.backtest_service._fetch_history", return_value=history),
             patch("app.services.backtest_service.akshare_guard.call", return_value=benchmark),
+            # 现金保留守卫只看资金结转，费用语义由 test_rebalance_trades_pay_itemized_fees 单独守
+            patch("app.services.trade_cost_model.compute_trade_fee", return_value=0.0),
         ):
             result = run_backtest(params)
 
         self.assertEqual(result["final_value"], 100.0)
         self.assertEqual(result["total_return"], 0.0)
+
+    def test_rebalance_trades_pay_itemized_fees(self) -> None:
+        """换仓买卖必须逐笔扣费（小单由最低佣金主导）——撤掉扣费实现即红。"""
+        dates = pd.date_range("2025-01-01", periods=65, freq="B")
+        history = pd.DataFrame(
+            {
+                "date": dates,
+                "close": [60.0] * len(dates),
+                "amount": [1_000_000.0] * len(dates),
+            }
+        )
+        benchmark = pd.DataFrame({"date": dates, "close": [100.0] * len(dates)})
+        params = BacktestParams(
+            strategy="value",
+            codes=["600000"],
+            start_date="2025-01-01",
+            end_date="2025-04-30",
+            top_n=1,
+            rebalance_days=5,
+            initial_capital=100.0,
+        )
+
+        with (
+            patch("app.services.backtest_service._fetch_history", return_value=history),
+            patch("app.services.backtest_service.akshare_guard.call", return_value=benchmark),
+        ):
+            result = run_backtest(params)
+
+        # 100 元本金买 60 元 1 股：至少付一次买入最低佣金（5 元）——毛收益实现会得 100.0
+        self.assertLess(result["final_value"], 100.0)
+        self.assertGreater(result["final_value"], 0.0)
 
 
 class FetchFailureCacheTests(unittest.TestCase):

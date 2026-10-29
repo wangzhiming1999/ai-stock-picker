@@ -65,8 +65,12 @@ async def daily_cron(request: Request):
         try:
             result["recommendations"] = await recommend_service.generate_daily_recommendations(force_refresh=True)
         except Exception as re_:
-            print(f"[cron] recommend gen failed: {re_}")
+            # 不吞：推荐步失败曾静默断供（只剩 print），胜率闭环悄悄 0 样本。
+            # 错误进结果体随 cron 响应可见，同时保留 print 供 Vercel 日志检索。
+            err = f"{type(re_).__name__}: {re_}"
+            print(f"[cron] recommend gen failed: {err}")
             result["recommendations"] = None
+            result["recommendations_error"] = err
         # 涨停池每日落库：收盘后把当日涨停池写入累积表（回测窗口自积累）。
         # 表未建/Supabase 未配置时内部静默返回 0，不影响其他结算步骤。
         try:
@@ -89,6 +93,16 @@ async def daily_cron(request: Request):
         except Exception as de:
             print(f"[cron] limitdown snapshot save failed: {de}")
             result["limitdown_snapshot_rows"] = None
+        # 暗盘 G/S 形态每日落库：持续性（连续同形态天数）靠自积累快照，不打个股时序接口。
+        # 表未建（v21 未执行）/Supabase 未配置时内部静默返回 0，不影响其他结算步骤。
+        try:
+            from app.services import dark_flow_service
+
+            result["dark_flow_snapshot_rows"] = await dark_flow_service.save_daily_snapshot()
+            result["dark_flow_snapshot_purged"] = await dark_flow_service.purge_old_snapshots()
+        except Exception as fe:
+            print(f"[cron] dark flow snapshot save failed: {fe}")
+            result["dark_flow_snapshot_rows"] = None
         # 抢封板收益闭环：当日封板判定 + 历史待结算行的 D+1 开盘结算。
         # 此前这两步只在 GET /api/seize/history（用户打开抢板历史页）里触发 ——
         # 实测 20 天 56 条落库 / 0 条结算 / next_open 恒空，样本从没进过账。

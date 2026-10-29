@@ -1,6 +1,8 @@
 import unittest
+from unittest import mock
 
 from app.models import StockHistory
+from app.services import trade_cost_model, winrate_service
 from app.services.winrate_service import (
     _index_window_return,
     _next_close_after,
@@ -108,6 +110,32 @@ class RecoExcessCaliberTests(unittest.TestCase):
         self.assertAlmostEqual(net2, -1.15)
         self.assertIsNone(excess2)
         self.assertFalse(hit2)
+
+
+class RecoFeeModelTests(unittest.TestCase):
+    """结算费率必须来自统一费用模型（分项 + 最低佣金），打包常量只作降级兜底。
+
+    回测口径审计阻断项①：同一笔交易五处五种成本。结算侧的守卫是
+    「主口径值 = trade_cost_model 分项折算」，不是再拍一个 0.15。
+    """
+
+    def test_reco_fee_pct_matches_itemized_model(self) -> None:
+        expected = trade_cost_model.estimate_roundtrip_cost_pct(
+            "stock", slippage_pct=winrate_service.RECO_SLIPPAGE_PCT
+        )
+        self.assertAlmostEqual(winrate_service._reco_fee_pct(), expected)
+        # 分项（佣金最低 5 元 + 过户费 + 印花税 + 滑点）≠ 打包拍的 0.15
+        self.assertNotAlmostEqual(winrate_service._reco_fee_pct(), winrate_service.RECO_FEE_PCT)
+
+    def test_reco_fee_pct_degrades_to_constant_when_model_unavailable(self) -> None:
+        with mock.patch.object(
+            trade_cost_model,
+            "estimate_roundtrip_cost_pct",
+            side_effect=RuntimeError("model down"),
+        ):
+            self.assertAlmostEqual(
+                winrate_service._reco_fee_pct(), winrate_service.RECO_FEE_PCT
+            )
 
 
 if __name__ == "__main__":

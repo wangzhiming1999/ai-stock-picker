@@ -696,11 +696,28 @@ def db_source(rec: dict) -> str:
     return _CONFIDENCE_SOURCE_TO_DB.get(str(rec.get("confidence_source") or ""), _DB_SOURCE_FALLBACK)
 
 
-# v13 之前的表没有 expected_price 列。缺失时本进程记住一次，之后不再重复撞。
-# 为什么要降级重试而不是直接失败：迁移由用户在 Supabase 控制台跑，没跑完时直插会让
-# **整条推荐落库失败** —— 连带丢掉胜率跟踪，比少一个字段严重得多。
-_OPTIONAL_REC_COLUMNS: set[str] = set()
+# v13 之前的表没有 expected_price 列。列缺失时剥掉该列重试 —— **只对本次调用生效**，
+# 不做实例级永久记忆：单次误判（错误文本恰好含列名）不该毒化整个实例生命周期，
+# 而旧的「记住一次」写法既不可见又永不复原 —— 这正是快照静默断写难被发现的原因。
+# 每次降级都记进 _REC_COLUMN_DEGRADATIONS，data-health 读出来亮灯（可见化）。
 _OPTIONAL_REC_COLUMN_NAMES = ("expected_price", "strategy_scores", "scoring_profile", "feature_snapshot")
+_REC_COLUMN_DEGRADATIONS: dict[str, dict] = {}
+
+
+def rec_column_degradations() -> dict[str, dict]:
+    """可选列降级事件（本进程内）：{列名: {count, last_error, last_at}}。供 data-health 亮灯。
+
+    ⚠️ 无头实例（serverless）里这是进程内计数：data-health 与写路径不在同一实例时
+    看不到对方的事件。日志（print）是跨实例兜底，这里是同实例的结构化可见性。
+    """
+    return {key: dict(value) for key, value in _REC_COLUMN_DEGRADATIONS.items()}
+
+
+def _record_column_degradation(column: str, error: Exception) -> None:
+    event = _REC_COLUMN_DEGRADATIONS.setdefault(column, {"count": 0, "last_error": "", "last_at": ""})
+    event["count"] += 1
+    event["last_error"] = str(error)[:200]
+    event["last_at"] = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
 
 
 def _missing_optional_column(error: Exception) -> str | None:
@@ -710,9 +727,10 @@ def _missing_optional_column(error: Exception) -> str | None:
 
 async def _insert_recommendation_rows(sb, rows: list[dict], *, select_ids: bool):
     """Insert while tolerating independently deployed optional migrations."""
+    degraded: set[str] = set()
     for _ in range(len(_OPTIONAL_REC_COLUMN_NAMES) + 1):
         payload = [
-            {key: value for key, value in row.items() if key not in _OPTIONAL_REC_COLUMNS}
+            {key: value for key, value in row.items() if key not in degraded}
             for row in rows
         ]
         try:
@@ -722,9 +740,10 @@ async def _insert_recommendation_rows(sb, rows: list[dict], *, select_ids: bool)
             return await query.execute()
         except Exception as error:
             missing = _missing_optional_column(error)
-            if not missing or missing in _OPTIONAL_REC_COLUMNS:
+            if not missing or missing in degraded:
                 raise
-            _OPTIONAL_REC_COLUMNS.add(missing)
+            degraded.add(missing)
+            _record_column_degradation(missing, error)
             print(f"[recommend] daily_recommendations.{missing} 列不存在，本次降级写入")
     raise RuntimeError("optional recommendation column fallback exhausted")
 
@@ -734,39 +753,78 @@ async def save_recommendations(rec_date: str, recs: list[dict]) -> dict[str, str
 
     返回的 id 用于模拟盘成交流水回写 related_reco_id，闭合「推荐 → 模拟验证 → 胜率」环。
 
-    ``expected_price`` 是 v13 新增的可选列：列不存在时剥掉它重试（见 ``_OPTIONAL_REC_COLUMNS``）。
+    幂等 + **补快照**：当日已有行时不再整批跳过。整批跳过正是快照覆盖率 6.06% 的
+    根因之一 —— cron 推荐步失败后由 refresh 补跑、或 quad 行先落的场景，规则行
+    一条也写不进（只回了 id 映射）。现在按 code 对账：新码插入；已有码若快照为空
+    则用本次 recs 的**信号时**快照补写（真实信号时数据，非伪造；已有非空快照不覆盖）。
+
+    ``expected_price`` 是 v13 新增的可选列：列不存在时剥掉它重试（见 ``_insert_recommendation_rows``）。
     注意它只是**执行锚点**，结算 / 胜率一律不看这一列。
     """
     if not supabase_store.is_configured() or not recs:
         return {}
     sb = await supabase_store.get_service_client()
-    # 先检查当日是否已保存，避免重复
-    existing = (
-        await sb.table("daily_recommendations")
-        .select("id, code")
-        .eq("rec_date", rec_date)
-        .execute()
-    )
-    if existing.data:
-        return {row["code"]: str(row["id"]) for row in existing.data}
-    rows = [
-        {
-            "rec_date": rec_date,
-            "code": r["code"],
-            "name": r["name"],
-            "recommend_price": r["price"],
-            "reason": r.get("reason", ""),
-            "confidence": r.get("confidence"),
-            "source": db_source(r),
-            "expected_price": r.get("expected_price"),
-            "strategy_scores": r.get("strategy_scores") or {},
-            "scoring_profile": r.get("scoring_profile") or BASELINE_PROFILE.key,
-            "feature_snapshot": r.get("feature_snapshot") or {},
-        }
-        for r in recs
-    ]
-    res = await _insert_recommendation_rows(sb, rows, select_ids=True)
-    return {row["code"]: str(row["id"]) for row in (res.data or [])}
+    try:
+        existing = (
+            await sb.table("daily_recommendations")
+            .select("id, code, feature_snapshot")
+            .eq("rec_date", rec_date)
+            .execute()
+        )
+        existing_rows = existing.data or []
+    except Exception as error:
+        # feature_snapshot 列未迁移时连 select 都会失败 —— 退回只取 id/code（此场景无法补快照）
+        if "feature_snapshot" not in str(error):
+            raise
+        _record_column_degradation("feature_snapshot", error)
+        existing = (
+            await sb.table("daily_recommendations")
+            .select("id, code")
+            .eq("rec_date", rec_date)
+            .execute()
+        )
+        existing_rows = existing.data or []
+    existing_by_code = {row["code"]: row for row in existing_rows}
+    id_map = {row["code"]: str(row["id"]) for row in existing_rows}
+
+    for r in recs:
+        row = existing_by_code.get(r["code"])
+        snapshot = r.get("feature_snapshot") or {}
+        if row is None or not snapshot or (row.get("feature_snapshot") or {}):
+            continue
+        try:
+            await (
+                sb.table("daily_recommendations")
+                .update({"feature_snapshot": snapshot})
+                .eq("id", row["id"])
+                .execute()
+            )
+        except Exception as error:
+            _record_column_degradation("feature_snapshot", error)
+            print(f"[recommend] 补写 feature_snapshot 失败 {r.get('code')}: {error}")
+
+    new_recs = [r for r in recs if r["code"] not in existing_by_code]
+    if new_recs:
+        rows = [
+            {
+                "rec_date": rec_date,
+                "code": r["code"],
+                "name": r["name"],
+                "recommend_price": r["price"],
+                "reason": r.get("reason", ""),
+                "confidence": r.get("confidence"),
+                "source": db_source(r),
+                "expected_price": r.get("expected_price"),
+                "strategy_scores": r.get("strategy_scores") or {},
+                "scoring_profile": r.get("scoring_profile") or BASELINE_PROFILE.key,
+                "feature_snapshot": r.get("feature_snapshot") or {},
+            }
+            for r in new_recs
+        ]
+        res = await _insert_recommendation_rows(sb, rows, select_ids=True)
+        for row in (res.data or []):
+            id_map[row["code"]] = str(row["id"])
+    return id_map
 
 
 async def save_calibration_candidates(
@@ -854,6 +912,8 @@ async def save_watchlist(rec_date: str, watchlist: list[dict]) -> int:
                 "source": "watch",
                 "strategy_scores": w.get("strategy_scores") or {},
                 "scoring_profile": w.get("scoring_profile") or BASELINE_PROFILE.key,
+                # 观察层不进合格集，但快照照写 —— 未来放宽口径时不掉坑（与 quad 行同理）。
+                "feature_snapshot": build_feature_snapshot(w),
             }
             for w in watchlist
             if w.get("code") and w.get("price") and w["code"] not in have

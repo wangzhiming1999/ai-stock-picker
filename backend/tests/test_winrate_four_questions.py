@@ -244,6 +244,27 @@ class TestDistributionGuard:
         assert "median" in reco["four_questions"]["failed_keys"]
 
     @pytest.mark.asyncio
+    async def test_tail_driven_distribution_trips_the_guard(self, monkeypatch) -> None:
+        """过半跑输 + 少数大赢家把均值拉正 —— 这必须判失真，不能判「未偏斜」。
+
+        线上实测形态（n=48：中位 −0.43%、均值 +0.41%）。两条旧判据
+        （绝对差 0.84 / 相对倍数 0.95）都够不到阈值，于是「低胜率」被读成「分布健康」。
+        """
+        rows = [
+            {"hit": False, "source": "llm", "excess_return": -0.5, "execution_status": "filled"}
+            for _ in range(39)
+        ] + [
+            {"hit": True, "source": "llm", "excess_return": 35.9, "execution_status": "filled"}
+        ]
+        stats = await _stats(monkeypatch, rows)
+        reco = stats["recommendation"]
+        by_key = _by_key(reco["four_questions"])
+
+        # 中位 −0.5、均值 +0.41：符号相反
+        assert by_key["median"]["passed"] is False
+        assert "符号相反" in by_key["median"]["detail"]
+
+    @pytest.mark.asyncio
     async def test_no_excess_rows_leaves_distribution_unanswered(self, monkeypatch) -> None:
         """没有 excess_return（v14 未跑）⇒ 分布这一问答不上来，不能折算成 0%。"""
         stats = await _stats(monkeypatch, [

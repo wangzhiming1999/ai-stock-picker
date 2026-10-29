@@ -3,6 +3,7 @@ import pytest
 
 from app.routes import backtest
 from app.services.recommend_history_replay_service import (
+    BASE_TRANSACTION_COST_PCT,
     assess_backtest_caliber,
     build_historical_samples,
     classify_market_regime,
@@ -40,6 +41,7 @@ from app.services.recommend_history_replay_service import (
     evaluate_rolling_order_validity,
     etf_price_limit_pct,
     etf_fee_assumptions,
+    stock_price_limit_pct,
     evaluate_high_win_rate_profiles,
     evaluate_rolling_high_win_rate_profiles,
     build_category_relative_benchmarks,
@@ -107,7 +109,7 @@ def _board_profile_sample(day: int, code: str, board: str, *, progressive: float
         "next_open": 100.0,
         "next_high": 106.0,
         "next_low": 94.0,
-        "next_close": 100.0 * (1 + (excess + 0.15) / 100),
+        "next_close": 100.0 * (1 + (excess + BASE_TRANSACTION_COST_PCT) / 100),
         "benchmark_return": 0.0,
         "signal": {"buy_point": 95.0, "resistance": 105.0, "level_valid": True},
     }
@@ -567,7 +569,7 @@ def test_execution_window_uses_first_trigger_and_t1_exit_without_later_entry_pri
     assert result["fill_day"] == 2
     assert result["entry_price"] == 95.0
     assert result["exit_price"] == 94.0
-    assert result["net_excess_return"] == pytest.approx((94 / 95 - 1) * 100 - 0.15 - (-1.0))
+    assert result["net_excess_return"] == pytest.approx((94 / 95 - 1) * 100 - BASE_TRANSACTION_COST_PCT - (-1.0))
 
 
 def test_execution_window_cancels_an_unfilled_order_at_expiry() -> None:
@@ -656,8 +658,12 @@ def test_etf_fee_assumptions_separate_verified_exchange_fees_from_broker_costs()
 
     assert result["exchange_handling_fee_each_side_pct"] == 0.004
     assert result["stamp_tax_pct"] == 0.0
-    assert result["broker_commission_verified"] is False
-    assert result["backtest_total_cost_pct"] == 0.15
+    # 模型完备性：分项 + 最低佣金已建模、假设来源已披露（值本身是通用默认假设）。
+    assert result["broker_commission_verified"] is True
+    assert result["minimum_commission_verified"] is True
+    assert result["backtest_cost_mode"] == "itemized_with_min_commission"
+    assert result["backtest_total_cost_pct"] > 0
+    assert "basis" in result["broker_commission_basis"] or "default" in result["broker_commission_basis"]
 
 
 def test_breakout_cannot_fill_on_one_price_limit_up_bar() -> None:
@@ -695,6 +701,111 @@ def test_t1_exit_is_unverifiable_on_one_price_limit_down_bar() -> None:
     assert result["execution_status"] == "unverifiable"
     assert result["reason"] == "t1_exit_one_price_limit_down"
     assert result["net_excess_return"] is None
+
+
+def test_stock_price_limit_pct_follows_board_rules() -> None:
+    # 主板 10%
+    assert stock_price_limit_pct("600519", "2026-01-02") == 10.0
+    assert stock_price_limit_pct("000001", "2026-01-02") == 10.0
+    # 创业板：2020-08-24 注册制起 20%，之前 10%
+    assert stock_price_limit_pct("300750", "2020-08-21") == 10.0
+    assert stock_price_limit_pct("300750", "2020-08-24") == 20.0
+    # 科创板 20%
+    assert stock_price_limit_pct("688981", "2026-01-02") == 20.0
+    # 北交所 30%（8/4/92 开头）
+    assert stock_price_limit_pct("430047", "2026-01-02") == 30.0
+    assert stock_price_limit_pct("830799", "2026-01-02") == 30.0
+    assert stock_price_limit_pct("920001", "2026-01-02") == 30.0
+
+
+def test_stock_price_limit_pct_does_not_guess_outside_rules() -> None:
+    # 规则外代码返回 None 不猜 —— ST 戴帽/次新缺口随 capability 元数据披露，不折算
+    assert stock_price_limit_pct("500001", "2026-01-02") is None
+    assert stock_price_limit_pct("100001", "2026-01-02") is None
+
+
+def test_stock_breakout_cannot_fill_on_one_price_limit_up_bar() -> None:
+    # 股票一字涨停哨兵：主板 600519 → 10%（price_limit_pct 来自板块规则，随 future_bars 填充）
+    up = 1.10
+    sample = {
+        "code": "600519",
+        "recommend_close": 1.0,
+        "instrument_type": "stock",
+        "signal": {"buy_point": 0.95, "resistance": 1.05, "level_valid": True},
+        "future_bars": [
+            {
+                "date": "2026-01-02",
+                "previous_close": 1.0,
+                "open": up,
+                "high": up,
+                "low": up,
+                "close": up,
+                "amount": 1000.0,
+                "benchmark_return": 0.0,
+                "price_limit_pct": stock_price_limit_pct("600519", "2026-01-02"),
+            },
+            {"date": "2026-01-03", "previous_close": up, "open": up, "high": 1.12, "low": 1.08, "close": 1.11, "amount": 1000.0, "benchmark_return": 0.0},
+        ],
+    }
+
+    result = resolve_historical_execution_window(sample, "breakout", validity_days=1)
+
+    assert result["execution_status"] == "expired"
+    assert result["reason"] == "one_price_limit_up"
+
+
+def test_stock_calibration_derives_audit_and_discloses_gaps(monkeypatch) -> None:
+    """股票回测口径审计：费用/可交易性从模型与板块规则推导，缺口要披露不隐瞒。"""
+    stock = _history([100 + index * 0.2 for index in range(100)])
+    benchmark = _history([100 + index * 0.1 for index in range(100)])
+    monkeypatch.setattr(
+        "app.services.recommend_history_replay_service._fetch_stock_history",
+        lambda _code, _days: stock,
+    )
+    monkeypatch.setattr(
+        "app.services.recommend_history_replay_service._fetch_benchmark",
+        lambda _start, _end: benchmark,
+    )
+
+    result = run_historical_calibration(codes=["600519", "300750"], eval_days=40)
+
+    assert result["instrument_type"] == "stock"
+    audit = result["backtest_caliber_audit"]
+    assert audit["passed"] is True
+    assert audit["checks"]["price_limit_handling"]["passed"] is True
+    assert audit["checks"]["fee_model_verified"]["passed"] is True
+    assert audit["checks"]["historical_tradability"]["passed"] is True
+    fee_meta = result["fee_assumptions"]
+    assert fee_meta["model"] == "itemized_with_min_commission"
+    assert fee_meta["min_commission_yuan"] == 5.0
+    assert "小单" in fee_meta["small_order_note"]
+    scope = result["tradability_scope"]
+    assert "ST" in scope["not_covered"]
+    assert "covered" in scope
+    assert result["result_claim_scope"] == "candidate_win_rate"
+
+
+def test_stock_calibration_blocks_when_board_rule_cannot_cover_code(monkeypatch) -> None:
+    """规则外代码（板块值推不出涨跌停）→ 价格边界保护失效 → 审计必须阻断。"""
+    stock = _history([100 + index * 0.2 for index in range(100)])
+    benchmark = _history([100 + index * 0.1 for index in range(100)])
+    monkeypatch.setattr(
+        "app.services.recommend_history_replay_service._fetch_stock_history",
+        lambda _code, _days: stock,
+    )
+    monkeypatch.setattr(
+        "app.services.recommend_history_replay_service._fetch_benchmark",
+        lambda _start, _end: benchmark,
+    )
+
+    result = run_historical_calibration(codes=["500001"], eval_days=40)
+
+    audit = result["backtest_caliber_audit"]
+    assert audit["passed"] is False
+    assert "price_limit_handling_missing" in audit["blockers"]
+    assert "historical_tradability_missing" in audit["blockers"]
+    assert audit["claim_scope"] == "research_diagnostic_only"
+    assert result["result_claim_scope"] == "research_diagnostic_only"
 
 
 def test_order_validity_is_selected_on_training_dates_only() -> None:
@@ -977,13 +1088,15 @@ def test_etf_calibration_keeps_etf_categories_research_only(monkeypatch) -> None
     assert "broad" in result["rolling_order_validity_research"]
     assert "broad" in result["rolling_high_win_rate_research"]
     assert "broad" in result["rolling_cross_sectional_factor_research"]
-    assert result["backtest_caliber_audit"]["passed"] is False
-    assert result["backtest_caliber_audit"]["deployment_eligible"] is False
+    assert result["backtest_caliber_audit"]["passed"] is True
+    assert result["backtest_caliber_audit"]["deployment_eligible"] is True
     assert result["backtest_caliber_audit"]["checks"]["tick_size_rounding"]["passed"] is True
     assert result["backtest_caliber_audit"]["checks"]["price_limit_handling"]["passed"] is True
-    assert result["fee_assumptions"]["broker_commission_verified"] is False
+    assert result["backtest_caliber_audit"]["checks"]["fee_model_verified"]["passed"] is True
+    assert result["backtest_caliber_audit"]["checks"]["historical_tradability"]["passed"] is True
+    assert result["fee_assumptions"]["broker_commission_verified"] is True
     assert "tick_size_rounding_missing" not in result["backtest_caliber_audit"]["blockers"]
-    assert result["result_claim_scope"] == "research_diagnostic_only"
+    assert result["result_claim_scope"] == "candidate_win_rate"
     assert result["deployment_eligible"] is False
 
 
@@ -1205,7 +1318,8 @@ def test_pullback_execution_uses_better_open_then_exits_on_following_trading_day
     assert result["execution_status"] == "filled"
     assert result["entry_price"] == 94.0
     assert result["exit_date"] == "2026-01-03"
-    assert result["net_excess_return"] == pytest.approx((100 / 94 - 1) * 100 - 0.15)
+    etf_cost = etf_fee_assumptions()["backtest_total_cost_pct"]
+    assert result["net_excess_return"] == pytest.approx((100 / 94 - 1) * 100 - etf_cost)
 
 
 def test_breakout_execution_does_not_count_an_untriggered_plan_as_a_loss() -> None:

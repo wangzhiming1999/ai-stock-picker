@@ -13,7 +13,7 @@ import time
 # —— 2026-10-06 全站 500 事故的放大机制。
 import pandas as pd
 
-from app.services import akshare_guard, calibers
+from app.services import akshare_guard, calibers, trade_cost_model
 from app.services.cache_utils import put_bounded
 
 # 策略回测默认股票池（18 只，各行业代表性标的，控制数量以适配 Serverless 超时）。
@@ -284,9 +284,14 @@ def run_backtest(params: BacktestParams) -> dict:
     rebalance_dates = all_dates[:: params.rebalance_days]
 
     for i, trade_date in enumerate(rebalance_dates):
-        # 先结算上一期持仓收益
+        # 先结算上一期持仓收益（换仓 = 全部卖出再买入，卖出侧逐笔扣费：佣金+印花税+过户费）
         if i > 0 and portfolio:
-            capital = _value_positions(portfolio, histories, trade_date, last_price) + cash_balance
+            sell_fees = 0.0
+            for code, shares in portfolio:
+                price = _close_on_or_before(histories.get(code), trade_date) or last_price.get(code)
+                if price is not None and price > 0:
+                    sell_fees += trade_cost_model.compute_trade_fee("sell", price, shares)
+            capital = _value_positions(portfolio, histories, trade_date, last_price) + cash_balance - sell_fees
             equity_curve.append(
                 {
                     "date": str(trade_date),
@@ -328,7 +333,10 @@ def run_backtest(params: BacktestParams) -> dict:
                 if shares > 0:
                     portfolio.append((code, shares))
                     last_price[code] = price
-                    cash_balance -= shares * price
+                    # 买入侧逐笔扣费（佣金含最低 5 元 + 过户费）
+                    cash_balance -= shares * price + trade_cost_model.compute_trade_fee(
+                        "buy", price, shares
+                    )
 
     # 4. 统计指标
     if len(equity_curve) < 2:

@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import inspect
 
 import pytest
@@ -46,6 +47,9 @@ def _clean(monkeypatch):
     monkeypatch.setattr(
         "app.routes.market.spot_cooldown_seconds", _no_cooldown, raising=False
     )
+    # 持续性历史默认不可用（降级单日）：别让单测去连真实 Supabase。
+    # 要验历史的用例自行 stub `_load_history_rows` 或 is_configured。
+    monkeypatch.setattr(S.supabase_store, "is_configured", lambda: False)
     yield
     S.clear_caches()
 
@@ -122,7 +126,8 @@ class RedLineTests:
         assert "不是真实暗盘" in joined
         assert "unsupported" in joined
         assert "不是买卖建议" in joined
-        assert "不可跨日比较" in joined
+        assert "越连续" in joined           # 持续性不许读成胜率/期望收益
+        assert "结构读数" in joined
 
     def test_rule_source_never_sets_actionable_true(self) -> None:
         """静态守卫：载荷装配处不得把 actionable 翻成 True。"""
@@ -220,3 +225,183 @@ class CacheAndDegradeTests:
         assert result["status"] == "cooldown"
         assert "冷却" in result["note"]
         assert calls == []  # 冷却期不打端点
+
+
+# ───────────────────────── 持续性 / 落库 ─────────────────────────
+
+
+class StreakTests:
+    """compute_streaks 纯函数：连续性按「有快照的交易日」序列数。"""
+
+    def test_consecutive_same_signal_days_count_up(self) -> None:
+        rows = [
+            {"signal_date": "2026-10-05", "code": "600001", "signal": "G"},
+            {"signal_date": "2026-10-06", "code": "600001", "signal": "G"},
+        ]
+        streaks = S.compute_streaks(rows, "2026-10-07", {"600001": "G"})
+        assert streaks["current"]["600001"] == 3
+        assert streaks["sample_days"] == 2
+
+    def test_no_signal_day_breaks_the_run(self) -> None:
+        """10-06 有快照数据（别的票出形态）但本票当日无形态 → 连续段断开。"""
+        rows = [
+            {"signal_date": "2026-10-05", "code": "600001", "signal": "G"},
+            {"signal_date": "2026-10-06", "code": "600002", "signal": "S"},
+        ]
+        streaks = S.compute_streaks(rows, "2026-10-07", {"600001": "G"})
+        assert streaks["current"]["600001"] == 1
+
+    def test_missing_data_days_do_not_break_the_run(self) -> None:
+        """全表无数据的日子（缺采/节假日）不在时间轴上 —— 不算断档。"""
+        rows = [
+            {"signal_date": "2026-10-05", "code": "600001", "signal": "G"},
+            {"signal_date": "2026-10-07", "code": "600001", "signal": "G"},
+        ]
+        streaks = S.compute_streaks(rows, "2026-10-08", {"600001": "G"})
+        assert streaks["current"]["600001"] == 3
+
+    def test_signal_flip_breaks_the_run(self) -> None:
+        rows = [{"signal_date": "2026-10-06", "code": "600001", "signal": "G"}]
+        streaks = S.compute_streaks(rows, "2026-10-07", {"600001": "S"})
+        assert streaks["current"]["600001"] == 1
+
+    def test_no_history_degrades_to_single_day(self) -> None:
+        streaks = S.compute_streaks([], "2026-10-07", {"600001": "G"})
+        assert streaks["current"] == {"600001": 1}
+        assert streaks["sample_days"] == 0
+        # 今日进行中的段照记（episodes 含今日段），但 sample_days=0 ⇒ 调用方降级单日
+        assert streaks["episodes"] == [1]
+
+    def test_episodes_capture_run_length_distribution(self) -> None:
+        rows = [
+            {"signal_date": "2026-10-05", "code": "600001", "signal": "G"},
+            {"signal_date": "2026-10-06", "code": "600001", "signal": "G"},
+            {"signal_date": "2026-10-07", "code": "600001", "signal": "G"},
+        ]
+        streaks = S.compute_streaks(rows, "2026-10-08", {"600001": "S"})
+        # 历史一段 G×3；今日 S 起新段 ×1
+        assert sorted(streaks["episodes"]) == [1, 3]
+
+
+class PersistenceAttachTests:
+    def test_unavailable_history_degrades_single_day_with_note(self, monkeypatch) -> None:
+        payload = S._build_payload([_row(code="600001")], "note", fetched_at=1.0)
+        asyncio.run(S._attach_persistence(payload))
+
+        p = payload["persistence"]
+        assert p["available"] is False
+        assert "降级单日" in p["note"]
+        assert payload["g_items"][0]["streak"] == 1
+        # 没有四问 ≠ 四问过了：缺样本时必须显式下发缺席原因
+        assert p["four_questions"] is None
+        assert p["four_questions_absent_reason"]
+
+    def test_history_attaches_streaks_and_four_questions(self, monkeypatch) -> None:
+        async def fake_history():
+            return [
+                {"signal_date": "2026-10-05", "code": "600001", "signal": "G"},
+                {"signal_date": "2026-10-06", "code": "600001", "signal": "G"},
+            ]
+
+        monkeypatch.setattr(S, "_load_history_rows", fake_history)
+        monkeypatch.setattr(
+            S.trade_calendar_service, "now_cn", lambda: dt.datetime(2026, 10, 7)
+        )
+        payload = S._build_payload([_row(code="600001")], "note", fetched_at=1.0)
+        asyncio.run(S._attach_persistence(payload))
+
+        p = payload["persistence"]
+        assert p["available"] is True
+        assert payload["g_items"][0]["streak"] == 3
+        assert p["sample_days"] == 2
+        assert p["streak_stats"]["n"] == 1
+        four = p["four_questions"]
+        assert four is not None
+        by_key = {i["key"]: i for i in four["items"]}
+        assert by_key["sample"]["answered"] is True
+        # 不涉及成交 / 无收益基准 —— 这两问答不上来，且文案不许借收益口径
+        assert by_key["tradable"]["passed"] is None
+        assert "不涉及成交" in by_key["tradable"]["detail"]
+        assert by_key["benchmark_sign"]["passed"] is None
+        assert "不等于" in by_key["benchmark_sign"]["detail"]
+
+    def test_red_line_survives_persistence_attach(self, monkeypatch) -> None:
+        payload = S._build_payload([_row(code="600001")], "note", fetched_at=1.0)
+        asyncio.run(S._attach_persistence(payload))
+        assert payload["signal_status"] == "unsupported"
+        assert payload["actionable"] is False
+
+
+class SnapshotSaveTests:
+    def _payload(self) -> dict:
+        item = S._classify(_row(code="600001"))
+        item2 = S._classify(_row(code="600002", main_net=2e8, mid_net=-1e8, change_pct=5.0))
+        return {"all_signals": [item, item2], "g_items": [item], "s_items": [item2]}
+
+    def test_save_uses_full_signal_set_and_upserts(self, monkeypatch) -> None:
+        captured: dict = {}
+
+        class _T:
+            def upsert(self, rows, on_conflict=None):
+                captured["rows"] = rows
+                captured["on_conflict"] = on_conflict
+                return self
+
+            async def execute(self):
+                return type("R", (), {"data": captured["rows"]})()
+
+        class _C:
+            def table(self, name):
+                captured["table"] = name
+                return _T()
+
+        async def _get():
+            return _C()
+
+        monkeypatch.setattr(S.supabase_store, "is_configured", lambda: True)
+        monkeypatch.setattr(S.supabase_store, "get_service_client", _get)
+
+        n = asyncio.run(S.save_daily_snapshot("2026-10-07", self._payload()))
+
+        assert n == 2
+        assert captured["table"] == "dark_flow_daily_snapshot"
+        assert captured["on_conflict"] == "signal_date,code"
+        assert {r["code"] for r in captured["rows"]} == {"600001", "600002"}
+        assert all(r["signal_date"] == "2026-10-07" for r in captured["rows"])
+
+    def test_save_degrades_to_zero_when_table_missing(self, monkeypatch) -> None:
+        class _Boom:
+            def table(self, *_a):
+                raise RuntimeError('relation "dark_flow_daily_snapshot" does not exist')
+
+        async def boom():
+            return _Boom()
+
+        monkeypatch.setattr(S.supabase_store, "is_configured", lambda: True)
+        monkeypatch.setattr(S.supabase_store, "get_service_client", boom)
+
+        assert asyncio.run(S.save_daily_snapshot("2026-10-07", self._payload())) == 0
+
+    def test_purge_degrades_to_zero_when_table_missing(self, monkeypatch) -> None:
+        class _Boom:
+            def table(self, *_a):
+                raise RuntimeError('relation "dark_flow_daily_snapshot" does not exist')
+
+        async def boom():
+            return _Boom()
+
+        monkeypatch.setattr(S.supabase_store, "is_configured", lambda: True)
+        monkeypatch.setattr(S.supabase_store, "get_service_client", boom)
+
+        assert asyncio.run(S.purge_old_snapshots()) == 0
+
+
+class CaliberTests:
+    def test_dark_flow_caliber_is_registered(self) -> None:
+        from app.services import calibers
+
+        entry = calibers.CALIBERS.get("dark_flow")
+        assert entry is not None
+        assert "unsupported" in entry["pitfall"]
+        assert "streak" in entry["name"]
+        assert "不能" in entry["pitfall"]  # 不许读成胜率/期望收益

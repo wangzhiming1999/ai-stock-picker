@@ -133,3 +133,46 @@ def test_prediction_query_error_is_not_reported_as_backlog():
     assert codes == {"health_query_failed"}
     assert result["issues"][0]["component"] == "predictions"
     assert result["status"] == "unavailable"
+
+
+def test_recent_rows_without_snapshot_raise_issue():
+    """前瞻指标：v18 后新行缺快照 = 正在漏写 → 必须亮灯（不再是历史包袱里的无声数字）。"""
+    result = assess_data_health(
+        recommendation_rows=[
+            # 旧行缺快照：既定事实，不算漏写
+            {"rec_date": "2026-10-02", "settled_at": "2026-10-03T07:00:00Z", "source": "rule", "feature_snapshot": {}},
+            # 新行缺快照：正在漏写
+            {"rec_date": "2026-10-03", "settled_at": "2026-10-04T07:00:00Z", "source": "rule", "feature_snapshot": {}},
+            # 新行有快照：正常
+            {"rec_date": "2026-10-03", "settled_at": "2026-10-04T07:00:00Z", "source": "rule",
+             "feature_snapshot": {"pe": 12, "pb": 2, "turnover": 1, "market_cap_yi": 500, "market_board": "main"}},
+        ],
+        latest_heartbeat={"created_at": "2026-10-03T07:30:00Z", "snapshot_date": "2026-10-03"},
+        latest_market_cache={"updated_at": "2026-10-03T07:40:00Z"},
+        checked_at=NOW,
+    )
+
+    codes = {issue["code"] for issue in result["issues"]}
+    assert "recent_snapshot_missing" in codes
+    assert result["recent_snapshot_gap"]["recent_rows"] == 2
+    assert result["recent_snapshot_gap"]["recent_rows_without_snapshot"] == 1
+    assert result["status"] == "degraded"
+
+
+def test_write_degradations_surface_as_issues():
+    """可选列降级事件（如 feature_snapshot 列缺失）必须进 data-health，不许只躺日志。"""
+    result = assess_data_health(
+        recommendation_rows=[],
+        latest_heartbeat={"created_at": "2026-10-03T07:30:00Z", "snapshot_date": "2026-10-03"},
+        latest_market_cache=None,
+        checked_at=NOW,
+        write_degradations={
+            "feature_snapshot": {"count": 2, "last_error": 'column "feature_snapshot" does not exist', "last_at": "2026-10-03T07:00:00"},
+        },
+    )
+
+    issue = next(i for i in result["issues"] if i["code"] == "optional_column_degraded_feature_snapshot")
+    assert issue["severity"] == "critical"
+    assert issue["component"] == "snapshot_writer"
+    assert result["write_degradations"]["feature_snapshot"]["count"] == 2
+    assert result["status"] == "critical"

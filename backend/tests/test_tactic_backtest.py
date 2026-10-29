@@ -62,8 +62,8 @@ class ForwardReturnTests(unittest.TestCase):
 
         ret, max_gain, max_dd = bt._forward(closes, 0, 2)
 
-        # (持有收益, 期间最大浮盈, 期间最大浮亏)，均相对入场价
-        self.assertAlmostEqual(ret, 20.0)
+        # 持有收益扣双边成本（与 trade_cost_model 同源）；浮盈/浮亏是路径毛值
+        self.assertAlmostEqual(ret, 20.0 - bt._ROUNDTRIP_COST_PCT)
         self.assertAlmostEqual(max_gain, 20.0)
         self.assertAlmostEqual(max_dd, 10.0)
 
