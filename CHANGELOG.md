@@ -11,6 +11,25 @@
 ## [Unreleased]
 
 ### Added
+- **三件补课：点时快照口径 + 回测口径阻断项 + 暗盘持续性落库（V5.44，2026-10-29）**
+  - **点时快照覆盖率口径修正（6.06% 是历史包袱假象）**：主口径只看 v18（2026-10-03）后
+    已结算行 —— 旧行无快照是既定事实，**不回填、不进分母**；全量口径另附对照。
+    堵漏写：`save_recommendations` 当日已有行改为逐行对账（新码插入、空快照补写、
+    非空不覆盖），quad/watch 行也带 `feature_snapshot`，可选列降级事件进 data-health
+    亮灯（`recent_snapshot_missing` / `optional_column_degraded_*`），cron 推荐步失败进结果体；
+    `scripts/backfill_feature_snapshot.py` 从 `daily_recommend_snapshots.result` 的**信号时**
+    快照可信补数（v8 前无此字段不伪造）。⚠️ v18 前旧记录永不回填 —— 口径约束已登记
+  - **回测口径审计 2 个阻断项清零**：统一费用模型 `trade_cost_model`（佣金万2.5**最低5元/笔**
+    + 过户费 + 印花税 + 滑点，分项披露、基准名义额 5 万）终结「五处五种费率」；
+    sim/winrate/tactic/backtest/replay 五链路同源扣费。股票历史可交易状态：涨跌停按板块规则
+    推算（主板10%/创业板20%（2020-08-24 起）/科创20%/北交30%，规则外不猜）+ 一字板禁追买 /
+    一字跌停不可出 + 零成交停牌代理，`tradability_scope` 显式披露不覆盖项（历史 ST 戴帽、次新）。
+    审计 blocked → passed、claim_scope → candidate_win_rate（deployment_eligible 仍 False，职责分离）
+  - **暗盘 G/S 持续性 + 样本落库**：streak（连续同形态交易日数）走**自积累快照**
+    （新表 `dark_flow_daily_snapshot`，⚠️ DDL 见 `supabase-schema-v21.sql`，需 Supabase SQL
+    Editor 手工执行；未执行时降级单日读数并显式标注），不打个股时序接口（风控红线）。
+    持续性分布挂四问守卫（可成交/基准两问答不上来，「越连续」≠「越会涨」）；
+    calibers 登记 `dark_flow` 口径；cron 落库 + 90 天保留窗口
 - **暗盘资金 G/S 信号（V5.43，2026-10-29）**
   - 明暗背离形态：明盘（超大单+大单）与中单方向相反 → G（明出暗进，拆单吸筹嫌疑）
     / S（明进暗出，拉高派发嫌疑）；判定走东财批量资金流两端榜（一轮 ~600 只，不逐股）
