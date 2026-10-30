@@ -2,10 +2,14 @@
 
 ## 背景
 
-覆盖率 6.06% 的根因之一是「旧行/漏写行没有 feature_snapshot」。其中**有一部分
-可以可信补数**：`daily_recommend_snapshots.result`（schema v8 起整份 recs 随快照
-落库）里的 `recommendations[*].feature_snapshot` 是**当时生成的真实信号时快照**，
-不是事后伪造 —— 把它补到同 (rec_date, code) 行的空快照列上是搬运，不是编造。
+旧行/漏写行没有 `feature_snapshot`。本脚本从 `daily_recommend_snapshots.result` 的
+`recommendations[*]` / `watchlist[*]` 里找 `feature_snapshot` 补到同 (rec_date, code) 行——
+**只补空、不覆盖、v8 之前无此字段不伪造**。
+
+⚠️ 2026-10-30 生产实测（dry-run + 实跑）：**0 行可回填**。历史快照的 recs 从未存过
+`feature_snapshot`（git 实证：`build_feature_snapshot` 进 recs 是 V5.44 `e46d664` 才加的；
+快照 watchlist 条目也不带）。脚本只对 V5.44 之后「快照存了 recs 但 daily_recommendations
+写失败/降级」的窗口有恢复价值，历史旧行留空是既定事实，不属本脚本可补范围。
 
 ## 红线
 
