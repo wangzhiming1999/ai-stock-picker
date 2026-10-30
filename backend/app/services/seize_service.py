@@ -74,14 +74,23 @@ def _cn_now() -> dt.datetime:
 
 
 def _seconds_since_seal(seal_time: str | None) -> float | None:
-    """首封时间（HH:MM:SS）距今多少秒；缺值或解析失败返回 None。
+    """首封时间距今多少秒；缺值或解析失败返回 None。
+
+    格式兼容：``09:35:12``（``limitup_service._fmt_time`` 的产出，带冒号）与
+    ``093512``（HHMMSS 裸数字）。⚠️ 旧实现按无冒号切片，``09:35:12`` 的
+    ``[2:4]`` 取到 ``:3`` 直接 ValueError → 恒 None → **刚封板档从未落过一条库**
+    （2026-10-30 复盘实测：215 条落库全是 reseal、just_sealed = 0）。
+    测试必须喂生产同款带冒号格式，别再让夹具与生产格式漂移。
 
     封板时间是当日时刻，与当前 CN 时间同日比较即可；盘中调用时封板时间一定早于 now。
     """
-    if not seal_time or len(seal_time) < 5:
+    if not seal_time:
+        return None
+    digits = seal_time.replace(":", "").strip()
+    if len(digits) < 6:
         return None
     try:
-        hh, mm, ss = (int(seal_time[:2]), int(seal_time[2:4]), int(seal_time[4:6]))
+        hh, mm, ss = int(digits[:2]), int(digits[2:4]), int(digits[4:6])
     except (ValueError, IndexError):
         return None
     try:
@@ -638,6 +647,64 @@ async def ingest_intraday() -> dict:
     }
 
 
+def _layer_stats(sub: list[dict]) -> dict:
+    rets = [float(r["realized_return_pct"]) for r in sub]
+    if not rets:
+        return {"n": 0, "win_rate": None, "avg_return": None, "median": None}
+    return {
+        "n": len(rets),
+        "win_rate": round(sum(1 for x in rets if x > 0) / len(rets) * 100, 1),
+        "avg_return": round(statistics.mean(rets), 2),
+        "median": calibers.median_of(rets),
+    }
+
+
+def summarize_settled(rows: list[dict]) -> dict:
+    """落库行 → 汇总读数（纯函数，可测）。``realized_return_pct`` 为 None 的行 = 待结算。
+
+    sealed_final 分层（2026-10-30 首批复盘的核心发现）：亏损集中在「买进后没封住」档。
+    ⚠️ sealed_final 是**收盘后**才知道的最终状态，只作事后归因读数，不能当筛选器 ——
+    信号时刻无法预知最终封不封得住。
+    """
+    settled = [r for r in rows if r.get("realized_return_pct") is not None]
+    wins = [r for r in settled if float(r["realized_return_pct"]) > 0]
+    rets_all = [float(r["realized_return_pct"]) for r in settled]
+    sealed_split = {
+        "sealed": _layer_stats([r for r in settled if r.get("sealed_final") is True]),
+        "broken": _layer_stats([r for r in settled if r.get("sealed_final") is False]),
+        "note": (
+            "sealed_final 分层是事后归因（收盘才知最终封没封住），解释亏损来源用；"
+            "**不能**当筛选器 —— 信号时刻无法预知最终状态。"
+        ),
+    }
+    return {
+        "total": len(rows),
+        "settled": len(settled),
+        "pending": len(rows) - len(settled),
+        "win_rate": round(len(wins) / len(settled) * 100, 1) if settled else None,
+        "avg_return": round(statistics.mean(rets_all), 2) if settled else None,
+        "sealed_split": sealed_split,
+        # 四问守卫：实盘闭环读数（信号时现价入场）也要过四问 ——
+        # 「没有四问 ≠ 四问过了」。可成交与基准两问答不上来，原因如实下发。
+        "four_questions": calibers.four_questions_with_notes(
+            {
+                "tradable": "买入价是首次命中雷达那一刻的拉升中现价：打板瞬间可能根本买不进"
+                "（成交即封板）或滑价成交；样本未含手续费与滑点，真实只会更差",
+                "benchmark_sign": "2026-10-30 手工复核（一次性审计，未挂自动复核）：逐条减沪深300"
+                "隔夜（次开/今收）粗超额均值 −1.77%、中位 −1.28%、胜率 31.2%，符号未翻转 —— "
+                "负期望不是大盘贝塔；但接口侧不实时取指数，本问仍标答不上来，手工结果仅作旁证",
+            },
+            n=len(settled),
+            median=calibers.median_of(rets_all) if settled else None,
+            mean=round(statistics.mean(rets_all), 2) if settled else None,
+            tradable_ratio=None,
+            benchmark_sign_flips=None,
+        )
+        if settled
+        else calibers.four_questions(n=0),
+    }
+
+
 async def get_history_log(days: int = 14) -> dict:
     """收益追踪（**纯读**）：近 N 个自然日的落库记录 + 已结算汇总。
 
@@ -673,17 +740,7 @@ async def get_history_log(days: int = 14) -> dict:
             print(f"[seize] 收益读回失败: {e}")
             enabled = False
 
-    settled = [r for r in rows if r.get("realized_return_pct") is not None]
-    wins = [r for r in settled if float(r["realized_return_pct"]) > 0]
-    summary = {
-        "total": len(rows),
-        "settled": len(settled),
-        "pending": len(rows) - len(settled),
-        "win_rate": round(len(wins) / len(settled) * 100, 1) if settled else None,
-        "avg_return": round(sum(float(r["realized_return_pct"]) for r in settled) / len(settled), 2)
-        if settled
-        else None,
-    }
+    summary = summarize_settled(rows)
     return {
         "enabled": enabled,
         "days": days,

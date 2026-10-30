@@ -1131,6 +1131,78 @@ def _focus_reject_key(stock: dict) -> str | None:
     return None
 
 
+# 可成交子集内的强度分层（2026-10-30，V5.45）：已测强条件计数，回答「买得进的里面谁更强」。
+# 口径登记 calibers.focus_strength。条件全部**已测**（各自带样本出处），分层只是计数 ——
+# 组合本身没有回测，所以恒 unsupported、四问答不上来（absent_reason 随数据下发）。
+# 这里刻意**不改排序键**：分层是显式读数，不是悄悄换个排法。
+_FOCUS_STRENGTH_EARLY_SEAL = "09:35:00"  # 与 _SEAL_BUCKETS 早盘档边界一致（≤09:35 = +3.67% 档）
+_FOCUS_STRENGTH_TURNOVER_HI = 15.0       # 溢价最优档上界（5-15% 档 +1.62%，premium 口径）
+
+
+def _focus_strength(stock: dict, relay: dict | None) -> dict:
+    """一只候选的强度分层（纯函数）。``relay`` 为 None = 首板，只用溢价口径条件。
+
+    连板加测封单/流通（晋级读数 n=164 是**连板**样本）—— 首板不许引它，
+    否则就是把口径套用到没被测过的样本上（与 ``_focus_row`` 的 basis 同一条纪律）。
+    """
+    seal = str(stock.get("seal_time") or "")
+    turnover = float(stock.get("turnover") or 0)
+    breaks = int(stock.get("break_count") or 0)
+    seal_ratio = float(stock.get("seal_ratio") or 0)
+
+    conditions: list[dict] = [
+        {
+            "name": "早盘封板",
+            "hit": bool(seal) and seal <= _FOCUS_STRENGTH_EARLY_SEAL,
+            "rule": "首封 ≤09:35：早盘档溢价 +3.67%，是封板时间分档里最高的一档（premium 口径）",
+        },
+        {
+            "name": "全天未开板",
+            "hit": breaks == 0,
+            "rule": "炸板 0 次：0–2 次档溢价 +2.0~2.5%（0 次最好）；≥3 次已被硬筛剔除（premium 口径）",
+        },
+        {
+            "name": "换手 5–15%",
+            "hit": _FOCUS_MIN_TURNOVER <= turnover < _FOCUS_STRENGTH_TURNOVER_HI,
+            "rule": "换手 5–15%：可成交档中溢价最高 +1.62%（<5% 挂不上单、≥15% 收窄至 +1.10/+0.40）（premium 口径）",
+        },
+    ]
+    if relay is not None:
+        conditions.append(
+            {
+                "name": "封单/流通 ≥2%",
+                "hit": seal_ratio >= _SEAL_RATIO_HIT,
+                "rule": f"封单/流通 ≥{_SEAL_RATIO_HIT}%：该档晋级读数 44.7%（n=164 连板口径）",
+            }
+        )
+
+    hit = sum(1 for c in conditions if c["hit"])
+    applicable = len(conditions)
+    if hit >= applicable:
+        tier, label = "strong", "强条件全中"
+    elif hit * 2 >= applicable:
+        tier, label = "mid", "强条件过半"
+    else:
+        tier, label = "plain", "强条件偏少"
+
+    return {
+        "tier": tier,
+        "tier_label": label,
+        "tier_note": f"{hit}/{applicable} 个已测强条件命中",
+        "hit_count": hit,
+        "applicable": applicable,
+        "conditions": conditions,
+        "note": (
+            "强度分层是已测强条件的计数，不是胜率、不是预测 —— 全中不等于收益更高；"
+            "各条件读数的样本出处不同（溢价分档 / n=164 连板晋级），不可相加。"
+        ),
+        "four_questions_absent_reason": (
+            "组合分层无独立回测（只是已测条件计数，不产生收益样本），四问答不上来 —— "
+            "单条件读数出处见 rule，组合不构成收益承诺"
+        ),
+    }
+
+
 def _focus_row(stock: dict, relay: dict | None) -> dict:
     """一只候选 → 前端一行。``relay`` 为 None 表示它是首板，没有连板口径可引。"""
     code = str(stock.get("code") or "")
@@ -1182,6 +1254,7 @@ def _focus_row(stock: dict, relay: dict | None) -> dict:
         # 打板清单上的晋级读数必须带出处 —— 这是「明日预期」最容易被
         # 误读成概率承诺的位置（清单自带价位，读者会按它决策）
         "rate_provenance": (relay or {}).get("rate_provenance") or RELAY_RATE_PROVENANCE,
+        "strength": _focus_strength(stock, relay),
         "basis": basis,
     }
 

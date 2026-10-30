@@ -15,8 +15,14 @@ from app.services.limitup_service import normalize_broken
 
 
 def _cn_now_str(offset_sec: int = 0) -> str:
+    """生产格式 ``HH:MM:SS``（limitup_service._fmt_time 的产出）。
+
+    ⚠️ 必须喂带冒号的生产格式：旧夹具用 ``%H%M%S``（无冒号）与生产格式漂移，
+    让「解析不了带冒号时间」的 bug 在测试里永远不暴露（2026-10-30 实测
+    刚封板档 215 条落库里 0 条）。
+    """
     t = datetime.now(timezone(timedelta(hours=8))) + timedelta(seconds=offset_sec)
-    return t.strftime("%H%M%S")
+    return t.strftime("%H:%M:%S")
 
 
 def _broken(code: str, price: float, limit: float, amp: float, zbc: int, sector: str = "测试") -> dict:
@@ -76,6 +82,27 @@ def test_just_sealed_window_filters_stale_and_reuses_premium():
     assert row["premium"]["expect_pct"] == 1.62
     assert row["next_limit_price"] == 11.0
     assert row["entry_discount_pct"] == 0.0
+
+
+def test_seconds_since_seal_accepts_both_production_formats():
+    """格式兼容守卫：带冒号（生产 _fmt_time 产出）与 HHMMSS 都要能解析。
+
+    旧实现只认无冒号切片，``09:35:12`` 的 ``[2:4]`` 取到 ``:3`` → ValueError
+    → 恒 None → 刚封板档从未落库。夹具曾用无冒号格式与生产漂移，测试全绿
+    而线上 0 样本 —— 这里两种格式都必须进测试。
+    """
+    colon = s._seconds_since_seal(_cn_now_str(-60))
+    assert colon is not None and 55 <= colon <= 65
+
+    now_hms = _cn_now_str(-60)
+    bare = now_hms.replace(":", "")
+    assert s._seconds_since_seal(bare) is not None
+
+    # 缺值 / 短串 / 非法字符 → None，不许抛
+    assert s._seconds_since_seal(None) is None
+    assert s._seconds_since_seal("") is None
+    assert s._seconds_since_seal("09:35") is None
+    assert s._seconds_since_seal("ab:cd:ef") is None
 
 
 def test_clear_cache_is_safe():
@@ -157,3 +184,57 @@ def test_aggregate_sealed_buckets():
     buckets = {b["label"]: b for b in out["buckets"]}
     assert buckets["9:30-10:00"]["n"] == 2 and buckets["9:30-10:00"]["win_rate"] == 50.0
     assert buckets["14:00-14:30"]["n"] == 0 and buckets["14:00-14:30"]["avg_return"] is None
+
+
+def _row(ret, sealed):
+    return {"realized_return_pct": ret, "sealed_final": sealed}
+
+
+def test_summarize_settled_layers_by_sealed_final():
+    """sealed_final 分层是复盘核心发现：亏损集中在炸板档，必须分开报。
+
+    另锁四问：可成交/基准两问答不上来（passed=None 三态），没有四问 ≠ 四问过了。
+    """
+    rows = [
+        _row(1.0, True), _row(2.0, True), _row(-1.0, True),   # 封住 3：胜率 66.7
+        _row(-2.0, False), _row(-3.0, False), _row(-1.5, False), _row(0.5, False),  # 炸板 4
+        _row(None, False),  # 待结算，不进分母
+    ]
+    out = s.summarize_settled(rows)
+    assert out["total"] == 8 and out["settled"] == 7 and out["pending"] == 1
+    sealed = out["sealed_split"]["sealed"]
+    broken = out["sealed_split"]["broken"]
+    assert sealed["n"] == 3 and sealed["win_rate"] == 66.7
+    assert broken["n"] == 4 and broken["win_rate"] == 25.0
+    assert broken["avg_return"] == -1.5  # (-2 -3 -1.5 +0.5)/4
+    assert "不能" in out["sealed_split"]["note"] and "筛选器" in out["sealed_split"]["note"]
+
+    four = out["four_questions"]
+    by_key = {i["key"]: i for i in four["items"]}
+    assert by_key["sample"]["passed"] is False          # n=7 < 30 门槛，样本问不通过
+    assert by_key["tradable"]["passed"] is None         # 三态：答不上来不是通过
+    assert by_key["benchmark_sign"]["passed"] is None
+    assert by_key["tradable"]["answered"] is False
+
+
+def test_summarize_settled_sample_gate_and_empty():
+    # n < 30：样本问不通过（7 条已结算）
+    out = s.summarize_settled([_row(-1.0, False)] * 7)
+    by_key = {i["key"]: i for i in out["four_questions"]["items"]}
+    assert by_key["sample"]["passed"] is False
+
+    # 空样本：不出假分层假四问结论，sealed_split 各层 n=0
+    empty = s.summarize_settled([])
+    assert empty["settled"] == 0 and empty["win_rate"] is None
+    assert empty["sealed_split"]["sealed"]["n"] == 0
+    assert empty["four_questions"]["verdict"] in ("unknown", "inflated", "credible")
+
+
+def test_summarize_settled_median_mean_spread_flags():
+    """均值被左尾拉低（|均值|/|中位| > 1.3）时第二问必须报「引用中位数」。"""
+    rows = [_row(-1.0, False)] * 10 + [_row(-20.0, False)]  # 中位 −1.0、均值 −2.73
+    out = s.summarize_settled(rows)
+    by_key = {i["key"]: i for i in out["four_questions"]["items"]}
+    assert by_key["median"]["passed"] is False
+    assert "中位数" in by_key["median"]["detail"]
+    assert out["four_questions"]["verdict"] == "inflated"

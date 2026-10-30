@@ -23,6 +23,9 @@ REQUIRED_FIELDS = ("key", "name", "target", "window", "bucket", "benchmark", "ru
 # dark_flow 是 2026-10-29 新增的明暗背离形态（G/S 计数与持续性 streak）：
 # **不是收益率口径**（形态计数 + 连续天数），恒定 unsupported ——
 # 登记它是为了让「streak 不等于胜率」这句话有出处可查。
+# focus_strength 是 2026-10-30 新增的可成交子集强度分层（已测强条件计数）：
+# **不是收益率口径**（条件计数，组合层无独立回测），恒 unsupported ——
+# 登记它是为了让「强条件全中 ≠ 收益更高」这句话有出处可查。
 EXPECTED_KEYS = {
     "prediction",
     "recommendation",
@@ -34,6 +37,7 @@ EXPECTED_KEYS = {
     "seize_reseal",
     "agent_plan",
     "dark_flow",
+    "focus_strength",
 }
 
 

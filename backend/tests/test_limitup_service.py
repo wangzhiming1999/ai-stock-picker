@@ -991,3 +991,79 @@ class RelayWordingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FocusStrengthTests(unittest.TestCase):
+    """可成交子集内强度分层：已测强条件计数，恒 unsupported。
+
+    背景（ROADMAP 2026-10-30）：清单已解决「买不进的不提示」，但没有
+    「在买得进的那部分里谁更强」的分层。解法是**新口径**（条件计数分层），
+    不是改排序键。组合层无独立回测 —— 四问必须显式标答不上来。
+    """
+
+    _base = {
+        "code": "600001", "name": "测试股", "boards": 2, "sector": "半导体",
+        "seal_time": "09:31:00", "seal_fund_yi": 2.0, "seal_ratio": 3.0,
+        "turnover": 8.0, "break_count": 0, "price": 12.00,
+        "premium": {"expect_pct": 1.56},
+    }
+
+    @classmethod
+    def _stock(cls, **overrides) -> dict:
+        base = dict(cls._base)
+        base.update(overrides)
+        return base
+
+    @staticmethod
+    def _relay(score: int = 3) -> dict:
+        return {"score": score, "tier": 1 if score >= 3 else 2, "rate": 54.0, "rate_n": 50}
+
+    def test_all_conditions_hit_is_strong(self) -> None:
+        st = L._focus_strength(self._stock(), self._relay())
+        assert st["tier"] == "strong" and st["hit_count"] == 4 and st["applicable"] == 4
+
+    def test_first_board_skips_relay_only_condition(self) -> None:
+        """封单条件是 n=164 连板口径 —— 首板不许引它，适用条件只有 3 个。"""
+        st = L._focus_strength(self._stock(boards=1), None)
+        assert st["applicable"] == 3
+        names = [c["name"] for c in st["conditions"]]
+        assert not any("封单" in n for n in names)
+        assert st["tier"] == "strong" and st["hit_count"] == 3
+
+    def test_half_hits_is_mid_and_few_is_plain(self) -> None:
+        st = L._focus_strength(self._stock(break_count=2), self._relay())  # 3/4 → 过半
+        assert st["tier"] == "mid" and st["hit_count"] == 3
+
+        st = L._focus_strength(
+            self._stock(seal_time="11:00:00", break_count=2, turnover=20.0), self._relay()
+        )  # 只剩封单 1/4 → 偏少
+        assert st["tier"] == "plain" and st["hit_count"] == 1
+
+    def test_conditions_carry_provenance_and_no_action_words(self) -> None:
+        st = L._focus_strength(self._stock(), self._relay())
+        banned = ("买", "建仓", "加仓", "建议", "推荐", "介入", "可进")
+        text = st["tier_label"] + st["tier_note"] + st["note"]
+        for word in banned:
+            assert word not in text, f"强度分层出现动作词 {word!r}"
+        for c in st["conditions"]:
+            assert c["rule"], f"条件 {c['name']} 缺出处"
+            assert "%" in c["rule"] or "n=164" in c["rule"]
+
+    def test_four_questions_absent_reason_is_explicit(self) -> None:
+        """没有四问 ≠ 四问过了 —— absent_reason 必须显式下发。"""
+        st = L._focus_strength(self._stock(), self._relay())
+        assert "答不上来" in st["four_questions_absent_reason"]
+        assert "无独立回测" in st["four_questions_absent_reason"]
+        assert "不是胜率" in st["note"]
+
+    def test_focus_rows_carry_strength(self) -> None:
+        focus = L.build_focus([self._stock(), self._stock(code="600002", boards=1)])
+        assert focus["relay"][0]["strength"]["applicable"] == 4
+        assert focus["first"][0]["strength"]["applicable"] == 3
+
+    def test_tier_boundary_early_seal_exact(self) -> None:
+        """09:35:00 属早盘档（与 _SEAL_BUCKETS 边界一致），09:35:01 不算。"""
+        on = L._focus_strength(self._stock(seal_time="09:35:00"), None)
+        off = L._focus_strength(self._stock(seal_time="09:35:01"), None)
+        assert on["conditions"][0]["hit"] is True
+        assert off["conditions"][0]["hit"] is False
