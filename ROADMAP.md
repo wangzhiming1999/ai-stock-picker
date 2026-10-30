@@ -654,10 +654,13 @@
       `prediction_settlement_backlog` 告警 + 前端展示）
 - [x] 提交 v19 跌停池落库
 - [ ] ⚠️ **v19 仍需用户在生产 Supabase SQL Editor 执行**
-- [ ] 🟠 **点时快照覆盖率**（口径 2026-10-29 已修正：主口径只看 **v18 后**已结算行 ≥90%，
+- [x] 🟠 **点时快照覆盖率**（口径 2026-10-29 已修正：主口径只看 **v18 后**已结算行 ≥90%，
       旧行不回填不进分母 —— 6.06% 是历史包袱假象）。漏写已堵（save_recommendations 逐行补快照、
-      降级可见化进 data-health、quad/watch 行带快照、cron 推荐失败进结果体）+
-      `scripts/backfill_feature_snapshot.py` 可信补数。剩余：生产跑一次回填 + 等 v18 后样本
+      降级可见化进 data-health、quad/watch 行带快照、cron 推荐失败进结果体）。
+      **2026-10-30 回填已执行（dry-run + 实跑）：0 行可回填** —— 35 天快照的 recs 从未存过
+      `feature_snapshot`（git 实证：`build_feature_snapshot` 进 recs 是 V5.44 `e46d664` 才加的；
+      快照 watchlist 条目也不带），搬运无源、不伪造，旧行留空是既定事实。写路径修复生产实测生效：
+      10-29 行 0/31 带快照 → **10-30 行 30/30 带快照**。剩余：等 v18 后样本
       积累到 300 条结算/30 日/各字段 90% → 影子策略实验室才 `evidence_ready`
 - [ ] ⚠️ **首次验证**：下一个交易日收盘 cron 后确认 `seize_settle` 返回
       `closed_out.updated > 0` 或 `realized.settled > 0`，且 `/api/seize/history` 的 `settled` 由 0 转正
