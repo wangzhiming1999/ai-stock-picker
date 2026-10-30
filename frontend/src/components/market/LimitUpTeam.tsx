@@ -65,6 +65,14 @@ function FocusRow({ r }: { r: LimitUpFocusRow }) {
           {r.tier_label && (
             <span className={`text-meta ${r.tier === 1 ? "text-brand-light" : "text-ink-soft"}`}>{r.tier_label}</span>
           )}
+          {r.strength && (
+            <span
+              className={`text-meta ${r.strength.tier === "strong" ? "text-brand-light" : "text-ink-soft"}`}
+              title={r.strength.conditions.map((c) => `${c.hit ? "✓" : "✗"}${c.name}：${c.rule}`).join("\n")}
+            >
+              强度 {r.strength.tier_label} {r.strength.hit_count}/{r.strength.applicable}
+            </span>
+          )}
         </span>
         <span className="text-meta text-ink-muted" title={r.expected_price_note}>
           打板价 <span className="font-semibold text-ink">{r.expected_price.toFixed(2)}</span>
@@ -107,6 +115,13 @@ function FocusRow({ r }: { r: LimitUpFocusRow }) {
             </li>
           ))}
         </ul>
+      )}
+      {r.strength && (
+        <p className="mt-1 text-meta leading-relaxed text-ink-faint">
+          强度分层是已测强条件计数（{r.strength.hit_count}/{r.strength.applicable}）——
+          {r.strength.note}
+          四问：{r.strength.four_questions_absent_reason}。
+        </p>
       )}
     </div>
   );

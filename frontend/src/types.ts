@@ -2189,8 +2189,26 @@ export interface LimitUpFocusRow {
    * 没有出处时 54% 会被读成「明日真实概率」，而它是历史延续率快照。
    */
   rate_provenance?: RelayRateProvenance;
+  /**
+   * 可成交子集内强度分层（已测强条件计数，口径 focus_strength）。
+   * ⚠️ 组合层无独立回测：命中数只是条件计数，不是胜率、不是预测。
+   * 恒 unsupported，四问答不上来（absent_reason 随数据下发）。旧后端缺省。
+   */
+  strength?: FocusStrength;
   /** 入选依据，每条都带口径与样本量 */
   basis: string[];
+}
+
+/** 强度分层：已测强条件计数（单条件读数出处见各 rule，组合不构成收益承诺）。 */
+export interface FocusStrength {
+  tier: "strong" | "mid" | "plain";
+  tier_label: string;
+  tier_note: string;
+  hit_count: number;
+  applicable: number;
+  conditions: { name: string; hit: boolean; rule: string }[];
+  note: string;
+  four_questions_absent_reason: string;
 }
 
 /** 打板候选清单。连板与首板**分两组**，两组口径不可比、不可相加。 */
@@ -2858,6 +2876,17 @@ export interface SeizeHistoryResult {
     pending: number;
     win_rate: number | null;
     avg_return: number | null;
+    /**
+     * sealed_final 分层（2026-10-30 首批复盘）：亏损集中在「买进后没封住」档。
+     * ⚠️ 事后归因读数（收盘才知最终状态），不能当筛选器。
+     */
+    sealed_split?: {
+      sealed: { n: number; win_rate: number | null; avg_return: number | null; median: number | null };
+      broken: { n: number; win_rate: number | null; avg_return: number | null; median: number | null };
+      note: string;
+    };
+    /** 四问守卫（实盘闭环读数同口径纪律）；旧后端缺省 */
+    four_questions?: FourQuestions | null;
   };
   rows: SeizeLogRow[];
   note: string;

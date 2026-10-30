@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Flame, RefreshCw } from "lucide-react";
 import { fetchSeizeHistory, fetchSeizeRadar } from "../../api/client";
 import { CaliberLine } from "../CaliberNote";
+import { FourQuestionLine } from "../FourQuestionLine";
 import { pnlTone } from "../../lib/tone";
 import { TEXT, STACK, CELL } from "../../lib/ui";
 import { signedPct } from "../market/format";
@@ -192,6 +193,32 @@ function HistorySection({ history }: { history: SeizeHistoryResult }) {
           </span>
         )}
       </div>
+      {summary.sealed_split && (
+        <div className="mt-1 rounded-lg bg-surface-inset/50 px-2.5 py-2">
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-meta">
+            <span className="text-ink-muted">sealed_final 分层 · 事后归因</span>
+            {(["sealed", "broken"] as const).map((k) => {
+              const layer = summary.sealed_split![k];
+              if (!layer.n) return null;
+              return (
+                <span key={k} className="text-ink-soft">
+                  {k === "sealed" ? "封住" : "炸板"} n={layer.n} · 胜率 {layer.win_rate}%
+                  {layer.median != null && <> · 中位 <span className={pnlTone(layer.median)}>{signedPct(layer.median)}</span></>}
+                  {layer.avg_return != null && (
+                    <>
+                      {" "}
+                      · 平均{" "}
+                      <span className={pnlTone(layer.avg_return)}>{signedPct(layer.avg_return)}</span>
+                    </>
+                  )}
+                </span>
+              );
+            })}
+          </div>
+          <p className="mt-1 text-meta text-ink-faint">{summary.sealed_split.note}</p>
+        </div>
+      )}
+      <FourQuestionLine four={summary.four_questions} />
       <Table
         label="收益追踪"
         maxHeight="sm"
